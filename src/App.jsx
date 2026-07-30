@@ -1,394 +1,494 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import { 
-  MapPin, Star, Lock, ChevronLeft, CheckCircle2, Shield,
-  Zap, Users, Globe, Compass, Rocket, TreePine, Anchor,
-  LogOut, LayoutDashboard, Swords, Dumbbell, GraduationCap, 
-  BarChart3, Settings, Mic, PlayCircle, Trophy, Volume2, 
-  X, RefreshCw, UserCheck, UserX, Crown
+import {
+Map, Swords, Dumbbell, GraduationCap, LineChart,
+ShieldAlert, LogOut, Loader2, Sparkles, Play,
+Mic, Headphones, Flame, Heart, Hexagon, Lock,
+CheckCircle2, Star, X, MessageSquare
 } from 'lucide-react';
 
-import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, updateDoc, increment, collection, getDocs } from "firebase/firestore";
+// --- FIREBASE IMPORTS ---
+import { auth, db } from './firebase';
+import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+import { doc, setDoc, onSnapshot } from "firebase/firestore";
 
-// --- CẤU HÌNH BẢO MẬT ---
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "mock-key",
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
+// SETUP YOUR SUPER ADMIN EMAILS HERE
+const SUPER_ADMIN_EMAILS = ["khoavuexp@gmail.com", "admin2@gmail.com"];
+
+// ==========================================
+// 1. REUSABLE UI COMPONENTS (EdTech Style)
+// ==========================================
+
+// Top Bar with Gamification Metrics (Streaks, Lives, Gems)
+const TopMetricsBar = () => (
+
+// Simulated AI Feedback Modal (Demonstrating English UI + Vietnamese Explanation)
+const AIFeedbackModal = ({ isOpen, onClose, title }) => {
+if (!isOpen) return null;
+return (
+
+
+
+ AI Tutor Feedback
+
+
+
+
+Exercise
+{title}
+
+
+      <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100 relative">
+        <div className="absolute -top-3 -left-3 w-8 h-8 bg-amber-500 rounded-full border-2 border-white flex items-center justify-center shadow-sm"><MessageSquare className="w-4 h-4 text-white"/></div>
+        <span className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-1 block">Giải thích từ AI (Vietnamese)</span>
+        <p className="text-slate-700 text-sm leading-relaxed">
+          Bạn phát âm từ <strong className="text-amber-600">"Environment"</strong> hơi giống "En-vi-ron-men". 
+          <br/><br/>
+          <strong>Mẹo nhỏ:</strong> Trọng âm rơi vào âm tiết thứ 2 <em>/ɪnˈvaɪ.rən.mənt/</em>. Bạn hãy thử nhấn mạnh vào chữ <strong>"vai"</strong> và đọc lướt các âm còn lại nhé!
+        </p>
+      </div>
+      
+      <button onClick={onClose} className="w-full mt-6 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl transition-colors">
+        Got it, thanks!
+      </button>
+    </div>
+  </div>
+</div>
+
+
+);
 };
 
-let app, auth, db;
-try {
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
-} catch (e) {
-  console.warn("Lỗi cấu hình Firebase, chạy chế độ Offline.");
-}
+// ==========================================
+// 2. MAIN TABS
+// ==========================================
 
-// 👑 ĐIỀN DANH SÁCH EMAIL SUPER ADMIN VÀO ĐÂY (Cách nhau bằng dấu phẩy)
-const SUPER_ADMIN_EMAILS = [
-  "khoavuexp@gmail.com", 
-  "khoavuexp2@gmail.com"
+const ExploreTab = () => {
+const mapNodes = [
+{ id: 1, title: "Basics 1", type: "vocab", status: "completed", icon: "🌟" },
+{ id: 2, title: "Phrases", type: "grammar", status: "completed", icon: "🗣️" },
+{ id: 3, title: "Food", type: "vocab", status: "current", icon: "🍔" },
+{ id: 4, title: "Animals", type: "vocab", status: "locked", icon: "🦁" },
+{ id: 5, title: "Checkpoint", type: "boss", status: "locked", icon: "🏰" },
 ];
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || "";
+return (
 
-const callGemini = async (prompt, isJson = false) => {
-  if (!GEMINI_API_KEY) return isJson ? null : "[Offline Mode] Thiếu API Key.";
-  try {
-    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': GEMINI_API_KEY.trim() },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    });
-    const data = await response.json();
-    if (!response.ok) throw new Error(data.error?.message);
-    const text = data.candidates[0].content.parts[0].text;
-    if (isJson) {
-      const jsonMatch = text.match(/```json\n([\s\S]*?)\n```/) || text.match(/\{[\s\S]*\}/);
-      return jsonMatch ? JSON.parse(jsonMatch[1] || jsonMatch[0]) : null;
-    }
-    return text;
-  } catch (err) {
-    console.error("Gemini Error:", err);
-    return isJson ? null : "Lỗi kết nối AI.";
-  }
-};
 
-const AudioService = {
-  speak: (text, rate = 0.9) => {
-    if ('speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'en-US';
-      utterance.rate = rate;
-      window.speechSynthesis.speak(utterance);
-    }
-  }
-};
 
-const GlassCard = ({ children, className = "" }) => (
-  <div className={`bg-white/70 backdrop-blur-xl border border-white/40 shadow-2xl rounded-3xl ${className}`}>{children}</div>
-);
+Unit 1: The Beginning
+Build your foundation
 
-// Menu Trái
-const Sidebar = ({ user, role, stars }) => {
-  const location = useLocation();
-  const navs = [
-    { path: '/explore', icon: Compass, label: 'Thám Hiểm' },
-    { path: '/arena', icon: Swords, label: 'Đấu Trường' },
-    { path: '/practice', icon: Dumbbell, label: 'Luyện Tập' },
-    { path: '/mocktest', icon: GraduationCap, label: 'Ôn Thi' },
-    { path: '/progress', icon: BarChart3, label: 'Tiến Trình' },
-  ];
 
-  return (
-    <div className="w-24 md:w-64 h-screen bg-slate-900 text-slate-300 flex flex-col transition-all duration-300 z-50 shadow-2xl">
-      <div className="p-4 md:p-6 flex items-center justify-center md:justify-start gap-3 border-b border-slate-800">
-        <div className="w-10 h-10 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center flex-shrink-0">
-          <Globe className="w-6 h-6 text-white animate-spin-slow" />
-        </div>
-        <h1 className="font-black text-xl text-white hidden md:block tracking-wide">Explorer<span className="text-blue-500">Pro</span></h1>
-      </div>
 
-      <div className="flex-1 py-6 flex flex-col gap-2 px-3 overflow-y-auto overflow-x-hidden">
-        {navs.map(n => {
-          const active = location.pathname.includes(n.path);
-          return (
-            <a key={n.path} href={n.path} className={`flex items-center gap-4 p-3 rounded-2xl transition-all ${active ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50' : 'hover:bg-slate-800 hover:text-white'}`}>
-              <n.icon className={`w-6 h-6 flex-shrink-0 ${active ? 'animate-bounce-short' : ''}`} />
-              <span className="font-bold hidden md:block">{n.label}</span>
-            </a>
-          );
-        })}
-        
-        {/* NÚT DÀNH RIÊNG CHO ADMIN */}
-        {role === 'admin' && (
-          <a href="/admin" className="flex items-center gap-4 p-3 rounded-2xl text-rose-400 hover:bg-rose-950 mt-4 border border-rose-900/50">
-            <Shield className="w-6 h-6 flex-shrink-0" /><span className="font-bold hidden md:block">Vùng Quản Trị</span>
-          </a>
-        )}
-      </div>
+  {/* Vertical Path Map */}
+  <div className="relative w-full flex flex-col items-center gap-8 px-4">
+    {mapNodes.map((node, index) => {
+      // Calculate zigzag position
+      const isLeft = index % 2 === 0;
+      const translateX = isLeft ? '-translate-x-12' : 'translate-x-12';
+      
+      let bgColor = "bg-slate-200";
+      let shadow = "";
+      let textColor = "text-slate-400";
+      
+      if (node.status === "completed") {
+        bgColor = "bg-green-500";
+        shadow = "shadow-[0_8px_0_rgb(22,163,74)] active:shadow-[0_0px_0_rgb(22,163,74)] active:translate-y-2";
+        textColor = "text-white";
+      } else if (node.status === "current") {
+        bgColor = "bg-blue-500";
+        shadow = "shadow-[0_8px_0_rgb(37,99,235)] active:shadow-[0_0px_0_rgb(37,99,235)] active:translate-y-2 ring-4 ring-blue-200 animate-pulse-slow";
+        textColor = "text-white";
+      }
 
-      <div className="p-4 border-t border-slate-800 bg-slate-950 flex flex-col gap-3">
-        <div className="flex items-center gap-3">
-          <img src={user?.photoURL || "https://ui-avatars.com/api/?name=User"} alt="Avatar" className="w-10 h-10 rounded-full border-2 border-slate-700" />
-          <div className="hidden md:block overflow-hidden">
-            <p className="text-sm font-bold text-white truncate">{user?.displayName || user?.email}</p>
-            <div className="flex items-center gap-1 text-xs text-amber-400 mt-0.5"><Star className="w-3 h-3 fill-current"/> {stars} Sao</div>
+      return (
+        <div key={node.id} className={`relative flex flex-col items-center transform ${translateX} w-24 z-10`}>
+          {/* Node Button */}
+          <button className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl transition-all ${bgColor} ${shadow}`}>
+            {node.status === "locked" ? <Lock className="w-8 h-8 text-slate-400" /> : 
+             node.status === "completed" ? <CheckCircle2 className="w-10 h-10 text-white" /> : 
+             node.icon}
+          </button>
+          {/* Floating Label */}
+          <div className={`absolute -bottom-6 font-bold text-sm bg-white/80 backdrop-blur-sm px-3 py-1 rounded-xl border border-slate-200 shadow-sm ${node.status === 'current' ? 'text-blue-600' : 'text-slate-500'}`}>
+            {node.title}
           </div>
         </div>
-        <button onClick={() => signOut(auth)} className="flex items-center justify-center gap-2 w-full p-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-sm font-bold transition-colors text-slate-300 hover:text-white">
-          <LogOut className="w-4 h-4"/><span className="hidden md:block">Đăng xuất</span>
-        </button>
-      </div>
-    </div>
-  );
+      );
+    })}
+
+    {/* Connecting SVG Path (Background) */}
+    <svg className="absolute inset-0 w-full h-full pointer-events-none z-0" style={{top: '40px', left: '0'}}>
+      <path d="M 50% 0 Q 30% 60, 50% 120 T 50% 240 Q 70% 300, 50% 360" fill="transparent" stroke="#e2e8f0" strokeWidth="15" strokeLinecap="round" />
+    </svg>
+  </div>
+</div>
+
+
+);
 };
 
-const AdminPage = () => {
-  const [usersList, setUsersList] = useState([]);
-  const [loading, setLoading] = useState(true);
+const PracticeTab = () => {
+const [showFeedback, setShowFeedback] = useState(false);
+const [activeTask, setActiveTask] = useState("");
 
-  const fetchUsers = async () => {
-    setLoading(true);
-    try {
-      const querySnapshot = await getDocs(collection(db, "users"));
-      const usersData = [];
-      querySnapshot.forEach((doc) => {
-        usersData.push({ id: doc.id, ...doc.data() });
-      });
-      setUsersList(usersData);
-    } catch (error) {
-      console.error("Lỗi lấy danh sách user:", error);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => {
-    fetchUsers();
-  }, []);
-
-  const toggleRole = async (userId, currentRole, email) => {
-    // Không cho phép tước quyền của nhóm Super Admin
-    if (SUPER_ADMIN_EMAILS.includes(email)) {
-      alert("Không thể thay đổi quyền của Super Admin!");
-      return;
-    }
-    const newRole = currentRole === 'admin' ? 'student' : 'admin';
-    try {
-      await updateDoc(doc(db, 'users', userId), { role: newRole });
-      fetchUsers(); // Tải lại danh sách
-    } catch (error) {
-      alert("Lỗi khi thay đổi quyền. Đảm bảo Firestore Rules cho phép.");
-    }
-  };
-
-  return (
-    <div className="p-8 max-w-6xl mx-auto h-full flex flex-col">
-      <div className="flex items-center gap-4 mb-8">
-        <div className="p-3 bg-rose-100 rounded-2xl"><Shield className="w-8 h-8 text-rose-600" /></div>
-        <div>
-          <h2 className="text-3xl font-black text-slate-800">Quản Trị Hệ Thống</h2>
-          <p className="text-slate-500 font-medium">Kiểm soát người dùng và cấp quyền Giáo viên</p>
-        </div>
-      </div>
-
-      <GlassCard className="flex-1 overflow-hidden flex flex-col">
-        <div className="p-6 border-b border-slate-200 flex justify-between items-center bg-white/50">
-          <h3 className="text-xl font-bold text-slate-800">Danh sách Người dùng</h3>
-          <button onClick={fetchUsers} className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg"><RefreshCw className={`w-5 h-5 text-slate-600 ${loading ? 'animate-spin' : ''}`} /></button>
-        </div>
-        
-        <div className="flex-1 overflow-auto p-0">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-slate-50 sticky top-0 border-b">
-              <tr>
-                <th className="p-4 font-bold text-slate-600 text-sm uppercase">Học sinh</th>
-                <th className="p-4 font-bold text-slate-600 text-sm uppercase">Email</th>
-                <th className="p-4 font-bold text-slate-600 text-sm uppercase">Điểm (Sao)</th>
-                <th className="p-4 font-bold text-slate-600 text-sm uppercase">Vai trò</th>
-                <th className="p-4 font-bold text-slate-600 text-sm uppercase text-right">Thao tác</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {usersList.map(u => (
-                <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="p-4 flex items-center gap-3">
-                    <img src={u.photoURL || `https://ui-avatars.com/api/?name=${u.email}`} className="w-10 h-10 rounded-full" alt="Avatar"/>
-                    <span className="font-bold text-slate-800">{u.name || "Nhà thám hiểm"}</span>
-                  </td>
-                  <td className="p-4 text-slate-600">{u.email}</td>
-                  <td className="p-4 font-bold text-amber-500"><Star className="w-4 h-4 inline mr-1 -mt-1"/>{u.stars || 0}</td>
-                  <td className="p-4">
-                    <span className={`px-3 py-1 text-xs font-bold rounded-full ${u.role === 'admin' ? 'bg-rose-100 text-rose-700' : 'bg-blue-100 text-blue-700'}`}>
-                      {u.role === 'admin' ? 'Giáo viên (Admin)' : 'Học sinh'}
-                    </span>
-                  </td>
-                  <td className="p-4 text-right">
-                    <button 
-                      onClick={() => toggleRole(u.id, u.role, u.email)}
-                      className={`px-4 py-2 text-sm font-bold rounded-xl transition-all flex items-center gap-2 ml-auto ${u.role === 'admin' ? 'bg-slate-100 text-slate-600 hover:bg-slate-200' : 'bg-rose-500 text-white hover:bg-rose-600 shadow-md'}`}
-                    >
-                      {u.role === 'admin' ? <><UserX className="w-4 h-4"/> Rút quyền</> : <><Crown className="w-4 h-4"/> Phong Admin</>}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {usersList.length === 0 && !loading && <div className="p-8 text-center text-slate-500">Chưa có ai đăng nhập vào hệ thống.</div>}
-        </div>
-      </GlassCard>
-    </div>
-  );
+const handleStartTask = (taskName) => {
+setActiveTask(taskName);
+// Simulate completing a task and getting AI feedback
+setTimeout(() => setShowFeedback(true), 800);
 };
 
-const LoginPage = () => {
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+return (
 
-  const handleGoogleLogin = async () => {
-    if (!auth) return setError("Hệ thống Offline: Không có kết nối Firebase.");
-    setLoading(true); setError('');
+Training Camp
+Targeted exercises powered by AI
+
+  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+    <div className="bg-white p-6 rounded-3xl shadow-sm border-2 border-slate-100 hover:border-orange-200 hover:shadow-xl transition-all group flex flex-col justify-between">
+      <div>
+        <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><Headphones className="w-8 h-8" /></div>
+        <h3 className="font-bold text-xl mb-2 text-slate-800">Listening</h3>
+        <p className="text-slate-500 text-sm mb-6 leading-relaxed">AI generates natural audio. Listen and answer comprehension questions.</p>
+      </div>
+      <button onClick={() => handleStartTask("Listening Practice")} className="w-full py-4 bg-orange-50 hover:bg-orange-500 hover:text-white text-orange-600 rounded-2xl font-bold transition-colors">Start Session</button>
+    </div>
+
+    <div className="bg-white p-6 rounded-3xl shadow-sm border-2 border-slate-100 hover:border-purple-200 hover:shadow-xl transition-all group flex flex-col justify-between">
+      <div>
+        <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><Mic className="w-8 h-8" /></div>
+        <h3 className="font-bold text-xl mb-2 text-slate-800">Speaking</h3>
+        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Record your voice. AI analyzes your pronunciation and fluency instantly.</p>
+      </div>
+      <button onClick={() => handleStartTask("Speaking Practice")} className="w-full py-4 bg-purple-50 hover:bg-purple-500 hover:text-white text-purple-600 rounded-2xl font-bold transition-colors">Start Speaking</button>
+    </div>
+
+    <div className="bg-white p-6 rounded-3xl shadow-sm border-2 border-slate-100 hover:border-blue-200 hover:shadow-xl transition-all group flex flex-col justify-between">
+      <div>
+        <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><Sparkles className="w-8 h-8" /></div>
+        <h3 className="font-bold text-xl mb-2 text-slate-800">Word Blocks</h3>
+        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Tap to build sentences. Master grammar structure visually.</p>
+      </div>
+      <button onClick={() => handleStartTask("Grammar Blocks")} className="w-full py-4 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 rounded-2xl font-bold transition-colors">Build Sentences</button>
+    </div>
+  </div>
+
+  <AIFeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} title={activeTask} />
+</div>
+
+
+);
+};
+
+const ArenaTab = () => (
+
+<h2 className="text-4xl font-black text-slate-800 mb-4 tracking-tight">Battle Arena</h2>
+<p className="text-slate-500 mb-10 max-w-sm text-lg">Join a live room or create your own AI-generated challenge.</p>
+
+<div className="bg-white p-3 rounded-3xl shadow-lg flex items-center gap-2 border border-slate-200 w-full max-w-sm focus-within:ring-4 ring-indigo-100 transition-all">
+  <input type="text" placeholder="Game PIN" className="flex-1 bg-transparent px-4 py-3 outline-none font-black text-center tracking-[0.3em] text-2xl uppercase text-slate-700 placeholder-slate-300" maxLength={6} />
+  <button className="bg-indigo-600 text-white p-4 rounded-2xl hover:bg-indigo-700 transition-colors shadow-md hover:shadow-lg transform active:scale-95">
+    <Play className="fill-current w-6 h-6" />
+  </button>
+</div>
+
+<div className="mt-10 flex items-center gap-4 text-slate-400 font-bold text-sm">
+  <div className="h-px bg-slate-200 w-16"></div>
+  OR
+  <div className="h-px bg-slate-200 w-16"></div>
+</div>
+
+<button className="mt-6 bg-slate-100 hover:bg-slate-200 text-indigo-600 font-bold py-3 px-8 rounded-2xl transition-colors">
+  Host a Match
+</button>
+
+
+const ProgressTab = () => (
+
+<div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+  {/* Profile Card */}
+  <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 flex flex-col items-center text-center col-span-1">
+    <div className="w-24 h-24 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 font-black text-3xl border-4 border-white shadow-lg">
+      {auth.currentUser?.email?.[0].toUpperCase() || 'U'}
+    </div>
+    <h3 className="font-bold text-xl text-slate-800">{auth.currentUser?.displayName || 'Explorer'}</h3>
+    <p className="text-slate-400 font-medium mb-6">{auth.currentUser?.email}</p>
     
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      
-      // Xử lý tạo mới hoặc cập nhật Role trong Database
-      const userRef = doc(db, 'users', user.uid);
-      const userSnap = await getDoc(userRef);
-      
-      let role = 'student';
-      // Super Admin: Luôn tự động ép quyền thành Admin nếu email có trong danh sách
-      if (SUPER_ADMIN_EMAILS.includes(user.email)) role = 'admin';
+    <div className="w-full grid grid-cols-2 gap-4">
+      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+        <div className="text-yellow-500 flex justify-center mb-1"><Star className="w-6 h-6 fill-current"/></div>
+        <div className="font-black text-xl text-slate-700">1,250</div>
+        <div className="text-xs font-bold text-slate-400 uppercase">Total XP</div>
+      </div>
+      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+        <div className="text-orange-500 flex justify-center mb-1"><Flame className="w-6 h-6 fill-current"/></div>
+        <div className="font-black text-xl text-slate-700">12</div>
+        <div className="text-xs font-bold text-slate-400 uppercase">Day Streak</div>
+      </div>
+    </div>
+  </div>
 
-      if (!userSnap.exists()) {
-        // Tạo hồ sơ mới lần đầu đăng nhập
+  {/* Skills Analysis */}
+  <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 col-span-1 lg:col-span-2">
+    <h3 className="font-bold text-xl text-slate-800 mb-6">Skill Analysis</h3>
+    
+    <div className="space-y-6">
+      {[
+        { name: "Listening", score: 85, color: "bg-orange-500" },
+        { name: "Speaking", score: 60, color: "bg-purple-500" },
+        { name: "Reading", score: 92, color: "bg-blue-500" },
+        { name: "Writing (Grammar)", score: 75, color: "bg-green-500" }
+      ].map(skill => (
+        <div key={skill.name}>
+          <div className="flex justify-between font-bold mb-2">
+            <span className="text-slate-700">{skill.name}</span>
+            <span className="text-slate-500">{skill.score}%</span>
+          </div>
+          <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
+            <div className={`${skill.color} h-full rounded-full transition-all duration-1000 ease-out`} style={{width: `${skill.score}%`}}></div>
+          </div>
+        </div>
+      ))}
+    </div>
+  </div>
+</div>
+
+
+const AdminTab = () => (
+
+<div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
+  <div className="p-6 border-b border-slate-100 bg-slate-50 flex justify-between items-center">
+    <h3 className="font-bold text-lg text-slate-700">User Management</h3>
+    <button className="text-sm font-bold bg-white border border-slate-200 px-4 py-2 rounded-lg text-slate-600 shadow-sm hover:bg-slate-50">Export Data</button>
+  </div>
+  <div className="p-10 text-center flex flex-col items-center justify-center">
+    <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mb-4 text-slate-400"><LogOut className="w-8 h-8"/></div>
+    <p className="text-slate-500 font-medium">Database connection required to load student list.</p>
+    <button className="mt-4 text-blue-600 font-bold hover:underline">Refresh Data</button>
+  </div>
+</div>
+
+
+// ==========================================
+// 3. LAYOUT (SIDEBAR & BOTTOM NAV)
+// ==========================================
+
+const MainLayout = ({ userData }) => {
+const navigate = useNavigate();
+const location = useLocation();
+
+const handleLogout = () => { signOut(auth); };
+
+const navItems = [
+{ id: 'explore', label: "Learn", icon: Map, path: '/explore', activeColor: 'text-green-500', activeBg: 'bg-green-50' },
+{ id: 'practice', label: "Practice", icon: Dumbbell, path: '/practice', activeColor: 'text-blue-500', activeBg: 'bg-blue-50' },
+{ id: 'arena', label: "Arena", icon: Swords, path: '/arena', activeColor: 'text-indigo-500', activeBg: 'bg-indigo-50' },
+{ id: 'mocktest', label: "Tests", icon: GraduationCap, path: '/mocktest', activeColor: 'text-purple-500', activeBg: 'bg-purple-50' },
+{ id: 'progress', label: "Profile", icon: LineChart, path: '/progress', activeColor: 'text-orange-500', activeBg: 'bg-orange-50' }
+];
+
+return (
+
+
+  {/* Desktop Sidebar */}
+  <aside className="w-64 bg-white border-r border-slate-200 hidden md:flex flex-col z-10">
+    <div className="p-6">
+      <h1 className="text-2xl font-black tracking-tight text-slate-800 flex items-center gap-2">
+        <span className="bg-blue-600 text-white p-1.5 rounded-xl"><Sparkles className="w-5 h-5"/></span>
+        Explorer
+      </h1>
+    </div>
+    
+    <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
+      {navItems.map(item => {
+        const isActive = location.pathname.includes(item.path);
+        return (
+          <button key={item.id} onClick={() => navigate(item.path)} 
+            className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl font-bold transition-all border-2 
+              ${isActive ? `${item.activeBg}${item.activeColor} border-current` : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}>
+            <item.icon className="w-6 h-6" /> {item.label}
+          </button>
+        )
+      })}
+    </nav>
+
+    <div className="p-4 space-y-2">
+      {userData?.role === 'admin' && (
+        <button onClick={() => navigate('/admin')} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-red-600 bg-red-50 hover:bg-red-100 transition-colors">
+          <ShieldAlert className="w-5 h-5"/> Admin Area
+        </button>
+      )}
+      <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
+        <LogOut className="w-5 h-5"/> Sign Out
+      </button>
+    </div>
+  </aside>
+
+  {/* Main Content Area */}
+  <main className="flex-1 flex flex-col h-full relative overflow-y-auto pb-24 md:pb-0 hide-scrollbar">
+    
+    {/* Mobile Header / Desktop TopBar */}
+    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200 p-4 flex justify-between items-center md:bg-transparent md:border-none md:p-6 md:justify-end">
+      <h1 className="text-xl font-black text-slate-800 md:hidden flex items-center gap-2">
+         <span className="bg-blue-600 text-white p-1 rounded-lg"><Sparkles className="w-4 h-4"/></span> Explorer
+      </h1>
+      <TopMetricsBar />
+    </header>
+
+    <div className="w-full">
+      <Routes>
+        <Route path="/" element={<Navigate to="/explore" replace />} />
+        <Route path="/explore" element={<ExploreTab />} />
+        <Route path="/arena" element={<ArenaTab />} />
+        <Route path="/practice" element={<PracticeTab />} />
+        <Route path="/progress" element={<ProgressTab />} />
+        <Route path="/mocktest" element={<div className="p-10 text-center text-slate-500 mt-20 font-medium"><GraduationCap className="w-16 h-16 mx-auto mb-4 text-slate-300"/>Mock Tests are locked until Level 5.</div>} />
+        {userData?.role === 'admin' && <Route path="/admin" element={<AdminTab />} />}
+      </Routes>
+    </div>
+  </main>
+
+  {/* Mobile Bottom Navigation */}
+  <nav className="md:hidden bg-white border-t border-slate-200 fixed bottom-0 w-full flex justify-around px-2 pt-2 pb-safe z-50">
+    {navItems.map(item => {
+       const isActive = location.pathname.includes(item.path);
+       return (
+        <button key={item.id} onClick={() => navigate(item.path)} className={`p-2 rounded-2xl flex flex-col items-center gap-1 min-w-[64px] ${isActive ? item.activeColor : 'text-slate-400'}`}>
+          <div className={`p-1.5 rounded-xl ${isActive ? item.activeBg : ''}`}>
+            <item.icon className={`w-6 h-6 ${isActive ? 'fill-current opacity-20' : ''}`} style={isActive ? {strokeWidth: 2.5} : {}} />
+          </div>
+          <span className="text-[10px] font-bold">{item.label}</span>
+        </button>
+       )
+    })}
+  </nav>
+  
+  <style dangerouslySetInnerHTML={{__html: `
+    @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .animate-fade-in { animation: fade-in 0.4s ease-out forwards; }
+    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 24px); }
+    .hide-scrollbar::-webkit-scrollbar { display: none; }
+    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    @keyframes pulse-slow { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+    .animate-pulse-slow { animation: pulse-slow 2s infinite; }
+  `}} />
+</div>
+
+
+);
+};
+
+// ==========================================
+// 4. LOGIN SCREEN
+// ==========================================
+const LoginScreen = () => {
+const [loading, setLoading] = useState(false);
+
+const handleGoogleLogin = async () => {
+setLoading(true);
+const provider = new GoogleAuthProvider();
+try {
+await signInWithPopup(auth, provider);
+// Let the onAuthStateChanged listener handle the redirection
+} catch (error) {
+console.error("Login Error:", error);
+setLoading(false);
+}
+};
+
+return (
+
+
+  {/* Decorative Background Elements */}
+  <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-400 rounded-full mix-blend-multiply filter blur-[100px] opacity-30"></div>
+  <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-400 rounded-full mix-blend-multiply filter blur-[100px] opacity-30"></div>
+
+  <div className="w-full max-w-md bg-white p-8 md:p-10 rounded-[2rem] shadow-xl text-center z-10 relative border border-slate-100">
+    <div className="w-20 h-20 bg-blue-600 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-[0_10px_30px_rgba(37,99,235,0.3)] transform rotate-3">
+      <Sparkles className="w-10 h-10 text-white" />
+    </div>
+    <h1 className="text-3xl font-black text-slate-800 mb-3 tracking-tight">Explorer Pro</h1>
+    <p className="text-slate-500 mb-10 font-medium leading-relaxed">Master a new language with AI-powered interactive lessons.</p>
+    
+    <button 
+      onClick={handleGoogleLogin} 
+      disabled={loading}
+      className="w-full flex items-center justify-center gap-3 bg-white text-slate-700 py-4 rounded-2xl font-bold text-lg border-2 border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:active:scale-100"
+    >
+      {loading ? <Loader2 className="w-6 h-6 animate-spin text-blue-600" /> : (
+        <>
+          <svg className="w-6 h-6" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+          Continue with Google
+        </>
+      )}
+    </button>
+  </div>
+</div>
+
+
+);
+};
+
+// ==========================================
+// 5. ROOT APP & AUTH LISTENER
+// ==========================================
+export default function App() {
+const [user, setUser] = useState(null);
+const [userData, setUserData] = useState(null);
+const [loading, setLoading] = useState(true);
+
+useEffect(() => {
+const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+if (currentUser) {
+setUser(currentUser);
+const userRef = doc(db, 'users', currentUser.uid);
+
+    const unsubDoc = onSnapshot(userRef, async (uDoc) => {
+      if (uDoc.exists()) {
+        setUserData({ id: uDoc.id, ...uDoc.data() });
+        setLoading(false); 
+      } else {
+        // New user creation
+        const isAdmin = SUPER_ADMIN_EMAILS.includes(currentUser.email);
         await setDoc(userRef, {
-          email: user.email,
-          name: user.displayName,
-          photoURL: user.photoURL,
-          role: role,
+          email: currentUser.email,
+          displayName: currentUser.displayName,
+          photoURL: currentUser.photoURL,
+          role: isAdmin ? 'admin' : 'student',
           stars: 0,
-          progress: 0,
           createdAt: new Date()
         });
-      } else {
-        // Nếu là Super Admin nhưng lỡ bị sửa quyền, ép lại thành admin
-        if (SUPER_ADMIN_EMAILS.includes(user.email) && userSnap.data().role !== 'admin') {
-          await updateDoc(userRef, { role: 'admin' });
-        }
+        // Snapshot will re-trigger naturally
       }
-    } catch (err) {
-      console.error(err);
-      setError("Đăng nhập thất bại. Vui lòng thử lại.");
-    }
-    setLoading(false);
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4 relative overflow-hidden">
-      {/* Background động */}
-      <div className="absolute inset-0 z-0 opacity-20">
-        <div className="absolute top-10 left-10 w-72 h-72 bg-blue-500 rounded-full mix-blend-screen filter blur-[100px] animate-pulse"></div>
-        <div className="absolute bottom-10 right-10 w-72 h-72 bg-indigo-500 rounded-full mix-blend-screen filter blur-[100px] animate-pulse delay-1000"></div>
-      </div>
-
-      <div className="z-10 text-center mb-10">
-        <div className="w-24 h-24 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-3xl mx-auto mb-6 shadow-2xl flex items-center justify-center transform rotate-12">
-          <Rocket className="w-12 h-12 text-white -rotate-12" />
-        </div>
-        <h1 className="text-4xl md:text-6xl font-black text-white mb-4 tracking-tight">Global <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">Explorer</span></h1>
-        <p className="text-slate-400 font-medium text-lg max-w-md mx-auto">Nền tảng học Tiếng Anh thông minh tích hợp AI dành cho thế hệ Alpha.</p>
-      </div>
-
-      <GlassCard className="z-10 w-full max-w-md p-8 border-slate-700 bg-slate-900/60">
-        {error && <div className="bg-rose-500/10 border border-rose-500/50 text-rose-400 p-3 rounded-xl text-sm font-bold mb-6 text-center">{error}</div>}
-        
-        <button 
-          onClick={handleGoogleLogin} 
-          disabled={loading} 
-          className="w-full bg-white hover:bg-slate-50 text-slate-800 font-bold text-lg py-4 rounded-xl transition-all shadow-xl flex items-center justify-center gap-3 group"
-        >
-          {loading ? <RefreshCw className="w-6 h-6 animate-spin"/> : (
-            <>
-              <svg className="w-6 h-6 group-hover:scale-110 transition-transform" viewBox="0 0 24 24">
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-                <path fill="none" d="M1 1h22v22H1z"/>
-              </svg>
-              Tiếp tục với Google
-            </>
-          )}
-        </button>
-        <p className="text-slate-500 text-xs text-center mt-6">Không cần đăng ký, sử dụng ngay tài khoản Google của bạn.</p>
-      </GlassCard>
-    </div>
-  );
-};
-
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [userData, setUserData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!auth) return setLoading(false);
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        // Nghe thay đổi dữ liệu User thời gian thực
-        const uDoc = await getDoc(doc(db, 'users', currentUser.uid));
-        if (uDoc.exists()) setUserData(uDoc.data());
-      } else {
-        setUser(null);
-        setUserData(null);
-      }
-      setLoading(false);
     });
-    return () => unsubscribe();
-  }, []);
+    return () => unsubDoc();
+  } else {
+    setUser(null);
+    setUserData(null);
+    setLoading(false);
+  }
+});
+return () => unsubscribe();
 
-  if (loading) return (
-    <div className="h-screen bg-slate-950 flex flex-col items-center justify-center gap-4">
-      <RefreshCw className="w-12 h-12 text-blue-500 animate-spin" />
-      <p className="text-blue-500 font-bold animate-pulse">Đang nạp dữ liệu vũ trụ...</p>
-    </div>
-  );
 
-  return (
-    <BrowserRouter>
-      {/* Khai báo style CSS cho Animation */}
-      <style dangerouslySetInnerHTML={{__html: `
-        @keyframes bounce-short { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-15%); } }
-        .animate-bounce-short { animation: bounce-short 1s ease-in-out infinite; }
-        @keyframes spin-slow { 100% { transform: rotate(360deg); } }
-        .animate-spin-slow { animation: spin-slow 8s linear infinite; }
-      `}} />
+}, []);
 
-      <Routes>
-        <Route path="/" element={user ? <Navigate to="/explore" replace /> : <LoginPage />} />
-        
-        {/* Layout Chính sau khi đăng nhập */}
-        <Route path="/*" element={
-          user && userData ? (
-            <div className="flex h-screen bg-slate-100 font-sans overflow-hidden">
-              <Sidebar user={user} role={userData.role} stars={userData.stars} />
-              
-              <main className="flex-1 h-full overflow-y-auto bg-slate-100 relative">
-                <Routes>
-                  {/* Bản đồ gốc của bạn nằm ở đây */}
-                  <Route path="/explore" element={
-                    <div className="p-8 text-center mt-20">
-                      <Compass className="w-20 h-20 mx-auto text-blue-500 animate-bounce-short"/>
-                      <h2 className="text-3xl font-black text-slate-800 mt-4">Khu vực Bản Đồ RPG</h2>
-                      <p className="text-slate-500 mt-2">Dữ liệu bản đồ đã sẵn sàng tích hợp AI sinh câu hỏi.</p>
-                    </div>
-                  } />
-                  
-                  {/* Khu vực Admin - Đã khóa cửa bảo vệ */}
-                  <Route path="/admin" element={
-                    userData.role === 'admin' ? <AdminPage /> : <Navigate to="/explore" />
-                  } />
+if (loading || (user && !userData)) return (
 
-                  <Route path="*" element={<Navigate to="/explore" replace />} />
-                </Routes>
-              </main>
-            </div>
-          ) : <Navigate to="/" replace />
-        } />
-      </Routes>
-    </BrowserRouter>
-  );
+
+
+
+
+Syncing Data...
+
+);
+
+return (
+
+{user && userData ?
+ :
+
+}
+
+);
 }
