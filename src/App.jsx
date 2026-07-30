@@ -1,476 +1,329 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
-import {
-Map, Swords, Dumbbell, GraduationCap, LineChart,
-ShieldAlert, LogOut, Loader2, Sparkles, Play,
-Mic, Headphones, Flame, Heart, Hexagon, Lock,
-CheckCircle2, Star, X, MessageSquare
+import { 
+  Map, Swords, Dumbbell, LineChart, LogOut, Loader2, Play, 
+  Mic, Headphones, Flame, Heart, Lock, CheckCircle2, Star, 
+  X, MessageSquare, ChevronRight, Trophy, Zap, Compass, Library, Shield
 } from 'lucide-react';
 
-// --- FIREBASE IMPORTS ---
-import { auth, db } from './firebase';
-import { GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { doc, setDoc, onSnapshot } from "firebase/firestore";
-
-// SETUP YOUR SUPER ADMIN EMAILS HERE
-const SUPER_ADMIN_EMAILS = ["khoavuexp@gmail.com", "admin2@gmail.com"];
-
-// ==========================================
-// 1. REUSABLE UI COMPONENTS (EdTech Style)
-// ==========================================
-
-const TopMetricsBar = () => {
-return (
-
-
-
-12
-
-
-
-
-450
-
-
-
-
-5
-
-
-);
+// MOCK DATABASE & AUTHENTICATION (For Preview Purposes)
+// In a real app, this would be imported from firebase.js
+const mockAuth = {
+  currentUser: null,
+  signInWithGoogle: () => new Promise(resolve => {
+    setTimeout(() => {
+      mockAuth.currentUser = { email: 'student@gmail.com', displayName: 'Explorer' };
+      resolve(mockAuth.currentUser);
+    }, 1000);
+  }),
+  signOut: () => new Promise(resolve => {
+    setTimeout(() => {
+      mockAuth.currentUser = null;
+      resolve();
+    }, 500);
+  })
 };
 
-const AIFeedbackModal = ({ isOpen, onClose, title }) => {
-if (!isOpen) return null;
-return (
-
-
-
-
-
-
-
-
-
-AI Tutor Feedback
-Exercise: {title}
-
-
-    <div className="p-6">
-      <div className="bg-amber-50 rounded-2xl p-4 border border-amber-100 relative">
-        <div className="absolute -top-3 -left-3 w-8 h-8 bg-amber-500 rounded-full border-2 border-white flex items-center justify-center shadow-sm">
-          <MessageSquare className="w-4 h-4 text-white"/>
-        </div>
-        <span className="text-xs font-bold text-amber-600 uppercase tracking-wider mb-1 block">Vietnamese Explanation</span>
-        <p className="text-slate-700 text-sm leading-relaxed">
-          Bạn phát âm từ <strong className="text-amber-600">"Environment"</strong> hơi giống "En-vi-ron-men". 
-          <br/><br/>
-          <strong>Mẹo nhỏ:</strong> Trọng âm rơi vào âm tiết thứ 2 <em>/ɪnˈvaɪ.rən.mənt/</em>. Bạn hãy thử nhấn mạnh vào chữ <strong>"vai"</strong> và đọc lướt các âm còn lại nhé!
-        </p>
+const TopMetricsBar = () => (
+  <div className="flex items-center justify-between px-6 py-3 bg-white border-b-2 border-slate-100 sticky top-0 z-40">
+    <div className="flex items-center gap-2">
+      <Compass className="w-6 h-6 text-blue-600" />
+      <span className="font-black text-xl text-slate-800 hidden sm:block">Global Explorer</span>
+    </div>
+    <div className="flex items-center gap-4">
+      <div className="flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 p-1.5 rounded-xl transition-colors">
+        <Flame className="w-6 h-6 text-orange-500 fill-orange-500" />
+        <span className="font-bold text-orange-600">12</span>
       </div>
-      
-      <button onClick={onClose} className="w-full mt-6 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold py-3 rounded-xl transition-colors">
-        Got it, thanks!
-      </button>
+      <div className="flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 p-1.5 rounded-xl transition-colors">
+        <Star className="w-6 h-6 text-yellow-400 fill-yellow-400" />
+        <span className="font-bold text-yellow-600">450</span>
+      </div>
+      <div className="flex items-center gap-1.5 cursor-pointer hover:bg-slate-50 p-1.5 rounded-xl transition-colors">
+        <Heart className="w-6 h-6 text-rose-500 fill-rose-500" />
+        <span className="font-bold text-rose-600">5</span>
+      </div>
     </div>
   </div>
-</div>
-
-
 );
+
+const AIFeedbackModal = ({ isOpen, onClose, title }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+      <div className="bg-white rounded-3xl w-full max-w-md overflow-hidden shadow-2xl scale-100 animate-in zoom-in-95 duration-200">
+        <div className="bg-gradient-to-r from-indigo-500 to-purple-600 p-6 flex justify-between items-start">
+          <div className="flex items-center gap-3">
+            <div className="bg-white/20 p-3 rounded-2xl">
+              <MessageSquare className="w-8 h-8 text-white" />
+            </div>
+            <div>
+              <h3 className="font-black text-xl text-white">{title}</h3>
+              <p className="text-indigo-100 font-medium text-sm">AI Tutor Analysis</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-white/70 hover:text-white bg-white/10 hover:bg-white/20 rounded-full p-2 transition-colors">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="p-6 bg-slate-50">
+          <div className="bg-white p-4 rounded-2xl border-2 border-slate-100 shadow-sm relative">
+            <div className="absolute -top-3 left-6 bg-purple-500 text-white text-xs font-bold px-3 py-1 rounded-full">
+              Vietnamese Explanation
+            </div>
+            <p className="text-slate-700 font-medium leading-relaxed mt-2">
+              Chào bạn! Trong bài tập này, bạn cần chú ý cấu trúc <strong className="text-indigo-600">"What is your address?"</strong>. 
+              Từ "address" đi kèm với giới từ "at" khi nói về địa chỉ số nhà cụ thể (ví dụ: at 123 Main Street), nhưng dùng "in" khi nói về tên đường hoặc thành phố (ví dụ: in London).
+              Hãy ghi nhớ mẹo này cho bài kiểm tra sắp tới nhé!
+            </p>
+          </div>
+          <button onClick={onClose} className="w-full mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 rounded-2xl transition-all shadow-md active:scale-95">
+            Got it, thanks!
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 };
 
-// ==========================================
-// 2. MAIN TABS
-// ==========================================
+const ClassesTab = () => {
+  const navigate = useNavigate();
+  const classes = [
+    { id: 'g3', name: "Grade 3", desc: "Beginner Explorer", locked: false, color: "text-blue-500", bg: "bg-blue-500", light: "bg-blue-50", hover: "hover:border-blue-500", icon: Library },
+    { id: 'g4', name: "Grade 4", desc: "Intermediate Adventurer", locked: false, color: "text-green-500", bg: "bg-green-500", light: "bg-green-50", hover: "hover:border-green-500", icon: Compass },
+    { id: 'g5', name: "Grade 5", desc: "Advanced Master", locked: true, color: "text-slate-400", bg: "bg-slate-300", light: "bg-slate-50", hover: "", icon: Lock },
+  ];
+
+  return (
+    <div className="max-w-4xl mx-auto pb-24">
+      <div className="mb-10 text-center md:text-left pt-6">
+        <h2 className="text-3xl font-black text-slate-800">My Classes</h2>
+        <p className="text-slate-500 font-bold mt-2 text-lg">Select a grade to start learning</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+        {classes.map(cls => (
+          <div 
+            key={cls.id} 
+            onClick={() => !cls.locked && navigate('/explore')} 
+            className={`p-6 rounded-[2rem] border-2 transition-all flex flex-col justify-between h-56 shadow-sm group
+            ${cls.locked ? 'bg-slate-50 border-slate-200 opacity-70 cursor-not-allowed' : `bg-white border-slate-100 cursor-pointer hover:shadow-xl hover:-translate-y-1 ${cls.hover}`}`}
+          >
+            <div>
+              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 ${cls.light} ${cls.color} group-hover:scale-110 transition-transform`}>
+                <cls.icon className="w-7 h-7" />
+              </div>
+              <h3 className="font-black text-2xl text-slate-800">{cls.name}</h3>
+              <p className="text-slate-500 font-medium text-sm mt-2">{cls.desc}</p>
+            </div>
+            {!cls.locked && (
+              <div className="mt-4 flex items-center justify-between text-sm font-bold text-slate-400">
+                <span>0/12 Units</span>
+                <ChevronRight className={`w-5 h-5 ${cls.color}`} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
 
 const ExploreTab = () => {
-const mapNodes = [
-{ id: 1, title: "Basics 1", type: "vocab", status: "completed", icon: "🌟" },
-{ id: 2, title: "Phrases", type: "grammar", status: "completed", icon: "🗣️" },
-{ id: 3, title: "Food", type: "vocab", status: "current", icon: "🍔" },
-{ id: 4, title: "Animals", type: "vocab", status: "locked", icon: "🦁" },
-{ id: 5, title: "Checkpoint", type: "boss", status: "locked", icon: "🏰" },
-];
+  const mapNodes = [
+    { id: 1, title: "Unit 1", desc: "Greetings", type: "start", completed: true },
+    { id: 2, title: "Unit 2", desc: "My Home", type: "lesson", completed: true },
+    { id: 3, title: "Unit 3", desc: "Family", type: "lesson", completed: false, current: true },
+    { id: 4, title: "Unit 4", desc: "Friends", type: "chest", completed: false },
+    { id: 5, title: "Unit 5", desc: "School", type: "boss", completed: false }
+  ];
 
-return (
-
-
-Unit 1: The Beginning
-Build your foundation
-
-
-  <div className="relative w-full flex flex-col items-center gap-12 px-4">
-    {mapNodes.map((node, index) => {
-      const isLeft = index % 2 === 0;
-      const translateX = isLeft ? '-translate-x-12' : 'translate-x-12';
-      
-      let bgColor = "bg-slate-200";
-      let shadow = "";
-      let textColor = "text-slate-400";
-      
-      if (node.status === "completed") {
-        bgColor = "bg-green-500";
-        shadow = "shadow-[0_8px_0_rgb(22,163,74)] active:shadow-[0_0px_0_rgb(22,163,74)] active:translate-y-2";
-        textColor = "text-white";
-      } else if (node.status === "current") {
-        bgColor = "bg-blue-500";
-        shadow = "shadow-[0_8px_0_rgb(37,99,235)] active:shadow-[0_0px_0_rgb(37,99,235)] active:translate-y-2 ring-4 ring-blue-200 animate-pulse-slow";
-        textColor = "text-white";
-      }
-
-      return (
-        <div key={node.id} className={`relative flex flex-col items-center transform ${translateX} w-24 z-10`}>
-          <button className={`w-20 h-20 rounded-full flex items-center justify-center text-3xl transition-all ${bgColor} ${shadow}`}>
-            {node.status === "locked" ? <Lock className="w-8 h-8 text-slate-400" /> : 
-             node.status === "completed" ? <CheckCircle2 className="w-10 h-10 text-white" /> : 
-             node.icon}
-          </button>
-          <div className={`absolute -bottom-8 font-bold text-sm bg-white/90 backdrop-blur-sm px-3 py-1.5 rounded-xl border border-slate-200 shadow-sm whitespace-nowrap ${node.status === 'current' ? 'text-blue-600' : 'text-slate-500'}`}>
-            {node.title}
-          </div>
-        </div>
-      );
-    })}
-
-    <svg className="absolute inset-0 w-full h-full pointer-events-none z-0" style={{top: '40px'}}>
-      <path d="M 50% 0 Q 30% 60, 50% 120 T 50% 240 Q 70% 300, 50% 360 T 50% 480" fill="transparent" stroke="#e2e8f0" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  </div>
-</div>
-
-
-);
+  return (
+    <div className="max-w-md mx-auto flex flex-col items-center py-8 pb-32">
+      <div className="w-full px-6 mb-8">
+        <h2 className="text-2xl font-black text-slate-800 text-center">Semester 1</h2>
+      </div>
+      <div className="relative w-full flex flex-col items-center gap-10">
+        <div className="absolute top-0 bottom-0 w-4 bg-slate-200 rounded-full -z-10"></div>
+        <div className="absolute top-0 bottom-1/2 w-4 bg-green-400 rounded-full -z-10"></div>
+        {mapNodes.map((node, i) => {
+          const isOffset = i % 2 !== 0;
+          return (
+            <div key={node.id} className={`relative w-full flex justify-center ${isOffset ? 'pr-24' : 'pl-24'}`}>
+              <button className={`
+                relative w-24 h-24 rounded-full border-b-8 flex items-center justify-center transition-transform hover:scale-105
+                ${node.completed ? 'bg-green-400 border-green-500 text-white' : node.current ? 'bg-blue-400 border-blue-500 text-white animate-bounce-short' : 'bg-slate-200 border-slate-300 text-slate-400'}
+              `}>
+                {node.completed ? <CheckCircle2 className="w-10 h-10" /> : node.type === 'chest' ? <Trophy className="w-10 h-10" /> : node.type === 'boss' ? <Shield className="w-10 h-10" /> : <Star className="w-10 h-10" />}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 };
 
 const PracticeTab = () => {
-const [showFeedback, setShowFeedback] = useState(false);
-const [activeTask, setActiveTask] = useState("");
+  const [modalData, setModalData] = useState(null);
+  const handlePractice = (title) => setModalData({ isOpen: true, title });
 
-const handleStartTask = (taskName) => {
-setActiveTask(taskName);
-setTimeout(() => setShowFeedback(true), 600);
-};
-
-return (
-
-
-Training Camp
-Targeted exercises powered by AI
-
-
-  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-    <div className="bg-white p-6 rounded-3xl shadow-sm border-2 border-slate-100 hover:border-orange-200 hover:shadow-xl transition-all group flex flex-col justify-between">
-      <div>
-        <div className="w-16 h-16 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><Headphones className="w-8 h-8" /></div>
-        <h3 className="font-bold text-xl mb-2 text-slate-800">Listening</h3>
-        <p className="text-slate-500 text-sm mb-6 leading-relaxed">AI generates natural audio. Listen and answer comprehension questions.</p>
+  return (
+    <div className="max-w-4xl mx-auto pb-24">
+      <h2 className="text-3xl font-black text-slate-800 mb-8 pt-6">Practice Hub</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div onClick={() => handlePractice('Listening Pro')} className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm hover:shadow-xl hover:border-purple-400 cursor-pointer transition-all hover:-translate-y-1">
+          <div className="w-14 h-14 bg-purple-100 rounded-2xl flex items-center justify-center mb-4"><Headphones className="w-8 h-8 text-purple-600" /></div>
+          <h3 className="text-xl font-black text-slate-800">Listening Pro</h3>
+          <p className="text-slate-500 font-medium mt-1">Train your ears with native speakers.</p>
+        </div>
+        <div onClick={() => handlePractice('Speaking Master')} className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm hover:shadow-xl hover:border-blue-400 cursor-pointer transition-all hover:-translate-y-1">
+          <div className="w-14 h-14 bg-blue-100 rounded-2xl flex items-center justify-center mb-4"><Mic className="w-8 h-8 text-blue-600" /></div>
+          <h3 className="text-xl font-black text-slate-800">Speaking Master</h3>
+          <p className="text-slate-500 font-medium mt-1">Get AI pronunciation feedback.</p>
+        </div>
       </div>
-      <button onClick={() => handleStartTask("Listening Practice")} className="w-full py-4 bg-orange-50 hover:bg-orange-500 hover:text-white text-orange-600 rounded-2xl font-bold transition-colors">Start Session</button>
+      <AIFeedbackModal isOpen={modalData?.isOpen} onClose={() => setModalData(null)} title={modalData?.title} />
     </div>
-
-    <div className="bg-white p-6 rounded-3xl shadow-sm border-2 border-slate-100 hover:border-purple-200 hover:shadow-xl transition-all group flex flex-col justify-between">
-      <div>
-        <div className="w-16 h-16 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><Mic className="w-8 h-8" /></div>
-        <h3 className="font-bold text-xl mb-2 text-slate-800">Speaking</h3>
-        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Record your voice. AI analyzes your pronunciation and fluency instantly.</p>
-      </div>
-      <button onClick={() => handleStartTask("Speaking Practice")} className="w-full py-4 bg-purple-50 hover:bg-purple-500 hover:text-white text-purple-600 rounded-2xl font-bold transition-colors">Start Speaking</button>
-    </div>
-
-    <div className="bg-white p-6 rounded-3xl shadow-sm border-2 border-slate-100 hover:border-blue-200 hover:shadow-xl transition-all group flex flex-col justify-between">
-      <div>
-        <div className="w-16 h-16 bg-blue-100 text-blue-600 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform"><Sparkles className="w-8 h-8" /></div>
-        <h3 className="font-bold text-xl mb-2 text-slate-800">Word Blocks</h3>
-        <p className="text-slate-500 text-sm mb-6 leading-relaxed">Tap to build sentences. Master grammar structure visually.</p>
-      </div>
-      <button onClick={() => handleStartTask("Grammar Blocks")} className="w-full py-4 bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 rounded-2xl font-bold transition-colors">Build Sentences</button>
-    </div>
-  </div>
-
-  <AIFeedbackModal isOpen={showFeedback} onClose={() => setShowFeedback(false)} title={activeTask} />
-</div>
-
-
-);
+  );
 };
 
 const ArenaTab = () => (
-
-<div className="bg-white p-3 rounded-3xl shadow-lg flex items-center gap-2 border border-slate-200 w-full max-w-sm focus-within:ring-4 ring-indigo-100 transition-all">
-  <input type="text" placeholder="Game PIN" className="flex-1 bg-transparent px-4 py-3 outline-none font-black text-center tracking-[0.3em] text-2xl uppercase text-slate-700 placeholder-slate-300" maxLength={6} />
-  <button className="bg-indigo-600 text-white p-4 rounded-2xl hover:bg-indigo-700 transition-colors shadow-md hover:shadow-lg transform active:scale-95">
-    <Play className="fill-current w-6 h-6" />
-  </button>
-</div>
-
-<div className="mt-10 flex items-center gap-4 text-slate-400 font-bold text-sm">
-  <div className="h-px bg-slate-200 w-16"></div>
-  OR
-  <div className="h-px bg-slate-200 w-16"></div>
-</div>
-
-<button className="mt-6 bg-slate-100 hover:bg-slate-200 text-indigo-600 font-bold py-3 px-8 rounded-2xl transition-colors">
-  Host a Match
-</button>
-
+  <div className="max-w-2xl mx-auto text-center py-12 pb-24">
+    <div className="w-32 h-32 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-8 animate-pulse">
+      <Swords className="w-16 h-16 text-indigo-600" />
+    </div>
+    <h2 className="text-4xl font-black text-slate-800 mb-4">Multiplayer Arena</h2>
+    <p className="text-slate-500 font-bold mb-10 text-lg">Enter a PIN to join your classmates!</p>
+    <div className="bg-white p-8 rounded-3xl shadow-xl border-2 border-slate-100 max-w-sm mx-auto">
+      <input type="text" placeholder="Game PIN" className="w-full text-center text-3xl font-black tracking-widest p-4 bg-slate-100 rounded-2xl outline-none border-4 border-transparent focus:border-indigo-400 mb-6 transition-colors" maxLength={6} />
+      <button className="w-full bg-slate-900 hover:bg-black text-white font-black text-xl py-4 rounded-2xl shadow-lg hover:-translate-y-1 transition-all">ENTER</button>
+    </div>
+  </div>
+);
 
 const ProgressTab = () => (
-
-    <div className="w-full grid grid-cols-2 gap-4">
-      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-        <div className="text-yellow-500 flex justify-center mb-1"><Star className="w-6 h-6 fill-current"/></div>
-        <div className="font-black text-xl text-slate-700">1,250</div>
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Total XP</div>
-      </div>
-      <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-        <div className="text-orange-500 flex justify-center mb-1"><Flame className="w-6 h-6 fill-current"/></div>
-        <div className="font-black text-xl text-slate-700">12</div>
-        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Day Streak</div>
-      </div>
+  <div className="max-w-4xl mx-auto pb-24">
+    <h2 className="text-3xl font-black text-slate-800 mb-8 pt-6">My Progress</h2>
+    <div className="bg-white p-8 rounded-3xl shadow-sm border-2 border-slate-100 text-center">
+      <LineChart className="w-20 h-20 text-slate-300 mx-auto mb-4" />
+      <h3 className="text-xl font-black text-slate-700">Analytics Dashboard</h3>
+      <p className="text-slate-500 font-medium">Coming soon in the next update.</p>
     </div>
   </div>
+);
 
-  {/* Skills Analysis */}
-  <div className="bg-white p-8 rounded-3xl shadow-sm border border-slate-200 col-span-1 lg:col-span-2">
-    <h3 className="font-bold text-xl text-slate-800 mb-8">Skill Analysis</h3>
-    
-    <div className="space-y-6">
-      {[
-        { name: "Listening", score: 85, color: "bg-orange-500" },
-        { name: "Speaking", score: 60, color: "bg-purple-500" },
-        { name: "Reading", score: 92, color: "bg-blue-500" },
-        { name: "Writing (Grammar)", score: 75, color: "bg-green-500" }
-      ].map(skill => (
-        <div key={skill.name}>
-          <div className="flex justify-between font-bold mb-2">
-            <span className="text-slate-700">{skill.name}</span>
-            <span className="text-slate-500">{skill.score}%</span>
-          </div>
-          <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
-            <div className={`${skill.color} h-full rounded-full transition-all duration-1000 ease-out`} style={{width: `${skill.score}%`}}></div>
-          </div>
+const MainLayout = ({ user, handleLogout }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const navItems = [
+    { id: 'classes', label: "Classes", icon: Library, path: '/classes', color: 'text-rose-500', bg: 'bg-rose-50' },
+    { id: 'explore', label: "Learn", icon: Map, path: '/explore', color: 'text-green-500', bg: 'bg-green-50' },
+    { id: 'practice', label: "Practice", icon: Dumbbell, path: '/practice', color: 'text-blue-500', bg: 'bg-blue-50' },
+    { id: 'arena', label: "Arena", icon: Swords, path: '/arena', color: 'text-indigo-500', bg: 'bg-indigo-50' },
+    { id: 'progress', label: "Profile", icon: LineChart, path: '/progress', color: 'text-orange-500', bg: 'bg-orange-50' }
+  ];
+
+  return (
+    <div className="flex flex-col md:flex-row h-screen overflow-hidden bg-slate-50 font-sans">
+      {/* Desktop Sidebar */}
+      <aside className="hidden md:flex flex-col w-72 bg-white border-r-2 border-slate-100 p-6 z-50">
+        <div className="flex items-center gap-3 mb-10 px-2">
+          <Compass className="w-10 h-10 text-blue-600" />
+          <h1 className="text-2xl font-black text-slate-800 tracking-tight">Explorer</h1>
         </div>
-      ))}
-    </div>
-  </div>
-</div>
-
-
-const AdminTab = () => (
-
-// ==========================================
-// 3. LAYOUT (SIDEBAR & BOTTOM NAV)
-// ==========================================
-
-const MainLayout = ({ userData }) => {
-const navigate = useNavigate();
-const location = useLocation();
-
-const handleLogout = () => { signOut(auth); };
-
-const navItems = [
-{ id: 'explore', label: "Learn", icon: Map, path: '/explore', activeColor: 'text-green-500', activeBg: 'bg-green-50' },
-{ id: 'practice', label: "Practice", icon: Dumbbell, path: '/practice', activeColor: 'text-blue-500', activeBg: 'bg-blue-50' },
-{ id: 'arena', label: "Arena", icon: Swords, path: '/arena', activeColor: 'text-indigo-500', activeBg: 'bg-indigo-50' },
-{ id: 'mocktest', label: "Tests", icon: GraduationCap, path: '/mocktest', activeColor: 'text-purple-500', activeBg: 'bg-purple-50' },
-{ id: 'progress', label: "Profile", icon: LineChart, path: '/progress', activeColor: 'text-orange-500', activeBg: 'bg-orange-50' }
-];
-
-return (
-
-{/* Desktop Sidebar */}
-
-
-
-
-Explorer
-
-
-
-    <nav className="flex-1 px-4 space-y-2 overflow-y-auto">
-      {navItems.map(item => {
-        const isActive = location.pathname.includes(item.path);
-        return (
-          <button key={item.id} onClick={() => navigate(item.path)} 
-            className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-2xl font-bold transition-all border-2 
-              ${isActive ? `${item.activeBg}${item.activeColor} border-current` : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}>
-            <item.icon className="w-6 h-6" /> {item.label}
-          </button>
-        )
-      })}
-    </nav>
-
-    <div className="p-4 space-y-2 border-t border-slate-100">
-      {userData?.role === 'admin' && (
-        <button onClick={() => navigate('/admin')} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-red-600 bg-red-50 hover:bg-red-100 transition-colors">
-          <ShieldAlert className="w-5 h-5"/> Admin Area
+        <nav className="flex-1 flex flex-col gap-2">
+          {navItems.map(item => {
+            const isActive = location.pathname.includes(item.path);
+            return (
+              <button key={item.id} onClick={() => navigate(item.path)} className={`flex items-center gap-4 px-4 py-4 rounded-2xl font-bold text-lg transition-all border-2 ${isActive ? `border-slate-200 ${item.bg} ${item.color}` : 'border-transparent text-slate-500 hover:bg-slate-100 hover:text-slate-700'}`}>
+                <item.icon className={`w-6 h-6 ${isActive ? item.color : 'text-slate-400'}`} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+        <button onClick={handleLogout} className="mt-auto flex items-center gap-4 px-4 py-4 rounded-2xl font-bold text-lg text-slate-500 hover:bg-rose-50 hover:text-rose-600 transition-colors">
+          <LogOut className="w-6 h-6" /> Logout
         </button>
-      )}
-      <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors">
-        <LogOut className="w-5 h-5"/> Sign Out
-      </button>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col h-full relative overflow-y-auto overflow-x-hidden">
+        <TopMetricsBar />
+        <div className="p-4 md:p-8 w-full">
+          <Routes>
+            <Route path="/" element={<Navigate to="/classes" replace />} />
+            <Route path="/classes" element={<ClassesTab />} />
+            <Route path="/explore" element={<ExploreTab />} />
+            <Route path="/practice" element={<PracticeTab />} />
+            <Route path="/arena" element={<ArenaTab />} />
+            <Route path="/progress" element={<ProgressTab />} />
+          </Routes>
+        </div>
+      </div>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t-2 border-slate-100 flex justify-around p-3 pb-safe z-50">
+        {navItems.map(item => {
+          const isActive = location.pathname.includes(item.path);
+          return (
+            <button key={item.id} onClick={() => navigate(item.path)} className={`flex flex-col items-center p-2 rounded-xl min-w-[4rem] ${isActive ? item.bg : 'bg-transparent'}`}>
+              <item.icon className={`w-7 h-7 mb-1 ${isActive ? item.color : 'text-slate-400'}`} />
+              <span className={`text-[10px] font-bold ${isActive ? item.color : 'text-slate-500'}`}>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
     </div>
-  </aside>
-
-  {/* Main Content Area */}
-  <main className="flex-1 flex flex-col h-full relative overflow-y-auto pb-24 md:pb-0 hide-scrollbar">
-    
-    {/* Mobile Header / Desktop TopBar */}
-    <header className="sticky top-0 z-40 bg-slate-50/80 backdrop-blur-md p-4 flex justify-between items-center md:bg-transparent md:p-6 md:justify-end">
-      <h1 className="text-xl font-black text-slate-800 md:hidden flex items-center gap-2">
-         <span className="bg-blue-600 text-white p-1 rounded-lg"><Sparkles className="w-4 h-4"/></span> Explorer
-      </h1>
-      <TopMetricsBar />
-    </header>
-
-    <div className="w-full flex-1">
-      <Routes>
-        <Route path="/" element={<Navigate to="/explore" replace />} />
-        <Route path="/explore" element={<ExploreTab />} />
-        <Route path="/arena" element={<ArenaTab />} />
-        <Route path="/practice" element={<PracticeTab />} />
-        <Route path="/progress" element={<ProgressTab />} />
-        <Route path="/mocktest" element={<div className="p-10 text-center text-slate-500 mt-20 font-medium"><GraduationCap className="w-16 h-16 mx-auto mb-4 text-slate-300"/>Mock Tests are locked until Level 5.</div>} />
-        {userData?.role === 'admin' && <Route path="/admin" element={<AdminTab />} />}
-      </Routes>
-    </div>
-  </main>
-
-  {/* Mobile Bottom Navigation */}
-  <nav className="md:hidden bg-white border-t border-slate-200 fixed bottom-0 w-full flex justify-around px-2 pt-2 pb-safe z-50">
-    {navItems.map(item => {
-       const isActive = location.pathname.includes(item.path);
-       return (
-        <button key={item.id} onClick={() => navigate(item.path)} className={`p-2 rounded-2xl flex flex-col items-center gap-1 min-w-[64px] transition-colors ${isActive ? item.activeColor : 'text-slate-400 hover:text-slate-600'}`}>
-          <div className={`p-1.5 rounded-xl transition-colors ${isActive ? item.activeBg : ''}`}>
-            <item.icon className={`w-6 h-6 ${isActive ? 'fill-current opacity-20' : ''}`} style={isActive ? {strokeWidth: 2.5} : {}} />
-          </div>
-          <span className="text-[10px] font-bold">{item.label}</span>
-        </button>
-       )
-    })}
-  </nav>
-  
-  <style dangerouslySetInnerHTML={{__html: `
-    @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
-    .pb-safe { padding-bottom: env(safe-area-inset-bottom, 24px); }
-    .hide-scrollbar::-webkit-scrollbar { display: none; }
-    .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    @keyframes pulse-slow { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
-    .animate-pulse-slow { animation: pulse-slow 2s infinite; }
-  `}} />
-</div>
-
-
-);
+  );
 };
 
-// ==========================================
-// 4. LOGIN SCREEN
-// ==========================================
-const LoginScreen = () => {
-const [loading, setLoading] = useState(false);
-
-const handleGoogleLogin = async () => {
-setLoading(true);
-const provider = new GoogleAuthProvider();
-try {
-await signInWithPopup(auth, provider);
-// Let the onAuthStateChanged listener handle the redirection
-} catch (error) {
-console.error("Login Error:", error);
-setLoading(false);
-}
-};
-
-return (
-
-{/* Decorative Background Elements */}
-
-
-
-  <div className="w-full max-w-md bg-white p-8 md:p-10 rounded-[2rem] shadow-xl text-center z-10 relative border border-slate-100">
-    <div className="w-20 h-20 bg-blue-600 rounded-3xl mx-auto mb-6 flex items-center justify-center shadow-[0_10px_30px_rgba(37,99,235,0.3)] transform rotate-3">
-      <Sparkles className="w-10 h-10 text-white" />
-    </div>
-    <h1 className="text-3xl font-black text-slate-800 mb-3 tracking-tight">Explorer Pro</h1>
-    <p className="text-slate-500 mb-10 font-medium leading-relaxed">Master a new language with AI-powered interactive lessons.</p>
-    
-    <button 
-      onClick={handleGoogleLogin} 
-      disabled={loading}
-      className="w-full flex items-center justify-center gap-3 bg-white text-slate-700 py-4 rounded-2xl font-bold text-lg border-2 border-slate-200 hover:border-slate-300 hover:bg-slate-50 transition-all shadow-sm active:scale-95 disabled:opacity-50 disabled:active:scale-100"
-    >
-      {loading ? <Loader2 className="w-6 h-6 animate-spin text-blue-600" /> : (
-        <>
-          <svg className="w-6 h-6" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
-          Continue with Google
-        </>
-      )}
-    </button>
-  </div>
-</div>
-
-
-);
-};
-
-// ==========================================
-// 5. ROOT APP & AUTH LISTENER
-// ==========================================
 export default function App() {
-const [user, setUser] = useState(null);
-const [userData, setUserData] = useState(null);
-const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(false);
 
-useEffect(() => {
-const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-if (currentUser) {
-setUser(currentUser);
-const userRef = doc(db, 'users', currentUser.uid);
-
-    const unsubDoc = onSnapshot(userRef, async (uDoc) => {
-      if (uDoc.exists()) {
-        setUserData({ id: uDoc.id, ...uDoc.data() });
-        setLoading(false); 
-      } else {
-        // New user creation
-        const isAdmin = SUPER_ADMIN_EMAILS.includes(currentUser.email);
-        await setDoc(userRef, {
-          email: currentUser.email,
-          displayName: currentUser.displayName,
-          photoURL: currentUser.photoURL,
-          role: isAdmin ? 'admin' : 'student',
-          stars: 0,
-          createdAt: new Date()
-        });
-        // Snapshot will re-trigger naturally
-      }
-    });
-    return () => unsubDoc();
-  } else {
-    setUser(null);
-    setUserData(null);
+  const handleLogin = async () => {
+    setLoading(true);
+    const mockUser = await mockAuth.signInWithGoogle();
+    setUser(mockUser);
     setLoading(false);
+  };
+
+  const handleLogout = async () => {
+    await mockAuth.signOut();
+    setUser(null);
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-6 font-sans relative overflow-hidden">
+        <div className="absolute top-20 -left-20 w-72 h-72 bg-blue-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob"></div>
+        <div className="absolute top-40 -right-20 w-72 h-72 bg-purple-400 rounded-full mix-blend-multiply filter blur-3xl opacity-20 animate-blob animation-delay-2000"></div>
+        
+        <div className="relative z-10 w-full max-w-md bg-white p-10 rounded-[2.5rem] shadow-2xl border-2 border-slate-100 text-center">
+          <div className="w-24 h-24 bg-gradient-to-tr from-blue-500 to-indigo-600 rounded-3xl mx-auto mb-8 shadow-xl flex items-center justify-center transform rotate-12">
+            <Compass className="w-12 h-12 text-white -rotate-12" />
+          </div>
+          <h1 className="text-4xl font-black text-slate-800 mb-3 tracking-tight">Welcome Back</h1>
+          <p className="text-slate-500 font-medium mb-10">Sign in to continue your learning journey.</p>
+          
+          <button onClick={handleLogin} disabled={loading} className="w-full flex items-center justify-center gap-3 bg-slate-900 hover:bg-black text-white font-black text-lg py-4 px-6 rounded-2xl transition-all shadow-lg hover:-translate-y-1 active:translate-y-0 disabled:opacity-70 disabled:hover:translate-y-0">
+            {loading ? <Loader2 className="w-6 h-6 animate-spin" /> : (
+              <>
+                <svg className="w-6 h-6 bg-white rounded-full p-1" viewBox="0 0 24 24"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+                Continue with Google
+              </>
+            )}
+          </button>
+        </div>
+      </div>
+    );
   }
-});
-return () => unsubscribe();
 
-
-}, []);
-
-if (loading || (user && !userData)) return (
-
-
-Syncing Data...
-
-);
-
-return (
-
-{user && userData ?  : }
-
-);
+  return (
+    <BrowserRouter>
+      <MainLayout user={user} handleLogout={handleLogout} />
+    </BrowserRouter>
+  );
 }
