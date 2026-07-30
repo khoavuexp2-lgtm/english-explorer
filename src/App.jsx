@@ -3,10 +3,11 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-route
 import {
 MapPin, Star, Lock, ChevronLeft, CheckCircle2,
 Zap, Users, Shield, Globe, Compass, Rocket, TreePine, Anchor,
-Mail, Key, LogIn, LogOut, UserPlus, FileText
+Mail, Key, LogIn, LogOut, UserPlus
 } from 'lucide-react';
 
-// --- KẾT NỐI FIREBASE ---
+// --- KẾT NỐI FIREBASE TỪ FILE CẤU HÌNH ---
+// Đảm bảo bạn đã có file src/firebase.js như đã hướng dẫn
 import { auth, db } from './firebase';
 import {
 signInWithEmailAndPassword,
@@ -27,16 +28,19 @@ forest: { bg: "from-[#1a4a1a] to-[#2d6a2d]", ship: "🚙", nodes: [{x:20,y:80, v
 space: { bg: "from-[#161638] to-[#2a2a5a]", ship: "🚀", nodes: [{x:20,y:80, v:"🪐"},{x:50,y:65, v:"☄️"},{x:80,y:45, v:"🛰️"},{x:40,y:15, v:"👽"}] }
 };
 const config = mapConfig[theme] || mapConfig.ocean;
+
 const initialValidNode = Math.min(progress, config.nodes.length - 1);
 const shipPosRef = useRef({ x: config.nodes[initialValidNode].x, y: config.nodes[initialValidNode].y });
 const [animatingTo, setAnimatingTo] = useState(null);
+
 const labels = ["Từ Vựng", "Thử Thách", "Ngữ Pháp", "Boss Cuối"];
 
 const handleNodeClick = (index, node) => {
 if (index === 0 || progress >= index) {
 if (animatingTo !== null) return;
 if (shipPosRef.current.x === node.x && shipPosRef.current.y === node.y) {
-onEnterStation(index, node); return;
+onEnterStation(index, node);
+return;
 }
 setAnimatingTo(index);
 shipPosRef.current = { x: node.x, y: node.y };
@@ -46,6 +50,7 @@ setTimeout(() => { setAnimatingTo(null); onEnterStation(index, node); }, 1200);
 
 return (
 <div className={relative w-full max-w-4xl h-[600px] mx-auto rounded-[2rem] overflow-hidden shadow-2xl border-4 border-slate-700 bg-gradient-to-t ${config.bg}}>
+{/* Nét đứt nối trạm */}
 
 {config.nodes.map((node, i) => {
 if (i === config.nodes.length - 1) return null;
@@ -55,28 +60,34 @@ const isPassed = progress > i;
 return <line key={i} x1={${node.x}%} y1={${node.y}%} x2={${next.x}%} y2={${next.y}%} stroke={isPassed ? "#4ade80" : isNextTarget ? "#fcd34d" : "rgba(255,255,255,0.2)"} strokeWidth="6" strokeDasharray="0 25" strokeLinecap="round" className={isNextTarget ? "animate-pulse" : ""} />
 })}
 
-<div className="absolute w-20 h-20 transform -translate-x-1/2 -translate-y-1/2 z-30 transition-all duration-[1200ms] flex items-center justify-center pointer-events-none" style={{ left: ${shipPosRef.current.x}%, top: ${shipPosRef.current.y}% }}>
-{config.ship}
 
-{config.nodes.map((node, index) => {
-const isUnlocked = index === 0 || progress >= index;
-return (
-<div key={index} onClick={() => handleNodeClick(index, node)} className={absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 z-20 ${isUnlocked ? 'cursor-pointer hover:scale-110' : 'opacity-40 grayscale cursor-not-allowed'} transition-all} style={{ left: ${node.x}%, top: ${node.y}% }}>
+  {/* Phương tiện */}
+  <div className="absolute w-20 h-20 transform -translate-x-1/2 -translate-y-1/2 z-30 transition-all duration-[1200ms] flex items-center justify-center pointer-events-none" style={{ left: `${shipPosRef.current.x}%`, top: `${shipPosRef.current.y}%` }}>
+    <div className="text-5xl drop-shadow-2xl animate-bounce-short">{config.ship}</div>
+  </div>
 
-{node.v}
-{progress > index && }
-{!isUnlocked && }
+  {/* Điểm trạm */}
+  {config.nodes.map((node, index) => {
+    const isUnlocked = index === 0 || progress >= index;
+    return (
+      <div key={index} onClick={() => handleNodeClick(index, node)} className={`absolute transform -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 z-20 ${isUnlocked ? 'cursor-pointer hover:scale-110' : 'opacity-40 grayscale cursor-not-allowed'} transition-all`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
+        <div className="text-6xl drop-shadow-2xl relative">
+          {node.v}
+          {progress > index && <CheckCircle2 className="absolute -top-2 -right-2 text-white bg-green-500 rounded-full p-1 w-8 h-8 border-2 border-white" />}
+          {!isUnlocked && <Lock className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-8 h-8 opacity-80 text-slate-900" />}
+        </div>
+        <div className={`mt-1 px-3 py-1 rounded-full text-white font-bold text-xs shadow-lg border ${isUnlocked ? 'bg-slate-900/80 border-white/30' : 'bg-slate-800/50 border-transparent'}`}>{labels[index]}</div>
+      </div>
+    );
+  })}
+</div>
 
-<div className={mt-1 px-3 py-1 rounded-full text-white font-bold text-xs shadow-lg border ${isUnlocked ? 'bg-slate-900/80 border-white/30' : 'bg-slate-800/50 border-transparent'}}>{labels[index]}
-
-);
-})}
 
 );
 };
 
 // ==========================================
-// 2. TRANG ĐĂNG NHẬP / ĐĂNG KÝ
+// 2. TRANG ĐĂNG NHẬP (Dùng Firebase Auth)
 // ==========================================
 const LoginPage = () => {
 const [isLogin, setIsLogin] = useState(true);
@@ -88,26 +99,31 @@ const navigate = useNavigate();
 
 const handleAuth = async (e) => {
 e.preventDefault();
-setError(''); setLoading(true);
+setError('');
+setLoading(true);
+
 try {
-if (isLogin) {
-await signInWithEmailAndPassword(auth, email, password);
-} else {
-const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-// Lưu thông tin user mới vào Firestore
-await setDoc(doc(db, "users", userCredential.user.uid), {
-email: email,
-role: "student", // Mặc định ai tạo nick cũng là Học sinh
-progress: 0,
-stars: 0,
-createdAt: new Date()
-});
-}
-navigate('/dashboard');
+  if (isLogin) {
+    await signInWithEmailAndPassword(auth, email, password);
+  } else {
+    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+    // Lưu thông tin mặc định vào Firestore khi tạo nick mới
+    await setDoc(doc(db, "users", userCredential.user.uid), {
+      email: email,
+      role: "student", // Mặc định là học sinh
+      progress: 0,
+      stars: 0,
+      createdAt: new Date()
+    });
+  }
+  navigate('/dashboard'); // Thành công thì chuyển vào bản đồ
 } catch (err) {
-setError(err.message.includes('auth/') ? 'Tài khoản hoặc mật khẩu không chính xác.' : err.message);
+  console.error(err);
+  setError(err.message.includes('auth/') ? 'Tài khoản hoặc mật khẩu không chính xác.' : err.message);
 }
 setLoading(false);
+
+
 };
 
 return (
@@ -118,10 +134,12 @@ return (
 
 
 Global Explorer
+
 {isLogin ? 'Đăng nhập để tiếp tục hành trình' : 'Tạo hồ sơ nhà thám hiểm mới'}
 
 
-    {error && <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-medium mb-4">{error}</div>}
+
+    {error && <div className="bg-red-50 text-red-600 p-3 rounded-xl text-sm font-medium mb-4 border border-red-100">{error}</div>}
 
     <form onSubmit={handleAuth} className="space-y-4">
       <div>
@@ -139,8 +157,8 @@ Global Explorer
         </div>
       </div>
       
-      <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 mt-6">
-        {loading ? 'Đang xử lý...' : isLogin ? <><LogIn className="w-5 h-5"/> Vào Game</> : <><UserPlus className="w-5 h-5"/> Tạo Tài Khoản</>}
+      <button type="submit" disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 mt-6 shadow-md">
+        {loading ? 'Đang kết nối vệ tinh...' : isLogin ? <><LogIn className="w-5 h-5"/> Vào Game</> : <><UserPlus className="w-5 h-5"/> Tạo Tài Khoản</>}
       </button>
     </form>
 
@@ -150,9 +168,59 @@ Global Explorer
       </button>
     </div>
   </div>
+</div>
+
+
+);
+};
+
+// ==========================================
+// 3. TRANG BẢN ĐỒ CHÍNH (Dành cho user đã đăng nhập)
+// ==========================================
+const Dashboard = ({ user, role }) => {
+const navigate = useNavigate();
+// Giả lập tiến độ hiện tại, thực tế sẽ lấy từ Firestore
+const [progress, setProgress] = useState(0);
+
+const handleLogout = () => {
+signOut(auth);
+};
+
+return (
+
+
+ Global Explorer
+
+    <div className="flex items-center gap-3 sm:gap-4">
+      {/* Nút vào khu vực quản trị - CHỈ HIỆN KHI LÀ ADMIN */}
+      {role === 'admin' && (
+        <button onClick={() => navigate('/admin')} className="bg-red-100 text-red-700 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full font-bold flex items-center gap-1 sm:gap-2 hover:bg-red-200 transition-colors text-sm sm:text-base border border-red-200">
+          <Shield className="w-4 h-4"/> <span className="hidden sm:inline">Vùng Admin</span>
+        </button>
+      )}
+      
+      <div className="flex items-center gap-1 bg-yellow-100 px-3 py-1.5 rounded-full border border-yellow-200">
+        <Star className="w-4 h-4 text-yellow-500 fill-current" /> <span className="font-bold text-yellow-700">0</span>
+      </div>
+      
+      <button onClick={handleLogout} className="bg-slate-100 text-slate-600 hover:bg-red-50 hover:text-red-600 px-3 py-1.5 rounded-full font-bold flex items-center gap-1 transition-colors text-sm border border-slate-200">
+         Thoát <LogOut className="w-4 h-4"/>
+      </button>
+    </div>
+  </header>
+
+  <main className="flex-1 p-4 md:p-8 flex items-center justify-center">
+    <div className="w-full relative">
+      <VisualMap progress={progress} theme="ocean" onEnterStation={(index, node) => {
+        alert(`Sắp tới chúng ta sẽ fetch bài học từ Firebase cho trạm: ${node.v}`); 
+        if (progress < 3) setProgress(p => p + 1);
+      }} />
+    </div>
+  </main>
+  
   <style dangerouslySetInnerHTML={{__html: `
-    @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-    .animate-fade-in { animation: fade-in 0.4s ease-out forwards; }
+    @keyframes bounce-short { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+    .animate-bounce-short { animation: bounce-short 1.5s ease-in-out infinite; }
     @keyframes spin-slow { 100% { transform: rotate(360deg); } }
     .animate-spin-slow { animation: spin-slow 8s linear infinite; }
   `}} />
@@ -163,59 +231,7 @@ Global Explorer
 };
 
 // ==========================================
-// 3. BẢNG ĐIỀU KHIỂN CHUNG (Sau đăng nhập)
-// ==========================================
-const Dashboard = ({ user, role }) => {
-const navigate = useNavigate();
-const [progress, setProgress] = useState(0);
-
-const handleLogout = () => {
-signOut(auth);
-};
-
-return (
-
-
-
-
-Global Explorer
-
-
-    <div className="flex items-center gap-3 sm:gap-4">
-      {role === 'admin' && (
-        <button onClick={() => navigate('/admin')} className="bg-red-100 text-red-700 px-3 py-1.5 sm:px-4 sm:py-2 rounded-full font-bold flex items-center gap-1 sm:gap-2 hover:bg-red-200 transition-colors text-sm sm:text-base">
-          <Shield className="w-4 h-4"/> <span className="hidden sm:inline">Vùng Admin</span>
-        </button>
-      )}
-      <div className="flex items-center gap-1 bg-yellow-100 px-3 py-1.5 rounded-full">
-        <Star className="w-4 h-4 text-yellow-500 fill-current" /> <span className="font-bold text-yellow-700">0</span>
-      </div>
-      <button onClick={handleLogout} className="bg-slate-200 text-slate-600 hover:bg-red-500 hover:text-white px-3 py-1.5 rounded-full font-bold flex items-center gap-2 transition-colors text-sm">
-         Thoát <LogOut className="w-4 h-4"/>
-      </button>
-    </div>
-  </header>
-
-  <main className="flex-1 p-4 md:p-8">
-    <div className="max-w-4xl mx-auto mb-8 text-center">
-      <h2 className="text-3xl font-black mb-2 text-slate-800">Bản Đồ Học Tập</h2>
-      <p className="text-slate-500 font-medium">Chào mừng {user.email}! Hãy bắt đầu hành trình.</p>
-    </div>
-    
-    {/* Bản đồ đại dương mặc định, bạn có thể thêm logic chọn theme sau */}
-    <VisualMap progress={progress} theme="ocean" onEnterStation={(i, node) => {
-      alert(`Hệ thống đang chuẩn bị gọi Firebase lấy câu hỏi cho trạm: ${node.v}`);
-      if (progress < 3) setProgress(p => p + 1);
-    }} />
-  </main>
-</div>
-
-
-);
-};
-
-// ==========================================
-// 4. TRANG QUẢN TRỊ VIÊN (Giáo viên)
+// 4. KHU VỰC QUẢN TRỊ (Dành cho Admin)
 // ==========================================
 const AdminPanel = () => {
 const navigate = useNavigate();
@@ -223,30 +239,34 @@ return (
 
 
 
-<button onClick={() => navigate('/dashboard')} className="p-2 bg-red-800 rounded-full hover:bg-red-700">
- Trung Tâm Chỉ Huy (Admin)
+ Khu Vực Quản Trị Hệ Thống
+<button onClick={() => navigate('/dashboard')} className="px-4 py-2 bg-slate-800 rounded-lg font-bold hover:bg-slate-700 flex items-center gap-2">
+ Quay lại Bản đồ
 
 
 
-
-
- Quản Lý Bài Học
-Thêm, sửa, xóa các câu hỏi từ vựng và ngữ pháp. Nội dung được lưu bảo mật trên Firestore.
-Thiết kế bài học mới
-
-
- Quản Lý Học Sinh
-Xem tiến độ, điểm số và quản lý danh sách tài khoản học sinh trong lớp.
-Xem danh sách lớp
-
-
+    <div className="grid md:grid-cols-2 gap-6">
+      <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+        <h3 className="text-xl font-bold text-white mb-4">Quản lý bài học</h3>
+        <p className="text-slate-400 mb-4">Soạn thảo, thêm, sửa câu hỏi và đẩy trực tiếp lên Firestore mà học sinh không thể xem lén code.</p>
+        <button className="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg font-bold text-white w-full">Vào soạn giáo án</button>
+      </div>
+      
+      <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700">
+        <h3 className="text-xl font-bold text-white mb-4">Dữ liệu học sinh</h3>
+        <p className="text-slate-400 mb-4">Xem tiến trình, điểm số và quản lý danh sách tài khoản của toàn bộ học sinh trong hệ thống.</p>
+        <button className="bg-green-600 hover:bg-green-700 px-4 py-2 rounded-lg font-bold text-white w-full">Xem danh sách lớp</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 
 );
 };
 
 // ==========================================
-// 5. BỘ ĐỊNH TUYẾN & BẢO VỆ ROUTES (MAIN)
+// 5. APP GỐC - ĐIỀU HƯỚNG BẢO MẬT (Router)
 // ==========================================
 export default function App() {
 const [user, setUser] = useState(null);
@@ -254,17 +274,17 @@ const [role, setRole] = useState(null);
 const [loading, setLoading] = useState(true);
 
 useEffect(() => {
-// Lắng nghe trạng thái đăng nhập từ Firebase
+// Trình theo dõi bảo mật: Luôn lắng nghe xem có ai đang đăng nhập không
 const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
 if (currentUser) {
 setUser(currentUser);
 try {
-// Lấy quyền user từ DB Firestore
+// Kéo thông tin Role (Quyền) từ Firestore xuống
 const userDoc = await getDoc(doc(db, 'users', currentUser.uid));
 if (userDoc.exists()) {
 setRole(userDoc.data().role);
 } else {
-setRole('student'); // Mặc định nếu không tìm thấy
+setRole('student'); // An toàn: Không rõ thì cho làm học sinh
 }
 } catch (error) {
 console.error("Lỗi lấy quyền:", error);
@@ -276,30 +296,35 @@ setRole(null);
 }
 setLoading(false);
 });
+
 return () => unsubscribe();
+
+
 }, []);
 
+// Đang check Firebase thì hiện màn hình loading
 if (loading) {
 return (
 
 
-Đang kết nối vệ tinh Firebase...
+Đang kết nối trạm không gian...
 
 );
 }
 
+// Chia đường (Routing)
 return (
 
 
-{/* Route gốc: Đã login thì văng vào Dashboard, chưa thì ở Login */}
-<Route path="/" element={user ?  : } />
+{/* Route gốc: Nếu đã login thì đá văng vào Dashboard, chưa thì cho Login */}
+<Route path="/" element={ user ?  :  } />
 
-    {/* Route bảo vệ: Bắt buộc phải Login mới vào được Map */}
+    {/* Route bảo vệ: Bắt buộc Login mới được vào Bản đồ */}
     <Route path="/dashboard" element={
       user ? <Dashboard user={user} role={role} /> : <Navigate to="/" replace />
     } />
     
-    {/* Route Tuyệt Mật: Bắt buộc phải là Admin mới vào được */}
+    {/* Route tuyệt mật: Bắt buộc phải là Admin mới được vào */}
     <Route path="/admin" element={
       user && role === 'admin' ? <AdminPanel /> : <Navigate to="/dashboard" replace />
     } />
