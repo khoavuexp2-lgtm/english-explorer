@@ -13,30 +13,30 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
-// =========================================================================
-// LƯU Ý CỰC KỲ QUAN TRỌNG: 
-// ĐỂ ĐĂNG NHẬP FIREBASE BÌNH THƯỜNG, BẠN BẮT BUỘC PHẢI BỎ KHÓA COMMENT (DẤU /* VÀ */)
-// Ở BIẾN firebaseConfig DƯỚI ĐÂY, VÀ XÓA DÒNG "const firebaseConfig = {};" 
-// NẾU KHÔNG BẠN SẼ GẶP LỖI "FIREBASE KHÔNG HỖ TRỢ SIGN IN"!
-// =========================================================================
-
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
-};
-
-
+// Cấu hình Firebase an toàn (Tự động lấy từ file .env của bạn)
+// Không còn lỗi chặn Sign-in hay sập màn hình trắng nữa.
+let firebaseConfig = {};
+try {
+  firebaseConfig = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  };
+} catch (error) {
+  console.warn("Đang chạy ở môi trường Preview, bỏ qua import.meta");
+}
 
 let app, auth, db;
 try {
-  app = initializeApp(firebaseConfig);
-  auth = getAuth(app);
-  db = getFirestore(app);
+  if (firebaseConfig.apiKey) {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  }
 } catch (error) {
   console.warn("Firebase not fully configured. Running in UI-only mode.", error);
 }
@@ -85,7 +85,6 @@ const GRADE_5_UNITS = [
   { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'locked', theme: 'forest', progress: 0 },
 ];
 
-// CÁC BIẾN NÀY CHỈ LÀ CHUỖI MẪU ĐỂ ĐIỀN VÀO TEXTAREA TRONG TAB ADMIN. CHÚNG KHÔNG CÒN ĐƯỢC LOAD VÀO APP NỮA.
 const TEMPLATE_GAME_DATA = {
   vocab: [
     { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=500&q=80", question: "Vocabulary: A large and busy settlement.", options: ["Village", "City", "Mountain", "Tower"], answer: "City", explain: "City means a large and busy settlement." },
@@ -634,11 +633,10 @@ const OnboardingView = () => {
       if (auth) {
         await signInWithPopup(auth, provider);
       } else {
-        alert("Firebase chưa được khởi tạo. Bạn đã dán mã Firebase Config vào code chưa?");
+        alert("Firebase chưa được khởi tạo đúng cách. Vui lòng kiểm tra lại cấu hình .env!");
       }
     } catch (error) { 
       console.error("Login failed", error); 
-      // Hiển thị lỗi chi tiết để bắt bệnh
       alert("Lỗi Đăng Nhập Firebase: " + error.message); 
     }
   };
@@ -661,7 +659,7 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   const [currentView, setCurrentView] = useState('grades'); 
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
-  const [currentUnitData, setCurrentUnitData] = useState(null); // CHỨA DỮ LIỆU TẢI TỪ FIREBASE
+  const [currentUnitData, setCurrentUnitData] = useState(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
 
@@ -674,7 +672,6 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   ];
   if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
 
-  // HÀM TẢI DỮ LIỆU TRỰC TIẾP TỪ CLOUD (TRUNG TÂM CỦA ZERO HARDCODED DATA)
   const handleSelectUnitAndFetch = async (unit) => {
     setSelectedUnit(unit);
     setIsLoadingData(true);
