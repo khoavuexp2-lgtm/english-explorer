@@ -6,14 +6,14 @@ import {
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
   AlertCircle, Check, Crown, ShieldAlert, BookOpen, Library,
   Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
-  Mail, Phone, RotateCw, Gamepad2, Sparkles // Đã thêm Sparkles để fix lỗi trắng màn hình
+  Mail, Phone, RotateCw, Gamepad2, Sparkles
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
-// Lấy chìa khóa từ file .env an toàn (hỗ trợ Vite)
+// --- FIREBASE CONFIGURATION ---
 let firebaseConfig = {};
 try {
   firebaseConfig = {
@@ -38,6 +38,7 @@ try {
   console.warn("Firebase not fully configured. Running in UI-only mode.", error);
 }
 
+// --- GLOBAL STYLES ---
 const globalStyles = `
   .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -51,6 +52,7 @@ const globalStyles = `
   .animate-pulse-ring { animation: pulse-ring 2s infinite; }
 `;
 
+// --- MOCK DATA FOR DEMO & FALLBACK ---
 const MOCK_USERS = [
   { uid: "admin1", name: "Mr. Khoa", email: "khoavuexp@gmail.com", role: "superadmin", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Khoa", status: "active", inventory: { stars: 999, flames: 50, lives: 5 } },
   { uid: "admin2", name: "Teacher Anna", email: "anna@gmail.com", role: "admin", avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=Anna", status: "active", inventory: { stars: 500, flames: 20, lives: 5 } },
@@ -91,14 +93,14 @@ const GAME_DATA = {
     question: "Vocabulary: Look at the picture and choose the correct word.",
     options: ["Village", "City", "Mountain", "Tower"],
     answer: "City",
-    explain: "City (Thành phố) là nơi có nhiều tòa nhà cao tầng và giao thông nhộn nhịp."
+    explain: "City means a large and busy settlement."
   },
   grammar: {
     type: 'order',
     question: "Grammar: Arrange the words to make a correct sentence.",
     words: ["live", "do", "Where", "you", "?"],
     answer: "Where do you live ?",
-    explain: "Cấu trúc hỏi nơi ở: Where + do/does + S + live?"
+    explain: "Question structure: Where + do/does + S + live?"
   },
   listen: {
     type: 'listen-fill',
@@ -108,7 +110,7 @@ const GAME_DATA = {
     textAfter: "village.",
     options: ["big and noisy", "small and quiet", "large and crowded", "far and busy"],
     answer: "small and quiet",
-    explain: "Trong audio đọc rõ cụm từ 'small and quiet' (nhỏ và yên tĩnh)."
+    explain: "The audio clearly says 'small and quiet'."
   },
   read: {
     type: 'multiple-choice',
@@ -116,16 +118,17 @@ const GAME_DATA = {
     question: "Reading: Who does Trung live with?",
     options: ["His parents", "His friends", "His grandparents", "His uncle"],
     answer: "His grandparents",
-    explain: "Đoạn văn ghi rõ: 'Trung lives with his grandparents' (Trung sống với ông bà)."
+    explain: "The passage states: 'Trung lives with his grandparents'."
   },
   boss: {
     type: 'speak',
     question: "Final Boss! Read the sentence aloud clearly to defeat the Boss:",
     targetText: "I live in a big city",
-    hint: "Nhấn nút Mic để bắt đầu thu âm. Bạn cần phát âm chuẩn từng từ nhé!"
+    hint: "Tap the Mic button to start recording. Pronounce each word clearly!"
   }
 };
 
+// --- UTILITIES ---
 const playAudio = (text) => {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -141,36 +144,63 @@ const evaluateSpeech = (transcript, target) => {
   const cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
   
   if (cleanTranscript === cleanTarget) return { pass: true, msg: "Perfect pronunciation!" };
-  
   if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) {
-    return { pass: false, msg: "Bạn đã phát âm sai từ 'big' thành 'bag' (cái túi). Hãy phát âm âm /ɪ/ ngắn nhé!" };
+    return { pass: false, msg: "You pronounced 'bag' instead of 'big'. Try a short /ɪ/ sound!" };
   }
-  
-  return { pass: false, msg: `Hệ thống nghe được: "${transcript}". Chưa chính xác, hãy thử lại!` };
+  return { pass: false, msg: `System heard: "${transcript}". Not quite right, try again!` };
 };
 
+// --- SECURE FIREBASE SYNC (Fix for White Screen) ---
 const syncUserWithDb = async (googleUser) => {
   if (!db) return null;
-  const userRef = doc(db, "users", googleUser.uid);
-  const userSnap = await getDoc(userRef);
+  
+  const defaultInventory = { stars: 0, flames: 0, lives: 5 };
+  const defaultName = googleUser.displayName || "Explorer";
+  const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
 
-  if (userSnap.exists()) {
-    return userSnap.data();
-  } else {
-    const newUser = {
+  try {
+    const userRef = doc(db, "users", googleUser.uid);
+    const userSnap = await getDoc(userRef);
+
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      // Defensive merging to prevent undefined properties crashing React
+      return {
+        ...data,
+        name: data.name || defaultName,
+        avatar: data.avatar || defaultAvatar,
+        role: data.role || "student",
+        inventory: data.inventory || defaultInventory
+      };
+    } else {
+      const newUser = {
+        uid: googleUser.uid,
+        name: defaultName,
+        email: googleUser.email,
+        role: "student", 
+        avatar: defaultAvatar,
+        status: "active",
+        inventory: defaultInventory
+      };
+      await setDoc(userRef, newUser);
+      return newUser;
+    }
+  } catch (error) {
+    console.error("Firestore sync error (Check your database rules):", error);
+    // Fallback: If Firestore fails, return a functional mock user so app doesn't crash
+    return {
       uid: googleUser.uid,
-      name: googleUser.displayName || "Explorer",
+      name: defaultName,
       email: googleUser.email,
-      role: "student", 
-      avatar: googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${googleUser.displayName}`,
+      role: "student",
+      avatar: defaultAvatar,
       status: "active",
-      inventory: { stars: 0, flames: 0, lives: 5 }
+      inventory: defaultInventory
     };
-    await setDoc(userRef, newUser);
-    return newUser;
   }
 };
 
+// --- COMPONENTS ---
 const TopMetricsBar = ({ user }) => (
   <div className="flex items-center justify-between px-4 sm:px-8 py-2 bg-slate-900/40 backdrop-blur-xl sticky top-0 z-40 border-b border-white/10 shadow-sm h-14 shrink-0">
     <div className="flex items-center gap-3">
@@ -182,23 +212,23 @@ const TopMetricsBar = ({ user }) => (
     <div className="flex items-center gap-2 sm:gap-4 scale-90 sm:scale-100 origin-right">
       <div className="flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-rose-500/30 shadow-lg">
         <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
-        <span className="font-black text-rose-100 text-sm">{user.inventory.lives}</span>
+        <span className="font-black text-rose-100 text-sm">{user?.inventory?.lives ?? 5}</span>
       </div>
       <div className="flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-orange-500/30 shadow-lg">
         <Flame className="w-4 h-4 text-orange-500 fill-orange-500" />
-        <span className="font-black text-orange-100 text-sm">{user.inventory.flames}</span>
+        <span className="font-black text-orange-100 text-sm">{user?.inventory?.flames ?? 0}</span>
       </div>
       <div className="flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-yellow-500/30 shadow-lg">
         <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-        <span className="font-black text-yellow-100 text-sm">{user.inventory.stars}</span>
+        <span className="font-black text-yellow-100 text-sm">{user?.inventory?.stars ?? 0}</span>
       </div>
       <div className="h-6 w-px bg-white/20 mx-1 hidden sm:block"></div>
       <div className="hidden sm:flex items-center gap-2 bg-white/5 backdrop-blur-md px-2 py-1 rounded-xl border border-white/10 shadow-lg">
         <div className="flex flex-col text-right">
-          <span className="text-[9px] font-black text-blue-200 uppercase tracking-wider">{user.role}</span>
-          <span className="text-xs font-black text-white leading-none">{user.name.split(' ')[0]}</span>
+          <span className="text-[9px] font-black text-blue-200 uppercase tracking-wider">{user?.role || "STUDENT"}</span>
+          <span className="text-xs font-black text-white leading-none">{(user?.name || "User").split(' ')[0]}</span>
         </div>
-        <img src={user.avatar} alt="Avatar" className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/30 object-cover" />
+        <img src={user?.avatar || "https://api.dicebear.com/7.x/adventurer/svg"} alt="Avatar" className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/30 object-cover" />
       </div>
     </div>
   </div>
@@ -208,7 +238,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
   if (!isOpen || !station) return null;
   const [selectedOpt, setSelectedOpt] = useState(null);
   const [orderedWords, setOrderedWords] = useState([]);
-  const [status, setStatus] = useState('playing'); // playing, correct, wrong
+  const [status, setStatus] = useState('playing'); 
   const [feedbackMsg, setFeedbackMsg] = useState("");
   
   const [isListening, setIsListening] = useState(false);
@@ -275,6 +305,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
     }
   };
 
+  const deductLife = () => {
+    if (user && updateUser && (user.inventory?.lives ?? 0) > 0) {
+       updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
+    }
+  }
+
   const handleVoiceCheck = (spokenText) => {
     const evaluation = evaluateSpeech(spokenText, qData.targetText);
     setFeedbackMsg(evaluation.msg);
@@ -282,9 +318,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
        setStatus('correct');
     } else {
        setStatus('wrong');
-       if (user && updateUser && user.inventory.lives > 0) {
-          updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
-       }
+       deductLife();
     }
   };
 
@@ -302,9 +336,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
       else {
         setStatus('wrong');
         setFeedbackMsg(qData.explain);
-        if (user && updateUser && user.inventory.lives > 0) {
-           updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
-        }
+        deductLife();
       }
     } else if (qData.type === 'order') {
       if (orderedWords.join(" ") === qData.answer) {
@@ -314,9 +346,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
       else {
         setStatus('wrong');
         setFeedbackMsg(qData.explain);
-        if (user && updateUser && user.inventory.lives > 0) {
-           updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
-        }
+        deductLife();
       }
     }
   };
@@ -331,13 +361,13 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      {user && user.inventory.lives <= 0 ? (
+      {(user?.inventory?.lives ?? 5) <= 0 ? (
         <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl animate-pop border-4 border-rose-500">
           <Heart className="w-20 h-20 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
           <h3 className="text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
           <p className="text-slate-600 font-medium mb-8">You answered incorrectly too many times. Take a break or refill hearts to continue!</p>
           <button onClick={() => { 
-            updateUser({...user, inventory: {...user.inventory, lives: 5}});
+            if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}});
             setStatus('playing');
             setFeedbackMsg("");
           }} className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-black text-lg rounded-xl border-b-4 border-rose-700 active:translate-y-1 active:border-b-0 shadow-lg">
@@ -519,12 +549,12 @@ const MapView = ({ grade, unit, onBack, user, updateUser }) => {
       </div>
       <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} user={user} updateUser={updateUser} onWin={() => {
         setActiveGame(null);
-        if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: user.inventory.stars + 15}});
+        if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory?.stars ?? 0) + 15}});
         
         if (currentStationIdx < nodes.length - 1) setCurrentStationIdx(p => p + 1);
         else {
            alert("🎉 Incredible! You defeated the Boss and completed this Unit! (+50 Stars)");
-           if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: user.inventory.stars + 50}});
+           if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory?.stars ?? 0) + 50}});
            onBack();
         }
       }} />
@@ -611,7 +641,7 @@ const AdminPanel = ({ currentUser }) => {
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
         <div className="p-6 bg-slate-900 text-white border-b-4 border-slate-800 flex justify-between items-center">
           <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-2xl font-black">Admin Control Panel</h2></div>
-          <div className="bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold border border-slate-700">Logged in as: <span className="text-purple-400 uppercase">{currentUser.role}</span></div>
+          <div className="bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold border border-slate-700">Logged in as: <span className="text-purple-400 uppercase">{currentUser?.role || 'UNKNOWN'}</span></div>
         </div>
         <div className="flex bg-slate-50 border-b border-slate-200">
            <button onClick={() => setActiveTab('cms')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'cms' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>☁️ PUSH DATA (CMS)</button>
@@ -674,7 +704,7 @@ const AdminPanel = ({ currentUser }) => {
               </thead>
               <tbody>
                 {users.map(u => {
-                  const canModify = currentUser.role === 'superadmin' || (currentUser.role === 'admin' && u.role !== 'superadmin');
+                  const canModify = currentUser?.role === 'superadmin' || (currentUser?.role === 'admin' && u.role !== 'superadmin');
                   return (
                     <tr key={u.uid} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                       <td className="p-4 flex items-center gap-4">
@@ -849,7 +879,7 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
     { id: 'arena', label: "Arena", icon: Swords, color: 'text-orange-400' }
   ];
 
-  if (user.role === 'admin' || user.role === 'superadmin') {
+  if (user?.role === 'admin' || user?.role === 'superadmin') {
     navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
   }
 
