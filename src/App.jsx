@@ -899,12 +899,11 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
           
           {/* Author Tag */}
           
-          <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2">
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</span>
-            <span className="text-xs text-blue-400 font-black">Mr. Khoa</span>
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1 mb-4 whitespace-nowrap overflow-hidden">
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Teacher & Dev</span>
+            <span className="font-black text-slate-800 text-lg">Mr. Khoa</span>
             <span className="text-xs text-blue-600 flex items-center gap-2 font-medium"><Mail className="w-3 h-3"/> khoavuexp@gmail.com</span>
             <span className="text-xs text-slate-600 flex items-center gap-2 font-medium"><Phone className="w-3 h-3"/> 0901.637.827</span>
-       
           </div>
           
 
