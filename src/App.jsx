@@ -13,19 +13,17 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
-// BẠN HÃY BỎ COMMENT VÀ ĐIỀN THÔNG TIN FIREBASE CỦA BẠN VÀO ĐÂY KHI MUỐN CHẠY THẬT NHÉ
-/*
+// Vui lòng DÁN TRỰC TIẾP các mã (String) từ Firebase Console của bạn vào đây.
+// (Môi trường Web Editor này biên dịch ở chuẩn es2015 nên không hỗ trợ cú pháp import.meta.env)
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  apiKey: "DÁN_API_KEY_CỦA_BẠN_VÀO_ĐÂY",
+  authDomain: "DÁN_AUTH_DOMAIN_CỦA_BẠN_VÀO_ĐÂY",
+  projectId: "DÁN_PROJECT_ID_CỦA_BẠN_VÀO_ĐÂY",
+  storageBucket: "DÁN_STORAGE_BUCKET_CỦA_BẠN_VÀO_ĐÂY",
+  messagingSenderId: "DÁN_MESSAGING_SENDER_ID_CỦA_BẠN_VÀO_ĐÂY",
+  appId: "DÁN_APP_ID_CỦA_BẠN_VÀO_ĐÂY",
+  measurementId: "DÁN_MEASUREMENT_ID_CỦA_BẠN_VÀO_ĐÂY"
 };
-*/
-const firebaseConfig = {}; // Để trống để web build được trong môi trường này
 
 let app, auth, db;
 try {
