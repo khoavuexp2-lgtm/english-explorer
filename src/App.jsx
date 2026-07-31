@@ -5,7 +5,8 @@ import {
   ArrowRight, Globe, MessageCircle, Mic, Compass, Rocket, 
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
   AlertCircle, Check, Crown, ShieldAlert, BookOpen, Library,
-  Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, Mail, Phone, RotateCw, Gamepad2
+  Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
+  Mail, Phone, RotateCw, Gamepad2, Sparkles // Đã thêm Sparkles để fix lỗi trắng màn hình
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -13,15 +14,20 @@ import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChang
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
 // Lấy chìa khóa từ file .env an toàn (hỗ trợ Vite)
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
-  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
-};
+let firebaseConfig = {};
+try {
+  firebaseConfig = {
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID,
+    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+  };
+} catch (e) {
+  console.warn("import.meta.env is not available. Please ensure you are running in a Vite environment.");
+}
 
 let app, auth, db;
 try {
@@ -234,12 +240,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
         };
 
         recognitionRef.current.onerror = (event) => {
-          setFeedbackMsg("Lỗi Mic: " + event.error);
+          setFeedbackMsg("Mic Error: " + event.error);
           setIsListening(false);
           setStatus('wrong');
         };
       } else {
-        setFeedbackMsg("Trình duyệt của bạn không hỗ trợ tính năng nhận diện giọng nói. Vui lòng dùng Chrome/Edge.");
+        setFeedbackMsg("Browser does not support Speech Recognition. Please use Chrome/Edge.");
         setStatus('wrong');
       }
     }
@@ -291,7 +297,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
     if (qData.type === 'multiple-choice' || qData.type === 'listen-fill' || qData.type === 'read') {
       if (selectedOpt === qData.answer) {
         setStatus('correct');
-        setFeedbackMsg("Tuyệt vời!");
+        setFeedbackMsg("Excellent!");
       }
       else {
         setStatus('wrong');
@@ -303,7 +309,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
     } else if (qData.type === 'order') {
       if (orderedWords.join(" ") === qData.answer) {
         setStatus('correct');
-        setFeedbackMsg("Chính xác!");
+        setFeedbackMsg("Perfect!");
       }
       else {
         setStatus('wrong');
@@ -328,14 +334,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
       {user && user.inventory.lives <= 0 ? (
         <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl animate-pop border-4 border-rose-500">
           <Heart className="w-20 h-20 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
-          <h3 className="text-3xl font-black text-slate-800 mb-2">Hết Tim Rồi!</h3>
-          <p className="text-slate-600 font-medium mb-8">Bạn đã trả lời sai quá nhiều. Hãy nghỉ ngơi một chút hoặc bơm tim để tiếp tục hành trình nhé!</p>
+          <h3 className="text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
+          <p className="text-slate-600 font-medium mb-8">You answered incorrectly too many times. Take a break or refill hearts to continue!</p>
           <button onClick={() => { 
             updateUser({...user, inventory: {...user.inventory, lives: 5}});
             setStatus('playing');
             setFeedbackMsg("");
           }} className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-black text-lg rounded-xl border-b-4 border-rose-700 active:translate-y-1 active:border-b-0 shadow-lg">
-            BƠM ĐẦY TIM (DEMO)
+            REFILL HEARTS (DEMO)
           </button>
         </div>
       ) : (
@@ -517,7 +523,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser }) => {
         
         if (currentStationIdx < nodes.length - 1) setCurrentStationIdx(p => p + 1);
         else {
-           alert("🎉 Xuất sắc! Bạn đã đánh bại Boss và hoàn thành Unit này! (+50 Sao)");
+           alert("🎉 Incredible! You defeated the Boss and completed this Unit! (+50 Stars)");
            if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: user.inventory.stars + 50}});
            onBack();
         }
@@ -585,15 +591,15 @@ const AdminPanel = ({ currentUser }) => {
     setPushMsg({ type: '', text: '' });
     try {
       const parsedData = JSON.parse(jsonInput);
-      if (!db) throw new Error("Firebase chưa được kết nối! Hãy kiểm tra file .env");
+      if (!db) throw new Error("Firebase is not connected! Check your .env setup.");
       const docId = `grade${grade}_unit${unit}`;
       await setDoc(doc(db, "units", docId), parsedData);
-      setPushMsg({ type: 'success', text: `✅ Đã ghi đè dữ liệu thành công vào bài: ${docId}` });
+      setPushMsg({ type: 'success', text: `✅ Successfully overwritten data to cloud document: ${docId}` });
     } catch (error) {
       if (error instanceof SyntaxError) {
-        setPushMsg({ type: 'error', text: `❌ Lỗi định dạng JSON (dư dấu phẩy, thiếu ngoặc kép, ...): ${error.message}` });
+        setPushMsg({ type: 'error', text: `❌ JSON Format Error (extra comma, missing quotes, etc.): ${error.message}` });
       } else {
-        setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` });
+        setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
       }
     } finally {
       setIsPushing(false);
@@ -608,8 +614,8 @@ const AdminPanel = ({ currentUser }) => {
           <div className="bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold border border-slate-700">Logged in as: <span className="text-purple-400 uppercase">{currentUser.role}</span></div>
         </div>
         <div className="flex bg-slate-50 border-b border-slate-200">
-           <button onClick={() => setActiveTab('cms')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'cms' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>☁️ NẠP DỮ LIỆU (CMS)</button>
-           <button onClick={() => setActiveTab('users')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'users' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>👥 QUẢN LÝ NGƯỜI DÙNG</button>
+           <button onClick={() => setActiveTab('cms')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'cms' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>☁️ PUSH DATA (CMS)</button>
+           <button onClick={() => setActiveTab('users')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'users' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>👥 USER MANAGEMENT</button>
         </div>
       </div>
       
@@ -617,20 +623,20 @@ const AdminPanel = ({ currentUser }) => {
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-6 flex flex-col gap-4 animate-fade-in">
           <div className="flex flex-col md:flex-row items-center gap-4 bg-blue-50 p-5 rounded-xl border border-blue-200">
              <div className="flex-1 w-full">
-                <label className="block text-sm font-bold text-blue-900 mb-2">Chọn Khối Lớp</label>
+                <label className="block text-sm font-bold text-blue-900 mb-2">Select Grade</label>
                 <select value={grade} onChange={e=>setGrade(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none focus:border-blue-500 shadow-sm">
-                  {[1,2,3,4,5].map(g => <option key={g} value={g}>Lớp {g}</option>)}
+                  {[1,2,3,4,5].map(g => <option key={g} value={g}>Grade {g}</option>)}
                 </select>
              </div>
              <div className="flex-1 w-full">
-                <label className="block text-sm font-bold text-blue-900 mb-2">Chọn Unit</label>
+                <label className="block text-sm font-bold text-blue-900 mb-2">Select Unit</label>
                 <select value={unit} onChange={e=>setUnit(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none focus:border-blue-500 shadow-sm">
                   {[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].map(u => <option key={u} value={u}>Unit {u}</option>)}
                 </select>
              </div>
              <div className="flex-1 w-full flex items-end">
                 <button onClick={handlePushData} disabled={isPushing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 mt-6 md:mt-0 shadow-lg">
-                   {isPushing ? 'ĐANG ĐẨY...' : '🚀 PUSH TO CLOUD'}
+                   {isPushing ? 'PUSHING...' : '🚀 PUSH TO CLOUD'}
                 </button>
              </div>
           </div>
@@ -643,9 +649,9 @@ const AdminPanel = ({ currentUser }) => {
 
           <div className="flex-1 flex flex-col gap-3 mt-2">
             <div className="flex justify-between items-center px-1">
-               <label className="font-black text-slate-700 flex items-center gap-2"><BookOpen className="w-5 h-5"/> Dữ liệu bài học (Định dạng JSON)</label>
+               <label className="font-black text-slate-700 flex items-center gap-2"><BookOpen className="w-5 h-5"/> Lesson Data (JSON Format)</label>
                <button onClick={() => setJsonInput(JSON.stringify(GAME_DATA, null, 2))} className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-                 Tải lại Form Mẫu
+                 Reload Template
                </button>
             </div>
             <textarea 
@@ -653,7 +659,7 @@ const AdminPanel = ({ currentUser }) => {
                onChange={e => setJsonInput(e.target.value)}
                className="w-full h-[400px] bg-slate-900 text-emerald-400 font-mono text-sm p-5 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/30 border-4 border-slate-800 shadow-inner hide-scrollbar"
                spellCheck="false"
-               placeholder="Dán mã JSON bài học của bạn vào đây..."
+               placeholder="Paste your JSON lesson code here..."
             />
           </div>
         </div>
