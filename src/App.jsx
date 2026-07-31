@@ -4,10 +4,10 @@ import {
   Mic, Headphones, Flame, Heart, Lock, CheckCircle2, Star, 
   X, MessageSquare, ChevronRight, Trophy, Zap, Compass, Library, Shield,
   Menu, Mail, Phone, Rocket, Crown, BrainCircuit, ChevronLeft,
-  RotateCw, Plus, Users, Target, Clock, Settings, Gamepad2, Volume2, Type
+  RotateCw, Plus, Users, Target, Clock, Settings, Gamepad2, Volume2, Type,
+  Timer, Award, Ban, UserCheck, ShieldAlert
 } from 'lucide-react';
 
-// --- STYLES ẨN THANH CUỘN ---
 const globalStyles = `
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
@@ -18,15 +18,21 @@ const globalStyles = `
   }
 `;
 
-// --- MOCK DATA ---
 const MOCK_USER = {
-  uid: "123",
-  name: "Khoa Teacher",
+  uid: "admin123",
+  name: "Mr. Khoa",
   email: "khoavuexp@gmail.com",
-  role: "admin",
-  avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=Khoa",
+  role: "admin", // Đổi thành 'student' để xem giao diện học sinh (Mất nút Admin)
+  avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=KhoaMaster",
   status: "active"
 };
+
+const MOCK_STUDENTS = [
+  { id: "s1", name: "Nguyễn Văn A", email: "nva@gmail.com", role: "student", status: "active", avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=A" },
+  { id: "s2", name: "Trần Thị B", email: "ttb@gmail.com", role: "student", status: "blocked", avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=B" },
+  { id: "s3", name: "Lê Hoàng C", email: "lhc@gmail.com", role: "admin", status: "active", avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=C" },
+  { id: "s4", name: "Phạm Văn D", email: "pvd@gmail.com", role: "student", status: "active", avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=D" },
+];
 
 const GRADES = [
   { id: 'g1', name: "Grade 1", desc: "Phonics & Words", locked: false, color: "from-emerald-400 to-teal-500", icon: Zap },
@@ -43,7 +49,6 @@ const MAP_THEMES = {
   desert: { bg: "from-[#78350f] to-[#451a03]", vehicle: "🐪", pathColor: "rgba(255,255,255,0.3)" },
 };
 
-// Dữ liệu Units của Grade 5
 const GRADE_5_UNITS = [
   { id: 'u1', name: "Unit 1", title: "What's your address?", status: 'completed', theme: 'ocean', stars: 3 },
   { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'active', theme: 'forest', stars: 0 },
@@ -52,7 +57,7 @@ const GRADE_5_UNITS = [
 ];
 
 const TopMetricsBar = ({ user }) => (
-  <div className="flex items-center justify-between px-4 sm:px-8 py-2 bg-slate-900/40 backdrop-blur-xl sticky top-0 z-40 border-b border-white/10 shadow-sm h-14">
+  <div className="flex items-center justify-between px-4 sm:px-8 py-2 bg-slate-900/40 backdrop-blur-xl sticky top-0 z-40 border-b border-white/10 shadow-sm h-14 shrink-0">
     <div className="flex items-center gap-3">
       <button className="md:hidden p-1.5 bg-white/10 text-white rounded-lg active:scale-95 backdrop-blur-md">
         <Menu className="w-5 h-5" />
@@ -86,7 +91,6 @@ const TopMetricsBar = ({ user }) => (
   </div>
 );
 
-// Modal Vượt Ải AI
 const AITestModal = ({ isOpen, onClose, unit, onUnlock }) => {
   if (!isOpen) return null;
   return (
@@ -125,13 +129,12 @@ const GradesView = ({ onSelectGrade }) => (
       <p className="text-white/60 font-medium text-sm mt-1">Choose a path to begin your journey</p>
     </div>
     
-    {/* Layout tối ưu để vừa vặn màn hình ngang, không cần cuộn */}
     <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-4 max-w-5xl w-full">
       {GRADES.map(grade => (
         <button 
           key={grade.id} 
           onClick={() => !grade.locked && onSelectGrade(grade)}
-          className={`relative group flex-1 min-w-[160px] max-w-[220px] text-left p-4 sm:p-5 rounded-3xl border-b-[6px] transition-all duration-200
+          className={`relative group flex-1 min-w-[140px] max-w-[200px] text-left p-4 rounded-3xl border-b-[6px] transition-all duration-200
           ${grade.locked 
             ? `bg-slate-800/40 border-slate-900/50 cursor-not-allowed backdrop-blur-md` 
             : `bg-gradient-to-b ${grade.color} border-black/20 shadow-xl hover:-translate-y-1.5 active:translate-y-0 active:border-b-[3px] backdrop-blur-md`}`}
@@ -142,14 +145,14 @@ const GradesView = ({ onSelectGrade }) => (
             </div>
           )}
           
-          <div className="flex justify-between items-center mb-3">
-            <div className={`p-2.5 rounded-xl bg-white/20 backdrop-blur-md ${grade.locked ? 'text-white/30' : 'text-white'}`}>
+          <div className="flex justify-between items-center mb-2">
+            <div className={`p-2 rounded-xl bg-white/20 backdrop-blur-md ${grade.locked ? 'text-white/30' : 'text-white'}`}>
               <grade.icon className="w-6 h-6" />
             </div>
           </div>
           
-          <h3 className={`font-black text-xl sm:text-2xl ${grade.locked ? 'text-white/30' : 'text-white drop-shadow-sm'}`}>{grade.name}</h3>
-          <p className={`text-xs font-bold mt-1 ${grade.locked ? 'text-white/20' : 'text-white/80'}`}>{grade.desc}</p>
+          <h3 className={`font-black text-xl ${grade.locked ? 'text-white/30' : 'text-white drop-shadow-sm'}`}>{grade.name}</h3>
+          <p className={`text-[10px] sm:text-xs font-bold mt-1 ${grade.locked ? 'text-white/20' : 'text-white/80'}`}>{grade.desc}</p>
         </button>
       ))}
     </div>
@@ -171,7 +174,7 @@ const UnitsView = ({ grade, onBack, onSelectUnit }) => {
           <ChevronLeft className="w-5 h-5" />
         </button>
         <div>
-          <h2 className="text-2xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Maps</h2>
+          <h2 className="text-2xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Modules</h2>
           <p className="text-white/60 font-medium text-xs sm:text-sm">Select a unit to continue</p>
         </div>
       </div>
@@ -205,18 +208,12 @@ const UnitsView = ({ grade, onBack, onSelectUnit }) => {
                 </div>
                 <h3 className={`text-lg sm:text-xl font-black leading-tight ${isLocked ? 'text-slate-400' : 'text-white'}`}>{unit.title}</h3>
               </div>
-
-              <div className="hidden sm:flex items-center gap-1">
-                {isCompleted ? [...Array(3)].map((_, i) => <Star key={i} className={`w-5 h-5 ${i < unit.stars ? 'text-yellow-400 fill-yellow-400' : 'text-slate-500/30 fill-slate-500/30'}`} />)
-                 : isLocked ? <div className="flex items-center gap-1.5 bg-slate-800/50 px-3 py-1.5 rounded-lg text-slate-400 text-[10px] font-bold border border-slate-700"><BrainCircuit className="w-3 h-3"/> AI UNLOCK</div>
-                 : null}
-              </div>
             </button>
           );
         })}
       </div>
 
-      <AITestModal isOpen={!!selectedLockedUnit} onClose={() => setSelectedLockedUnit(null)} unit={selectedLockedUnit} onUnlock={() => {alert("Starting AI Mock Test..."); setSelectedLockedUnit(null);}} />
+      <AITestModal isOpen={!!selectedLockedUnit} onClose={() => setSelectedLockedUnit(null)} unit={selectedLockedUnit} onUnlock={() => {setSelectedLockedUnit(null);}} />
     </div>
   );
 };
@@ -225,20 +222,21 @@ const MapView = ({ grade, unit, onBack }) => {
   const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
   const [currentStationIdx, setCurrentStationIdx] = useState(0);
 
-  // Logic sinh trạm tùy theo Lớp (Bỏ Ngữ Pháp ở Lớp 1, 2)
+  // 5 Trạm cho Lớp lớn, 4 Trạm cho Lớp nhỏ (Bỏ Grammar)
   const getMapNodes = () => {
     let nodes = [
-      { id: 1, type: "vocab", label: "Vocabulary", icon: "🏝️", x: 15, y: 50 },
-      { id: 2, type: "grammar", label: "Grammar", icon: "🧜‍♀️", x: 40, y: 20 },
-      { id: 3, type: "listen", label: "Listening", icon: "🐙", x: 65, y: 80 },
-      { id: 4, type: "speak", label: "AI Speaking", icon: "👑", x: 85, y: 40 }
+      { id: 1, type: "vocab", label: "Vocabulary", icon: "🏝️", x: 10, y: 75 },
+      { id: 2, type: "grammar", label: "Grammar", icon: "🧜‍♀️", x: 30, y: 30 },
+      { id: 3, type: "listen", label: "Listening", icon: "🐙", x: 50, y: 75 },
+      { id: 4, type: "read", label: "Reading", icon: "📜", x: 75, y: 25 },
+      { id: 5, type: "boss", label: "Final Boss", icon: "👹", x: 90, y: 65 }
     ];
-    // Nếu là Lớp 1 hoặc 2 -> Bỏ trạm Ngữ Pháp, phân bổ lại vị trí
     if (grade.id === 'g1' || grade.id === 'g2') {
       nodes = [
-        { id: 1, type: "vocab", label: "Words", icon: "🍎", x: 20, y: 60 },
-        { id: 3, type: "listen", label: "Listen", icon: "🎧", x: 50, y: 30 },
-        { id: 4, type: "speak", label: "Speak", icon: "🦜", x: 80, y: 70 }
+        { id: 1, type: "vocab", label: "Words", icon: "🍎", x: 15, y: 70 },
+        { id: 3, type: "listen", label: "Listen", icon: "🎧", x: 40, y: 30 },
+        { id: 4, type: "speak", label: "Speak", icon: "🦜", x: 65, y: 70 },
+        { id: 5, type: "boss", label: "Mini Boss", icon: "👑", x: 90, y: 40 }
       ];
     }
     return nodes;
@@ -265,7 +263,7 @@ const MapView = ({ grade, unit, onBack }) => {
         </div>
 
         <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" preserveAspectRatio="none" viewBox="0 0 100 100">
-           <path d={pathD} fill="transparent" stroke={theme.pathColor} strokeWidth="1" strokeDasharray="2 2" strokeLinecap="round" />
+           <path d={pathD} fill="transparent" stroke={theme.pathColor} strokeWidth="1.5" strokeDasharray="2 2" strokeLinecap="round" />
         </svg>
 
         <div className="absolute z-30 transition-all duration-1000 ease-in-out -translate-x-1/2 -translate-y-1/2 drop-shadow-2xl pointer-events-none"
@@ -276,17 +274,21 @@ const MapView = ({ grade, unit, onBack }) => {
         {nodes.map((node, index) => {
           const isPassed = index <= currentStationIdx;
           const isCurrent = index === currentStationIdx;
+          const isBoss = node.type === 'boss';
           return (
             <button key={node.id} onClick={() => setCurrentStationIdx(index)}
               className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 transition-all hover:scale-110 group ${isPassed ? 'opacity-100' : 'opacity-50 grayscale hover:grayscale-0'}`}
               style={{ left: `${node.x}%`, top: `${node.y}%` }}>
               <div className={`w-16 h-16 rounded-full flex items-center justify-center text-3xl shadow-xl border-[3px] backdrop-blur-md relative
-                ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/20 animate-pulse' : isPassed ? 'bg-white/10 border-white/40' : 'bg-slate-900/40 border-slate-800/50'}`}>
+                ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/20 animate-pulse' : 
+                  isPassed ? 'bg-white/10 border-white/40' : 'bg-slate-900/40 border-slate-800/50'}
+                ${isBoss ? 'scale-125 border-yellow-400 bg-yellow-900/40' : ''}`}>
                 {node.icon}
                 {isPassed && !isCurrent && <div className="absolute -bottom-1 -right-1 bg-emerald-500 rounded-full p-0.5 border-2 border-white shadow-sm"><CheckCircle2 className="w-3 h-3 text-white" /></div>}
               </div>
               <div className={`px-3 py-1 rounded-full text-[10px] font-black shadow-lg border backdrop-blur-md
-                ${isCurrent ? 'bg-white text-slate-800 border-white' : 'bg-slate-900/80 text-white border-white/10'}`}>
+                ${isCurrent ? 'bg-white text-slate-800 border-white' : 'bg-slate-900/80 text-white border-white/10'}
+                ${isBoss ? 'text-yellow-300 border-yellow-500/50' : ''}`}>
                 {node.label}
               </div>
             </button>
@@ -310,7 +312,6 @@ const ArenaView = () => {
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">
-          {/* JOIN ROOM */}
           <div className="bg-slate-800/50 border border-slate-700/50 rounded-3xl p-6 flex flex-col items-center text-center hover:bg-slate-800/80 transition-colors">
             <Users className="w-12 h-12 text-blue-400 mb-4" />
             <h3 className="text-xl font-black text-white mb-2">Join a Room</h3>
@@ -321,7 +322,6 @@ const ArenaView = () => {
             </div>
           </div>
 
-          {/* CREATE ROOM */}
           <div className="bg-gradient-to-br from-indigo-900/40 to-purple-900/40 border border-indigo-500/30 rounded-3xl p-6 flex flex-col hover:from-indigo-900/60 transition-colors">
             <div className="flex items-center gap-3 mb-6">
               <Plus className="w-8 h-8 text-indigo-400" />
@@ -361,10 +361,12 @@ const ArenaView = () => {
 
 const PracticeView = () => {
   const practiceModes = [
-    { id: 'listen', title: 'Listening', icon: Volume2, color: 'from-blue-400 to-blue-600', border: 'border-blue-800', desc: 'Listen and choose the correct answer' },
-    { id: 'speak', title: 'AI Speaking', icon: Mic, color: 'from-pink-400 to-rose-600', border: 'border-rose-800', desc: 'Speak to AI and get scored' },
-    { id: 'read', title: 'Reading', icon: Library, color: 'from-amber-400 to-orange-500', border: 'border-orange-700', desc: 'Read passages and answer questions' },
-    { id: 'write', title: 'Writing', icon: Type, color: 'from-emerald-400 to-green-600', border: 'border-green-800', desc: 'Drag and drop to build sentences' },
+    { id: 'listen', title: 'Listening', icon: Volume2, color: 'from-blue-400 to-blue-600', border: 'border-blue-800', desc: 'Listen & choose answer' },
+    { id: 'speak', title: 'AI Speaking', icon: Mic, color: 'from-pink-400 to-rose-600', border: 'border-rose-800', desc: 'Speak to AI for score' },
+    { id: 'read', title: 'Reading', icon: Library, color: 'from-emerald-400 to-green-600', border: 'border-green-800', desc: 'Passages & questions' },
+    { id: 'write', title: 'Writing', icon: Type, color: 'from-amber-400 to-orange-500', border: 'border-orange-700', desc: 'Drag & drop sentences' },
+    { id: 'test', title: '45-Min Test', icon: Timer, color: 'from-red-500 to-rose-700', border: 'border-rose-900', desc: 'School mock exams' },
+    { id: 'cambridge', title: 'Cambridge', icon: Award, color: 'from-yellow-400 to-yellow-600', border: 'border-yellow-700', desc: 'Advanced enrichment' },
   ];
 
   return (
@@ -374,13 +376,13 @@ const PracticeView = () => {
         <p className="text-white/60 font-medium text-sm mt-1">Master your English skills</p>
       </div>
       
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-5xl w-full">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 max-w-4xl w-full">
         {practiceModes.map(mode => (
-          <button key={mode.id} className={`bg-gradient-to-br ${mode.color} p-6 rounded-[2rem] border-b-[6px] ${mode.border} flex flex-col items-center text-center hover:-translate-y-2 active:translate-y-0 active:border-b-0 transition-all shadow-xl group`}>
-            <div className="bg-white/20 p-4 rounded-2xl mb-4 group-hover:scale-110 transition-transform backdrop-blur-sm">
-              <mode.icon className="w-8 h-8 text-white" />
+          <button key={mode.id} className={`bg-gradient-to-br ${mode.color} p-5 rounded-[2rem] border-b-[6px] ${mode.border} flex flex-col items-center text-center hover:-translate-y-2 active:translate-y-0 active:border-b-0 transition-all shadow-xl group`}>
+            <div className="bg-white/20 p-3 rounded-2xl mb-3 group-hover:scale-110 transition-transform backdrop-blur-sm">
+              <mode.icon className="w-7 h-7 text-white" />
             </div>
-            <h3 className="font-black text-white text-lg mb-1">{mode.title}</h3>
+            <h3 className="font-black text-white text-base mb-1">{mode.title}</h3>
             <p className="text-white/80 text-[10px] font-bold leading-tight">{mode.desc}</p>
           </button>
         ))}
@@ -389,23 +391,95 @@ const PracticeView = () => {
   );
 };
 
+const AdminView = () => {
+  const [users, setUsers] = useState(MOCK_STUDENTS);
+
+  const toggleBlock = (id) => {
+    setUsers(users.map(u => u.id === id ? { ...u, status: u.status === 'active' ? 'blocked' : 'active' } : u));
+  };
+
+  const toggleRole = (id) => {
+    setUsers(users.map(u => u.id === id ? { ...u, role: u.role === 'admin' ? 'student' : 'admin' } : u));
+  };
+
+  return (
+    <div className="w-full h-full flex flex-col items-center p-4 sm:p-8 animate-fade-in overflow-y-auto hide-scrollbar">
+      <div className="w-full max-w-5xl">
+        <div className="flex items-center gap-3 mb-8">
+          <div className="p-3 bg-rose-500/20 rounded-2xl border border-rose-500/50">
+            <ShieldAlert className="w-8 h-8 text-rose-500" />
+          </div>
+          <div>
+            <h2 className="text-3xl font-black text-white">Admin Control Panel</h2>
+            <p className="text-white/60 text-sm">Manage users, roles, and access.</p>
+          </div>
+        </div>
+
+        <div className="bg-slate-900/60 backdrop-blur-xl border border-white/10 rounded-[2rem] overflow-hidden shadow-2xl">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-white/5 border-b border-white/10 text-xs uppercase tracking-wider text-slate-400 font-bold">
+                  <th className="p-4 pl-6 rounded-tl-[2rem]">User</th>
+                  <th className="p-4">Email</th>
+                  <th className="p-4">Role</th>
+                  <th className="p-4">Status</th>
+                  <th className="p-4 pr-6 text-right rounded-tr-[2rem]">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {users.map((user) => (
+                  <tr key={user.id} className="hover:bg-white/5 transition-colors">
+                    <td className="p-4 pl-6 flex items-center gap-3">
+                      <img src={user.avatar} alt="avatar" className="w-10 h-10 rounded-xl bg-slate-800 border border-slate-700" />
+                      <span className="font-bold text-white">{user.name}</span>
+                    </td>
+                    <td className="p-4 text-slate-400 text-sm">{user.email}</td>
+                    <td className="p-4">
+                      <span className={`px-3 py-1 text-[10px] font-black rounded-lg uppercase tracking-wide border
+                        ${user.role === 'admin' ? 'bg-amber-500/20 text-amber-400 border-amber-500/50' : 'bg-blue-500/20 text-blue-400 border-blue-500/50'}`}>
+                        {user.role}
+                      </span>
+                    </td>
+                    <td className="p-4">
+                      <span className={`px-3 py-1 text-[10px] font-black rounded-lg uppercase tracking-wide border
+                        ${user.status === 'active' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50' : 'bg-rose-500/20 text-rose-400 border-rose-500/50'}`}>
+                        {user.status}
+                      </span>
+                    </td>
+                    <td className="p-4 pr-6 flex justify-end gap-2">
+                      <button onClick={() => toggleRole(user.id)} className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition-colors border border-slate-600" title="Change Role">
+                        <Crown className={`w-4 h-4 ${user.role === 'admin' ? 'text-amber-400' : ''}`} />
+                      </button>
+                      <button onClick={() => toggleBlock(user.id)} className={`p-2 rounded-xl transition-colors border
+                        ${user.status === 'blocked' ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 hover:bg-emerald-500/30' : 'bg-rose-500/20 border-rose-500/50 text-rose-400 hover:bg-rose-500/30'}`} title="Block/Unblock">
+                        {user.status === 'blocked' ? <UserCheck className="w-4 h-4" /> : <Ban className="w-4 h-4" />}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 const MainLayout = ({ user, handleLogout }) => {
-  const [currentView, setCurrentView] = useState('grades'); // 'grades', 'units', 'map', 'arena', 'practice'
+  const [currentView, setCurrentView] = useState('grades'); // 'grades', 'units', 'map', 'arena', 'practice', 'admin'
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
-  
-  // Trạng thái hover menu trên Desktop
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-
-  // Cảnh báo màn hình dọc (Không khóa cứng nữa)
-  const [isPortrait, setIsPortrait] = useState(false);
-  const [dismissWarning, setDismissWarning] = useState(false);
+  const [showOrientationWarning, setShowOrientationWarning] = useState(false);
 
   useEffect(() => {
     const checkOrientation = () => {
-      // Chỉ kiểm tra đơn giản: Chiều cao > Rộng và thiết bị nhỏ
-      const portrait = window.innerHeight > window.innerWidth && window.innerWidth < 900;
-      setIsPortrait(portrait); 
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      const isPortrait = window.innerHeight > window.innerWidth;
+      setShowOrientationWarning(isMobile && isPortrait);
     };
     
     checkOrientation();
@@ -414,12 +488,12 @@ const MainLayout = ({ user, handleLogout }) => {
   }, []);
 
   const navItems = [
-    { id: 'classes', label: "Courses", icon: Library, color: 'text-emerald-400', onClick: () => setCurrentView('grades') },
+    { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400', onClick: () => setCurrentView('grades') },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400', onClick: () => setCurrentView('practice') },
     { id: 'arena', label: "Arena", icon: Swords, color: 'text-orange-400', onClick: () => setCurrentView('arena') }
   ];
   if (user?.role === 'admin') {
-    navItems.push({ id: 'admin', label: "Admin", icon: Shield, color: 'text-rose-400', onClick: () => alert('Admin Panel - Coming Soon!') });
+    navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-500', onClick: () => setCurrentView('admin') });
   }
 
   const renderContent = () => {
@@ -429,59 +503,53 @@ const MainLayout = ({ user, handleLogout }) => {
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} />;
       case 'arena': return <ArenaView />;
       case 'practice': return <PracticeView />;
+      case 'admin': return user?.role === 'admin' ? <AdminView /> : <GradesView />;
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
 
-  // Nền chung của App (Xanh Sky phiêu lưu)
-  const appBg = 'bg-[#1e293b]'; // Slate-800 dark theme as base
+  const appBg = 'bg-[#1e293b]'; 
 
   return (
     <>
-      {/* KHUYẾN CÁO XOAY MÀN HÌNH (Không khóa cứng) */}
-      {(isPortrait && !dismissWarning) && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-md z-[9999] bg-slate-800/90 backdrop-blur-xl text-white p-3 rounded-2xl shadow-2xl flex items-center justify-between border border-blue-500/50 animate-fade-in">
-          <div className="flex items-center gap-3">
-            <RotateCw className="w-6 h-6 animate-spin-slow text-blue-400 shrink-0" />
-            <p className="text-xs font-bold text-slate-200">For the best experience, please rotate your device horizontally.</p>
+      {showOrientationWarning && (
+        <div className="fixed top-2 left-1/2 -translate-x-1/2 w-[90%] max-w-sm z-[9999] bg-slate-900/90 backdrop-blur-xl text-white px-4 py-2.5 rounded-full shadow-2xl flex items-center justify-between border border-blue-500/30 animate-fade-in">
+          <div className="flex items-center gap-2">
+            <RotateCw className="w-4 h-4 animate-spin-slow text-blue-400 shrink-0" />
+            <p className="text-[10px] font-bold text-slate-200">Rotate device for best experience</p>
           </div>
-          <button onClick={() => setDismissWarning(true)} className="p-1.5 bg-white/10 rounded-lg hover:bg-white/20 active:scale-95 shrink-0 ml-3">
-            <X className="w-4 h-4" />
+          <button onClick={() => setShowOrientationWarning(false)} className="p-1 hover:bg-white/10 rounded-full active:scale-95 shrink-0">
+            <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
       )}
 
-      {/* GIAO DIỆN CHÍNH */}
       <div className={`flex h-screen w-screen overflow-hidden ${appBg} font-sans selection:bg-white/30`}>
         <style>{globalStyles}</style>
-        
-        {/* Nền lưới trang trí toàn bối cảnh */}
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-[0.03] pointer-events-none"></div>
 
-        {/* Cấu trúc Sidebar (Tự ẩn nhỏ lại, Hover thì phình ra) */}
         <aside 
           onMouseEnter={() => setIsSidebarHovered(true)}
           onMouseLeave={() => setIsSidebarHovered(false)}
           className={`hidden sm:flex flex-col bg-slate-950/80 backdrop-blur-2xl border-r border-white/5 transition-all duration-300 ease-in-out z-50 shadow-2xl relative
           ${isSidebarHovered ? 'w-56' : 'w-[72px]'} hide-scrollbar`}
         >
-          {/* Logo */}
-          <div className="p-4 flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
+          <div className="p-4 flex items-center h-14 border-b border-white/5 shrink-0 overflow-hidden mt-1">
             <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center shadow-lg">
               <Rocket className="w-6 h-6 text-white" />
             </div>
             <div className={`ml-3 transition-opacity duration-300 whitespace-nowrap ${isSidebarHovered ? 'opacity-100' : 'opacity-0'}`}>
-              <h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1>
+              <h1 className="text-base font-black text-white tracking-wide">EXPLORER</h1>
             </div>
           </div>
 
-          {/* Nav Menu */}
           <nav className="flex-1 flex flex-col gap-2 p-3 overflow-y-auto hide-scrollbar">
             {navItems.map(item => (
               <button key={item.id} onClick={item.onClick}
                 className={`flex items-center p-3 rounded-xl font-black text-sm transition-all border border-transparent 
-                ${currentView === item.id ? 'bg-white/10 text-white shadow-inner' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}
-                title={item.label}
+                ${currentView === item.id 
+                  ? (item.id === 'admin' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-white/10 text-white shadow-inner border-white/10') 
+                  : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}
               >
                 <item.icon className={`min-w-[24px] h-6 ${item.color}`} />
                 <span className={`ml-4 transition-all duration-300 whitespace-nowrap ${isSidebarHovered ? 'opacity-100 w-auto' : 'opacity-0 w-0 overflow-hidden'}`}>
@@ -491,7 +559,6 @@ const MainLayout = ({ user, handleLogout }) => {
             ))}
           </nav>
           
-          {/* Khối Tác Giả & Logout (Tinh gọn) */}
           <div className="p-3 border-t border-white/5 flex flex-col gap-2 shrink-0">
              <div className={`bg-slate-900/80 p-3 rounded-xl border border-white/5 transition-all duration-300 overflow-hidden
                ${isSidebarHovered ? 'opacity-100 max-h-32' : 'opacity-0 max-h-0 p-0 border-transparent'}`}>
@@ -510,16 +577,13 @@ const MainLayout = ({ user, handleLogout }) => {
           </div>
         </aside>
 
-        {/* Main Content Area */}
-        <div className="flex-1 flex flex-col h-full relative z-10">
+        <div className="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
           <TopMetricsBar user={user} />
-          
           <div className="flex-1 overflow-hidden relative">
             {renderContent()}
           </div>
         </div>
 
-        {/* Mobile Bottom Nav (Chỉ hiện trên điện thoại khi xoay ngang) */}
         <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-xl border-t border-white/10 flex justify-around p-1 z-50 pb-safe">
           {navItems.map(item => (
             <button key={item.id} onClick={item.onClick} className={`flex flex-col items-center p-2 rounded-xl min-w-[4rem] ${currentView === item.id ? 'bg-white/10' : ''}`}>
