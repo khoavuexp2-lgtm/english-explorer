@@ -69,7 +69,8 @@ const GRADE_5_UNITS = [
 const G5_U1_QUESTIONS = {
   vocab: {
     type: 'multiple-choice',
-    question: "Choose the correct word: A place with many tall buildings and people.",
+    image: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=500&q=80",
+    question: "Look at the picture and choose the correct word:",
     options: ["Village", "City", "Mountain", "Island"],
     answer: "City",
     explain: "City (Thành phố) là nơi có nhiều tòa nhà cao tầng và đông người."
@@ -82,11 +83,22 @@ const G5_U1_QUESTIONS = {
     explain: "Cấu trúc hỏi nơi ở: Where + do/does + S + live?"
   },
   listen: {
+    type: 'listen-fill',
+    audioText: "My hometown is a small and quiet village.",
+    question: "Listen and choose the missing words:",
+    textBefore: "My hometown is a",
+    textAfter: "village.",
+    options: ["big and noisy", "small and quiet", "large and crowded", "far and busy"],
+    answer: "small and quiet",
+    explain: "Trong audio có đọc câu: 'My hometown is a small and quiet village'."
+  },
+  read: {
     type: 'multiple-choice',
-    question: "🔊 (Audio: What's the village like? It's small and quiet.)",
-    options: ["Big and busy", "Small and quiet", "Large and crowded", "Far and noisy"],
-    answer: "Small and quiet",
-    explain: "Trong audio, nhân vật nói 'It's small and quiet' (Nhỏ và yên tĩnh)."
+    passage: "Hoa lives in Hanoi. It is a big and busy city. She lives with her parents at 20 Hoa Binh Lane.",
+    question: "What is Hanoi like?",
+    options: ["Small and quiet", "Big and busy", "Far and noisy", "Large and crowded"],
+    answer: "Big and busy",
+    explain: "Đoạn văn có ghi rõ: 'It is a big and busy city'."
   },
   boss: {
     type: 'chat',
@@ -142,6 +154,30 @@ const GameModal = ({ isOpen, onClose, station, onWin }) => {
 
   const qData = G5_U1_QUESTIONS[station.type];
 
+  if (!qData) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+        <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl">
+          <h3 className="text-2xl font-black text-slate-800 mb-2">🚧 Coming Soon!</h3>
+          <p className="text-slate-600 font-medium mb-6">Trạm này đang được xây dựng nội dung. Hãy quay lại sau nhé!</p>
+          <button onClick={onClose} className="w-full py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 transition-all text-lg">ĐÓNG</button>
+        </div>
+      </div>
+    );
+  }
+
+  const playAudio = (text) => {
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      utterance.rate = 0.9;
+      window.speechSynthesis.speak(utterance);
+    } else {
+      alert("Trình duyệt không hỗ trợ phát âm thanh. Hãy dùng Chrome/Edge.");
+    }
+  };
+
   const handleCheckMultipleChoice = () => {
     if (selectedOpt === qData.answer) setStatus('correct');
     else setStatus('wrong');
@@ -171,7 +207,7 @@ const GameModal = ({ isOpen, onClose, station, onWin }) => {
       <div className={`bg-white rounded-[2rem] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative ${status==='wrong' ? 'animate-shake border-4 border-rose-500' : status==='correct' ? 'border-4 border-emerald-500' : ''}`}>
         
         {/* Header */}
-        <div className="bg-slate-100 p-4 border-b border-slate-200 flex justify-between items-center">
+        <div className="bg-slate-100 p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-2xl">{station.icon}</span>
             <h3 className="font-black text-slate-800 text-lg">{station.label}</h3>
@@ -180,20 +216,46 @@ const GameModal = ({ isOpen, onClose, station, onWin }) => {
         </div>
 
         {/* Body */}
-        <div className="p-6 flex flex-col gap-6">
-          <h2 className="text-xl font-black text-slate-800">{qData.question}</h2>
+        <div className="p-6 flex flex-col gap-5 overflow-y-auto max-h-[60vh] hide-scrollbar">
+          
+          {qData.image && (
+            <img src={qData.image} alt="Illustration" className="w-full h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />
+          )}
 
-          {qData.type === 'multiple-choice' && (
-            <div className="grid grid-cols-1 gap-3">
-              {qData.options.map(opt => (
-                <button key={opt} onClick={() => setSelectedOpt(opt)} disabled={status!=='playing'}
-                  className={`p-4 rounded-xl border-b-4 font-bold text-left transition-all
-                  ${selectedOpt === opt 
-                    ? 'bg-blue-100 border-blue-500 text-blue-700' 
-                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 active:translate-y-1'}`}>
-                  {opt}
-                </button>
-              ))}
+          {qData.passage && (
+            <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-sm leading-relaxed shadow-inner">
+              {qData.passage}
+            </div>
+          )}
+
+          <h2 className="text-xl font-black text-slate-800 flex items-start gap-3">
+            {qData.type === 'listen-fill' && (
+               <button onClick={() => playAudio(qData.audioText)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 transition-all shadow-md mt-0.5">
+                 <Volume2 className="w-6 h-6" />
+               </button>
+            )}
+            <span className="pt-1">{qData.question}</span>
+          </h2>
+
+          {(qData.type === 'multiple-choice' || qData.type === 'listen-fill') && (
+            <div className="flex flex-col gap-3">
+              {qData.type === 'listen-fill' && (
+                 <div className="text-base sm:text-lg font-bold text-slate-700 text-center py-4 px-4 bg-slate-50 border-2 border-slate-100 rounded-xl mb-2">
+                   {qData.textBefore} <span className={`inline-block min-w-[80px] border-b-4 border-slate-300 mx-2 px-2 text-blue-600 ${selectedOpt ? 'border-blue-500' : ''}`}>{selectedOpt || '...'}</span> {qData.textAfter}
+                 </div>
+              )}
+              
+              <div className="grid grid-cols-1 gap-3">
+                {qData.options.map(opt => (
+                  <button key={opt} onClick={() => setSelectedOpt(opt)} disabled={status!=='playing'}
+                    className={`p-4 rounded-xl border-b-4 font-bold text-left transition-all
+                    ${selectedOpt === opt 
+                      ? 'bg-blue-100 border-blue-500 text-blue-700' 
+                      : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 active:translate-y-1 active:border-b-0'}`}>
+                    {opt}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 
