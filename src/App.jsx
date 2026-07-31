@@ -275,87 +275,92 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+    // Thêm p-2 để popup không chạm dính mép điện thoại
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 lg:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       {(user?.inventory?.lives ?? 5) <= 0 ? (
-        <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
-          <Heart className="w-20 h-20 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
-          <h3 className="text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
-          <p className="text-slate-600 font-medium mb-8">Take a break or refill hearts to continue!</p>
-          <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-4 bg-rose-500 text-white font-black rounded-xl">REFILL HEARTS (DEMO)</button>
+        <div className="bg-white rounded-3xl lg:rounded-[2rem] p-6 lg:p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
+          <Heart className="w-16 h-16 lg:w-20 lg:h-20 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
+          <h3 className="text-2xl lg:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
+          <p className="text-slate-600 font-medium mb-6 lg:mb-8 text-sm lg:text-base">Take a break or refill hearts to continue!</p>
+          <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-3 lg:py-4 bg-rose-500 text-white font-black rounded-xl text-sm lg:text-base">REFILL HEARTS (DEMO)</button>
         </div>
       ) : (
-      <div className={`bg-white rounded-[2rem] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
-        <div className="bg-slate-100 p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
+      // Giới hạn max-height để luôn cuộn mượt bên trong popup, không trào ra ngoài
+      <div className={`bg-white rounded-3xl lg:rounded-[2rem] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative max-h-[90vh] lg:max-h-none ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
+        <div className="bg-slate-100 p-3 lg:p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-2xl">{station.icon}</span>
+            <span className="text-xl lg:text-2xl">{station.icon}</span>
             <div className="flex flex-col">
-              <h3 className="font-black text-slate-800 text-lg uppercase leading-none">{station.label}</h3>
+              <h3 className="font-black text-slate-800 text-base lg:text-lg uppercase leading-none">{station.label}</h3>
               {qList && qList.length > 1 && <span className="text-[10px] font-black text-blue-600 uppercase">Question {qIndex + 1} of {qList.length}</span>}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 bg-slate-200 rounded-full hover:bg-slate-300"><X className="w-5 h-5"/></button>
+          <button onClick={onClose} className="p-1.5 lg:p-2 bg-slate-200 rounded-full hover:bg-slate-300"><X className="w-4 h-4 lg:w-5 lg:h-5"/></button>
         </div>
 
-        <div className="p-6 flex flex-col gap-5 overflow-y-auto max-h-[60vh] hide-scrollbar">
-          {qData.image && <img src={qData.image} alt="Visual" className="w-full h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
-          {qData.passage && <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-sm shadow-inner">{qData.passage}</div>}
-          <h2 className="text-xl font-black text-slate-800 flex items-start gap-3">
+        {/* Khung nội dung chính: tự cuộn nếu vượt quá màn hình */}
+        <div className="p-4 lg:p-6 flex flex-col gap-4 lg:gap-5 overflow-y-auto flex-1 hide-scrollbar">
+          {/* Ảnh thu nhỏ h-32 trên mobile, h-48 trên PC */}
+          {qData.image && <img src={qData.image} alt="Visual" className="w-full h-32 lg:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
+          {qData.passage && <div className="p-3 lg:p-4 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs lg:text-sm shadow-inner max-h-32 overflow-y-auto">{qData.passage}</div>}
+          
+          <h2 className="text-lg lg:text-xl font-black text-slate-800 flex items-start gap-2 lg:gap-3 leading-tight">
             {(qData.type === 'listen-fill' || qData.type === 'speak') && (
-               <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-6 h-6" /></button>
+               <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-2 lg:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-5 h-5 lg:w-6 lg:h-6" /></button>
             )}
-            <span className="pt-1">{qData.question}</span>
+            <span className="pt-0.5 lg:pt-1">{qData.question}</span>
           </h2>
           
           {qData.type === 'speak' && (
-            <div className="flex flex-col items-center gap-6 py-4">
-              <div className="text-2xl font-black text-slate-800 text-center px-4">"{qData.targetText}"</div>
-              <button onClick={toggleListen} className={`w-24 h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:scale-105'}`}>
-                <Mic className={`w-10 h-10 ${isListening ? 'animate-bounce' : ''}`} />
+            <div className="flex flex-col items-center gap-4 lg:gap-6 py-2 lg:py-4">
+              <div className="text-xl lg:text-2xl font-black text-slate-800 text-center px-2 lg:px-4">"{qData.targetText}"</div>
+              <button onClick={toggleListen} className={`w-20 h-20 lg:w-24 lg:h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:scale-105'}`}>
+                <Mic className={`w-8 h-8 lg:w-10 lg:h-10 ${isListening ? 'animate-bounce' : ''}`} />
               </button>
-              <div className="text-center">{isListening ? <p className="text-rose-500 font-bold animate-pulse">Listening...</p> : <p className="text-slate-500 font-medium text-sm">{transcript ? `You said: "${transcript}"` : qData.hint}</p>}</div>
+              <div className="text-center">{isListening ? <p className="text-rose-500 font-bold animate-pulse text-sm">Listening...</p> : <p className="text-slate-500 font-medium text-xs lg:text-sm">{transcript ? `You said: "${transcript}"` : qData.hint}</p>}</div>
             </div>
           )}
 
           {['multiple-choice', 'listen-fill', 'read'].includes(qData.type) && (
-            <div className="flex flex-col gap-3">
+            <div className="flex flex-col gap-2 lg:gap-3">
               {qData.type === 'listen-fill' && (
-                 <div className="text-base font-bold text-slate-700 text-center py-4 bg-slate-50 border-2 border-slate-100 rounded-xl">{qData.textBefore} <span className="inline-block min-w-[80px] border-b-4 border-blue-400 mx-2 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}</div>
+                 <div className="text-sm lg:text-base font-bold text-slate-700 text-center py-3 lg:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl">{qData.textBefore} <span className="inline-block min-w-[60px] lg:min-w-[80px] border-b-4 border-blue-400 mx-1 lg:mx-2 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}</div>
               )}
-              <div className="grid grid-cols-1 gap-3">
+              <div className="grid grid-cols-1 gap-2 lg:gap-3">
                 {qData.options.map(opt => (
-                  <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'} className={`p-4 rounded-xl border-b-4 font-bold text-left transition-all ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1'}`}>{opt}</button>
+                  <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'} className={`p-3 lg:p-4 rounded-xl border-b-[3px] lg:border-b-4 font-bold text-sm lg:text-base text-left transition-all ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1'}`}>{opt}</button>
                 ))}
               </div>
             </div>
           )}
 
           {qData.type === 'order' && (
-            <div className="flex flex-col gap-4">
-              <div className="min-h-[60px] p-4 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl flex flex-wrap gap-2 items-center">
-                {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-4 py-2 bg-blue-500 text-white font-bold rounded-lg cursor-pointer hover:scale-105">{w}</span>)}
+            <div className="flex flex-col gap-3 lg:gap-4">
+              <div className="min-h-[50px] lg:min-h-[60px] p-3 lg:p-4 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl flex flex-wrap gap-2 items-center">
+                {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-3 py-1.5 lg:px-4 lg:py-2 bg-blue-500 text-white text-sm lg:text-base font-bold rounded-lg cursor-pointer hover:scale-105">{w}</span>)}
               </div>
               <div className="flex flex-wrap gap-2 justify-center">
-                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-4 py-2 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer hover:-translate-y-1">{w}</span>)}
+                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-3 py-1.5 lg:px-4 lg:py-2 bg-white border-2 border-slate-200 text-slate-700 text-sm lg:text-base font-bold rounded-lg cursor-pointer hover:-translate-y-1">{w}</span>)}
               </div>
             </div>
           )}
         </div>
 
-        <div className="p-4 bg-slate-50 border-t border-slate-200">
+        <div className="p-3 lg:p-4 bg-slate-50 border-t border-slate-200 shrink-0">
           {status === 'playing' ? (
-            qData.type !== 'speak' && <button onClick={handleCheck} className="w-full py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400">CHECK ANSWER</button>
+            qData.type !== 'speak' && <button onClick={handleCheck} className="w-full py-3 lg:py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 text-sm lg:text-base">CHECK ANSWER</button>
           ) : (
-            <div className={`p-4 rounded-xl flex flex-col gap-4 animate-pop ${status === 'correct' ? 'bg-emerald-100 border border-emerald-300' : 'bg-rose-100 border border-rose-300'}`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-full text-white shrink-0 ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>{status === 'correct' ? <Check className="w-6 h-6"/> : <AlertCircle className="w-6 h-6"/>}</div>
+            <div className={`p-3 lg:p-4 rounded-xl flex flex-col gap-3 lg:gap-4 animate-pop ${status === 'correct' ? 'bg-emerald-100 border border-emerald-300' : 'bg-rose-100 border border-rose-300'}`}>
+              <div className="flex items-start justify-between gap-2 lg:gap-3">
+                <div className="flex items-start gap-2 lg:gap-3">
+                  <div className={`p-1.5 lg:p-2 rounded-full text-white shrink-0 ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>{status === 'correct' ? <Check className="w-5 h-5 lg:w-6 lg:h-6"/> : <AlertCircle className="w-5 h-5 lg:w-6 lg:h-6"/>}</div>
                   <div>
-                    <h3 className={`font-black text-xl ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? 'Excellent!' : 'Needs Work'}</h3>
-                    <p className={`text-sm font-medium mt-1 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{feedbackMsg}</p>
+                    <h3 className={`font-black text-lg lg:text-xl ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? 'Excellent!' : 'Needs Work'}</h3>
+                    <p className={`text-xs lg:text-sm font-medium mt-0.5 lg:mt-1 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{feedbackMsg}</p>
                   </div>
                 </div>
               </div>
-              <button onClick={handleContinue} className={`w-full py-3 text-white font-black rounded-xl shadow-md active:translate-y-1 ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700' : 'bg-rose-500 border-b-4 border-rose-700'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
+              <button onClick={handleContinue} className={`w-full py-2.5 lg:py-3 text-white text-sm lg:text-base font-black rounded-xl shadow-md active:translate-y-1 ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700' : 'bg-rose-500 border-b-4 border-rose-700'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
             </div>
           )}
         </div>
