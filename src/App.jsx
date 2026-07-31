@@ -6,29 +6,26 @@ import {
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
   AlertCircle, Check, Crown, ShieldAlert, BookOpen, Library,
   Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
-  Mail, Phone, RotateCw, Gamepad2, Sparkles
+  Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
-// --- FIREBASE CONFIGURATION ---
-let firebaseConfig = {};
-try {
-  // Use your real credentials in production
-  firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID,
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
-  };
-} catch (e) {
-  console.warn("import.meta.env is not available. Please ensure you are running in a Vite environment.");
-}
+// BẠN HÃY BỎ COMMENT VÀ ĐIỀN THÔNG TIN FIREBASE CỦA BẠN VÀO ĐÂY KHI MUỐN CHẠY THẬT NHÉ
+/*
+const firebaseConfig = {
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+};
+*/
+const firebaseConfig = {}; // Để trống để web build được trong môi trường này
 
 let app, auth, db;
 try {
@@ -39,7 +36,6 @@ try {
   console.warn("Firebase not fully configured. Running in UI-only mode.", error);
 }
 
-// --- GLOBAL STYLES ---
 const globalStyles = `
   .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -49,16 +45,13 @@ const globalStyles = `
   .animate-pop { animation: pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards; }
   @keyframes float { 0% { transform: translateY(0px); } 50% { transform: translateY(-10px); } 100% { transform: translateY(0px); } }
   .animate-float { animation: float 3s ease-in-out infinite; }
-  @keyframes pulse-ring { 0% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); } 70% { transform: scale(1); box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); } 100% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); } }
+  @keyframes pulse-ring { 0% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); } 70% { transform: scale(1); box-shadow: 0 0 0 20px rgba(59, 130, 246, 0); } 100% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); } }
   .animate-pulse-ring { animation: pulse-ring 2s infinite; }
+  @keyframes slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  .animate-slide-up { animation: slide-up 0.5s ease-out forwards; }
+  @keyframes bounce-short { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+  .animate-bounce-short { animation: bounce-short 1.5s ease-in-out infinite; }
 `;
-
-// --- MOCK DATA FOR DEMO & FALLBACK ---
-const MOCK_USERS = [
-  { uid: "admin1", name: "Mr. Khoa", email: "khoavuexp@gmail.com", role: "superadmin", avatar: "https://api.dicebear.com/7.x/bottts/svg?seed=Khoa", status: "active", inventory: { stars: 999, flames: 50, lives: 5 } },
-  { uid: "admin2", name: "Teacher Anna", email: "anna@gmail.com", role: "admin", avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=Anna", status: "active", inventory: { stars: 500, flames: 20, lives: 5 } },
-  { uid: "stu1", name: "Alex Student", email: "alex@gmail.com", role: "student", avatar: "https://api.dicebear.com/7.x/adventurer/svg?seed=Alex", status: "active", inventory: { stars: 120, flames: 5, lives: 3 } }
-];
 
 const MOTIVATIONAL_QUOTES = [
   { text: "Every mistake is a step forward!", icon: Sparkles, color: "text-yellow-400" },
@@ -87,46 +80,25 @@ const GRADE_5_UNITS = [
   { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'locked', theme: 'forest', progress: 0 },
 ];
 
-// 25-Question Curriculum for Grade 5 Unit 1
-const GAME_DATA = {
+// CÁC BIẾN NÀY CHỈ LÀ CHUỖI MẪU ĐỂ ĐIỀN VÀO TEXTAREA TRONG TAB ADMIN. CHÚNG KHÔNG CÒN ĐƯỢC LOAD VÀO APP NỮA.
+const TEMPLATE_GAME_DATA = {
   vocab: [
     { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=500&q=80", question: "Vocabulary: A large and busy settlement.", options: ["Village", "City", "Mountain", "Tower"], answer: "City", explain: "City means a large and busy settlement." },
-    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=500&q=80", question: "Vocabulary: A small community in a rural area.", options: ["City", "Town", "Village", "Flat"], answer: "Village", explain: "A village is a small community in the countryside." },
-    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=500&q=80", question: "Vocabulary: A tall, narrow building.", options: ["Lane", "Tower", "Floor", "Street"], answer: "Tower", explain: "A tower is a tall building." },
-    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=500&q=80", question: "Vocabulary: A set of rooms for living in, usually on one floor.", options: ["House", "Flat", "Village", "Tower"], answer: "Flat", explain: "A flat (or apartment) is a set of rooms on one floor." },
-    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=500&q=80", question: "Vocabulary: The details of where a building is located.", options: ["Name", "Phone", "Address", "City"], answer: "Address", explain: "An address tells you exactly where a place is." }
-  ],
-  grammar: [
-    { type: 'order', question: "Grammar: Arrange the words to make a question.", words: ["live", "do", "Where", "you", "?"], answer: "Where do you live ?", explain: "Question structure: Where + do/does + S + live?" },
-    { type: 'order', question: "Grammar: Ask about someone's address.", words: ["your", "is", "address", "What", "?"], answer: "What is your address ?", explain: "Structure: What + is + your address?" },
-    { type: 'order', question: "Grammar: Describe your living place.", words: ["small", "live", "I", "a", "village.", "in"], answer: "I live in a small village.", explain: "S + V + in + a + adj + noun." },
-    { type: 'order', question: "Grammar: Talk about a specific floor.", words: ["on", "lives", "second", "He", "floor.", "the"], answer: "He lives on the second floor.", explain: "Use preposition 'on' for floors." },
-    { type: 'order', question: "Grammar: Describe a city.", words: ["big", "a", "Da Nang", "is", "city."], answer: "Da Nang is a big city.", explain: "Subject + to be + a + adj + noun." }
+    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=500&q=80", question: "Vocabulary: A small community in a rural area.", options: ["City", "Town", "Village", "Flat"], answer: "Village", explain: "A village is a small community in the countryside." }
   ],
   listen: [
-    { type: 'listen-fill', audioText: "My address is 105 Hoa Binh Lane.", question: "Listening: Listen and choose the missing part.", textBefore: "My address is", textAfter: "Hoa Binh Lane.", options: ["105", "150", "115", "100"], answer: "105", explain: "The audio says '105'." },
-    { type: 'listen-fill', audioText: "I live in a tall tower.", question: "Listening: What kind of building?", textBefore: "I live in a", textAfter: "tower.", options: ["small", "big", "tall", "short"], answer: "tall", explain: "The audio says 'tall tower'." },
-    { type: 'listen-fill', audioText: "Her village is small and quiet.", question: "Listening: Describe the village.", textBefore: "Her village is", textAfter: ".", options: ["big and noisy", "small and quiet", "large and busy", "far and beautiful"], answer: "small and quiet", explain: "The audio clearly says 'small and quiet'." },
-    { type: 'listen-fill', audioText: "We live on the third floor.", question: "Listening: Which floor?", textBefore: "We live on the", textAfter: "floor.", options: ["first", "second", "third", "fourth"], answer: "third", explain: "The audio says 'third floor'." },
-    { type: 'listen-fill', audioText: "What is your address?", question: "Listening: Fill in the missing word.", textBefore: "What is your", textAfter: "?", options: ["name", "address", "school", "class"], answer: "address", explain: "The audio asks 'What is your address?'" }
-  ],
-  read: [
-    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: Where is Peter from?", options: ["England", "Vietnam", "America", "Australia"], answer: "America", explain: "The text says: 'Peter is from America.'" },
-    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: Who does he live with?", options: ["Grandparents", "Parents", "Friends", "Uncle"], answer: "Parents", explain: "The text states: 'He lives with his parents.'" },
-    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: What is his address?", options: ["25, Washington Street", "52, Washington Street", "25, New York Street", "12, Washington Lane"], answer: "25, Washington Street", explain: "His address is explicitly mentioned in the text." },
-    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: How is New York described?", options: ["Small and quiet", "Big and busy", "Far and beautiful", "Old and peaceful"], answer: "Big and busy", explain: "It is described as a 'very big and busy city'." },
-    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: Why does he love his city?", options: ["It has nice parks", "It is quiet", "It has tall towers", "It has good food"], answer: "It has tall towers", explain: "The text says 'He loves his city because it has many tall towers.'" }
+    { type: 'listen-fill', audioText: "My address is 105 Hoa Binh Lane.", question: "Listening: Listen and choose the missing part.", textBefore: "My address is", textAfter: "Hoa Binh Lane.", options: ["105", "150", "115", "100"], answer: "105", explain: "The audio says '105'." }
   ],
   boss: [
-    { type: 'speak', question: "Speak: Read this question clearly.", targetText: "What is your address", hint: "Tap the Mic button. Ask clearly." },
-    { type: 'speak', question: "Speak: Describe where you live.", targetText: "I live in a big city", hint: "Tap the Mic. Focus on the /i/ sound in 'city'." },
-    { type: 'speak', question: "Speak: Describe your hometown.", targetText: "My hometown is small and quiet", hint: "Tap the Mic. Pronounce 'quiet' clearly." },
-    { type: 'speak', question: "Speak: Read this long sentence.", targetText: "I live on the second floor of Hanoi Tower", hint: "Tap the Mic. Take a breath and read naturally." },
-    { type: 'speak', question: "Speak: Ask your friend this question.", targetText: "Where do you live", hint: "Tap the Mic. Make it sound like a real question!" }
+    { type: 'speak', question: "Speak: Read this question clearly.", targetText: "What is your address", hint: "Tap the Mic button. Ask clearly." }
   ]
 };
 
-// --- UTILITIES ---
+const TEMPLATE_PRACTICE_DATA = [
+    { type: 'multiple-choice', question: "Choose the correct word: A large community is called a ____.", options: ["Village", "Town", "City", "Country"], answer: "City" },
+    { type: 'multiple-choice', question: "Grammar: Where ____ you live?", options: ["do", "does", "are", "is"], answer: "do" }
+];
+
 const playAudio = (text) => {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -148,10 +120,8 @@ const evaluateSpeech = (transcript, target) => {
   return { pass: false, msg: `System heard: "${transcript}". Not quite right, try again!` };
 };
 
-// --- SECURE FIREBASE SYNC ---
 const syncUserWithDb = async (googleUser) => {
   if (!db) return null;
-  
   const defaultInventory = { stars: 0, flames: 0, lives: 5 };
   const defaultName = googleUser.displayName || "Explorer";
   const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
@@ -167,36 +137,23 @@ const syncUserWithDb = async (googleUser) => {
         name: data.name || defaultName,
         avatar: data.avatar || defaultAvatar,
         role: data.role || "student",
-        inventory: data.inventory || defaultInventory
+        inventory: data.inventory || defaultInventory,
+        completedUnits: data.completedUnits || []
       };
     } else {
       const newUser = {
-        uid: googleUser.uid,
-        name: defaultName,
-        email: googleUser.email,
-        role: "student", 
-        avatar: defaultAvatar,
-        status: "active",
-        inventory: defaultInventory
+        uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", 
+        avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: []
       };
       await setDoc(userRef, newUser);
       return newUser;
     }
   } catch (error) {
     console.error("Firestore sync error:", error);
-    return {
-      uid: googleUser.uid,
-      name: defaultName,
-      email: googleUser.email,
-      role: "student",
-      avatar: defaultAvatar,
-      status: "active",
-      inventory: defaultInventory
-    };
+    return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, inventory: defaultInventory, completedUnits: [] };
   }
 };
 
-// --- COMPONENTS ---
 const TopMetricsBar = ({ user }) => (
   <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-4 flex justify-between items-center z-40 relative shadow-lg">
     <div className="flex items-center gap-3">
@@ -207,10 +164,6 @@ const TopMetricsBar = ({ user }) => (
       </div>
     </div>
     <div className="flex gap-3">
-      <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
-         <Flame className="w-5 h-5 text-orange-500 fill-orange-500 animate-pulse" />
-         <span className="text-white font-black">{user?.inventory?.flames || 0}</span>
-      </div>
       <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
          <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
          <span className="text-white font-black">{user?.inventory?.stars || 0}</span>
@@ -223,7 +176,7 @@ const TopMetricsBar = ({ user }) => (
   </div>
 );
 
-const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
+const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentUnitData }) => {
   const [qIndex, setQIndex] = useState(0);
   const [selectedOpt, setSelectedOpt] = useState(null);
   const [orderedWords, setOrderedWords] = useState([]);
@@ -235,22 +188,17 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
   const recognitionRef = useRef(null);
 
   useEffect(() => {
-    setQIndex(0);
-    setStatus('playing');
-    setFeedbackMsg("");
-    setSelectedOpt(null);
-    setOrderedWords([]);
-    setTranscript("");
+    setQIndex(0); setStatus('playing'); setFeedbackMsg("");
+    setSelectedOpt(null); setOrderedWords([]); setTranscript("");
   }, [station, isOpen]);
 
-  let qList = station ? GAME_DATA[station.type] : null;
+  // LẤY DỮ LIỆU TỪ CLOUD (TRUYỀN QUA PROPS currentUnitData) THAY VÌ HARDCODE GAME_DATA
+  let qList = (station && currentUnitData) ? currentUnitData[station.type] : null;
   if (qList && !Array.isArray(qList)) qList = [qList]; 
   const qData = qList ? qList[qIndex] : null;
 
   useEffect(() => {
-    if (status === 'correct' && qData?.type === 'order') {
-      playAudio(qData.answer);
-    }
+    if (status === 'correct' && qData?.type === 'order') playAudio(qData.answer);
   }, [status, qData]);
 
   useEffect(() => {
@@ -268,15 +216,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
           handleVoiceCheck(spokenText);
           setIsListening(false);
         };
-
         recognitionRef.current.onerror = (event) => {
-          setFeedbackMsg("Mic Error: " + event.error);
-          setIsListening(false);
-          setStatus('wrong');
+          setFeedbackMsg("Mic Error: " + event.error); setIsListening(false); setStatus('wrong');
         };
-      } else {
-        setFeedbackMsg("Browser does not support Speech Recognition. Please use Chrome/Edge.");
-        setStatus('wrong');
       }
     }
   }, [qData]);
@@ -287,8 +229,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
         <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl">
-          <h3 className="text-2xl font-black text-slate-800 mb-2">🚧 Coming Soon!</h3>
-          <p className="text-slate-600 font-medium mb-6">This station is under construction.</p>
+          <h3 className="text-2xl font-black text-slate-800 mb-2">🚧 Dữ liệu chưa hoàn thiện!</h3>
+          <p className="text-slate-600 font-medium mb-6">Trạm này chưa có data trên Cloud. Hãy vào Admin push data.</p>
           <button onClick={onClose} className="w-full py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0">CLOSE</button>
         </div>
       </div>
@@ -296,15 +238,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
   }
 
   const toggleListen = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-      setIsListening(false);
-    } else {
-      setTranscript("");
-      setStatus('playing');
-      recognitionRef.current?.start();
-      setIsListening(true);
-    }
+    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); } 
+    else { setTranscript(""); setStatus('playing'); recognitionRef.current?.start(); setIsListening(true); }
   };
 
   const deductLife = () => {
@@ -316,151 +251,86 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
   const handleVoiceCheck = (spokenText) => {
     const evaluation = evaluateSpeech(spokenText, qData.targetText);
     setFeedbackMsg(evaluation.msg);
-    if (evaluation.pass) {
-       setStatus('correct');
-    } else {
-       setStatus('wrong');
-       deductLife();
-    }
+    if (evaluation.pass) setStatus('correct');
+    else { setStatus('wrong'); deductLife(); }
   };
 
-  const handleSelectOption = (opt) => {
-    setSelectedOpt(opt);
-    playAudio(opt);
-  };
+  const handleSelectOption = (opt) => { setSelectedOpt(opt); playAudio(opt); };
 
   const handleCheck = () => {
-    if (qData.type === 'multiple-choice' || qData.type === 'listen-fill' || qData.type === 'read') {
-      if (selectedOpt === qData.answer) {
-        setStatus('correct');
-        setFeedbackMsg("Excellent!");
-      }
-      else {
-        setStatus('wrong');
-        setFeedbackMsg(qData.explain);
-        deductLife();
-      }
+    if (['multiple-choice', 'listen-fill', 'read'].includes(qData.type)) {
+      if (selectedOpt === qData.answer) { setStatus('correct'); setFeedbackMsg("Excellent!"); }
+      else { setStatus('wrong'); setFeedbackMsg(qData.explain); deductLife(); }
     } else if (qData.type === 'order') {
-      if (orderedWords.join(" ") === qData.answer) {
-        setStatus('correct');
-        setFeedbackMsg("Perfect!");
-      }
-      else {
-        setStatus('wrong');
-        setFeedbackMsg(qData.explain);
-        deductLife();
-      }
+      if (orderedWords.join(" ") === qData.answer) { setStatus('correct'); setFeedbackMsg("Perfect!"); }
+      else { setStatus('wrong'); setFeedbackMsg(qData.explain); deductLife(); }
     }
   };
 
   const handleOrderWord = (w) => {
     if (orderedWords.includes(w)) setOrderedWords(orderedWords.filter(x => x !== w));
-    else {
-      setOrderedWords([...orderedWords, w]);
-      playAudio(w);
-    }
+    else { setOrderedWords([...orderedWords, w]); playAudio(w); }
   };
 
   const handleContinue = () => {
     if (status === 'correct') {
       if (qIndex < qList.length - 1) {
-        setQIndex(p => p + 1);
-        setStatus('playing');
-        setFeedbackMsg("");
-        setSelectedOpt(null);
-        setOrderedWords([]);
-        setTranscript("");
-      } else {
-        onWin();
-      }
-    } else {
-      setSelectedOpt(null);
-      setOrderedWords([]);
-      setStatus('playing');
-      setTranscript("");
-    }
+        setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
+        setSelectedOpt(null); setOrderedWords([]); setTranscript("");
+      } else { onWin(); }
+    } else { setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); }
   };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       {(user?.inventory?.lives ?? 5) <= 0 ? (
-        <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl animate-pop border-4 border-rose-500">
+        <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
           <Heart className="w-20 h-20 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
           <h3 className="text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
-          <p className="text-slate-600 font-medium mb-8">You answered incorrectly too many times. Take a break or refill hearts to continue!</p>
-          <button onClick={() => { 
-            if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}});
-            setStatus('playing');
-            setFeedbackMsg("");
-          }} className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-black text-lg rounded-xl border-b-4 border-rose-700 active:translate-y-1 active:border-b-0 shadow-lg">
-            REFILL HEARTS (DEMO)
-          </button>
+          <p className="text-slate-600 font-medium mb-8">Take a break or refill hearts to continue!</p>
+          <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-4 bg-rose-500 text-white font-black rounded-xl">REFILL HEARTS (DEMO)</button>
         </div>
       ) : (
-      <div className={`bg-white rounded-[2rem] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative ${status==='wrong' ? 'animate-shake border-4 border-rose-500' : status==='correct' ? 'border-4 border-emerald-500' : ''}`}>
-        
+      <div className={`bg-white rounded-[2rem] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
         <div className="bg-slate-100 p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-2xl">{station.icon}</span>
             <div className="flex flex-col">
-              <h3 className="font-black text-slate-800 text-lg uppercase tracking-wide leading-none">{station.label}</h3>
-              {qList && qList.length > 1 && (
-                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Question {qIndex + 1} of {qList.length}</span>
-              )}
+              <h3 className="font-black text-slate-800 text-lg uppercase leading-none">{station.label}</h3>
+              {qList && qList.length > 1 && <span className="text-[10px] font-black text-blue-600 uppercase">Question {qIndex + 1} of {qList.length}</span>}
             </div>
           </div>
-          <button onClick={onClose} className="p-2 bg-slate-200 rounded-full hover:bg-slate-300 text-slate-600"><X className="w-5 h-5"/></button>
+          <button onClick={onClose} className="p-2 bg-slate-200 rounded-full hover:bg-slate-300"><X className="w-5 h-5"/></button>
         </div>
 
         <div className="p-6 flex flex-col gap-5 overflow-y-auto max-h-[60vh] hide-scrollbar">
           {qData.image && <img src={qData.image} alt="Visual" className="w-full h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
-          
-          {qData.passage && <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-sm leading-relaxed shadow-inner">{qData.passage}</div>}
-
+          {qData.passage && <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-sm shadow-inner">{qData.passage}</div>}
           <h2 className="text-xl font-black text-slate-800 flex items-start gap-3">
             {(qData.type === 'listen-fill' || qData.type === 'speak') && (
-               <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
-                 <Volume2 className="w-6 h-6" />
-               </button>
+               <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-6 h-6" /></button>
             )}
             <span className="pt-1">{qData.question}</span>
           </h2>
-
+          
           {qData.type === 'speak' && (
             <div className="flex flex-col items-center gap-6 py-4">
               <div className="text-2xl font-black text-slate-800 text-center px-4">"{qData.targetText}"</div>
-              
-              <button 
-                onClick={toggleListen}
-                className={`w-24 h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:bg-slate-200 hover:scale-105'}`}
-              >
+              <button onClick={toggleListen} className={`w-24 h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:scale-105'}`}>
                 <Mic className={`w-10 h-10 ${isListening ? 'animate-bounce' : ''}`} />
               </button>
-              
-              <div className="text-center">
-                {isListening ? (
-                  <p className="text-rose-500 font-bold animate-pulse">Listening... (Tap again to stop)</p>
-                ) : (
-                  <p className="text-slate-500 font-medium text-sm">{transcript ? `You said: "${transcript}"` : qData.hint}</p>
-                )}
-              </div>
+              <div className="text-center">{isListening ? <p className="text-rose-500 font-bold animate-pulse">Listening...</p> : <p className="text-slate-500 font-medium text-sm">{transcript ? `You said: "${transcript}"` : qData.hint}</p>}</div>
             </div>
           )}
 
-          {(qData.type === 'multiple-choice' || qData.type === 'listen-fill' || qData.type === 'read') && (
+          {['multiple-choice', 'listen-fill', 'read'].includes(qData.type) && (
             <div className="flex flex-col gap-3">
               {qData.type === 'listen-fill' && (
-                 <div className="text-base font-bold text-slate-700 text-center py-4 px-4 bg-slate-50 border-2 border-slate-100 rounded-xl">
-                   {qData.textBefore} <span className="inline-block min-w-[80px] border-b-4 border-blue-400 mx-2 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}
-                 </div>
+                 <div className="text-base font-bold text-slate-700 text-center py-4 bg-slate-50 border-2 border-slate-100 rounded-xl">{qData.textBefore} <span className="inline-block min-w-[80px] border-b-4 border-blue-400 mx-2 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}</div>
               )}
               <div className="grid grid-cols-1 gap-3">
                 {qData.options.map(opt => (
-                  <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'}
-                    className={`p-4 rounded-xl border-b-4 font-bold text-left transition-all
-                    ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50 hover:-translate-y-1'}`}>
-                    {opt}
-                  </button>
+                  <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'} className={`p-4 rounded-xl border-b-4 font-bold text-left transition-all ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1'}`}>{opt}</button>
                 ))}
               </div>
             </div>
@@ -469,10 +339,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
           {qData.type === 'order' && (
             <div className="flex flex-col gap-4">
               <div className="min-h-[60px] p-4 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl flex flex-wrap gap-2 items-center">
-                {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-4 py-2 bg-blue-500 text-white font-bold rounded-lg cursor-pointer shadow-sm hover:scale-105 transition-transform">{w}</span>)}
+                {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-4 py-2 bg-blue-500 text-white font-bold rounded-lg cursor-pointer hover:scale-105">{w}</span>)}
               </div>
               <div className="flex flex-wrap gap-2 justify-center">
-                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-4 py-2 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer hover:bg-slate-50 hover:-translate-y-1 transition-transform">{w}</span>)}
+                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-4 py-2 bg-white border-2 border-slate-200 text-slate-700 font-bold rounded-lg cursor-pointer hover:-translate-y-1">{w}</span>)}
               </div>
             </div>
           )}
@@ -480,31 +350,19 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
 
         <div className="p-4 bg-slate-50 border-t border-slate-200">
           {status === 'playing' ? (
-            qData.type !== 'speak' && (
-              <button onClick={handleCheck} className="w-full py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400">CHECK ANSWER</button>
-            )
+            qData.type !== 'speak' && <button onClick={handleCheck} className="w-full py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400">CHECK ANSWER</button>
           ) : (
             <div className={`p-4 rounded-xl flex flex-col gap-4 animate-pop ${status === 'correct' ? 'bg-emerald-100 border border-emerald-300' : 'bg-rose-100 border border-rose-300'}`}>
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
-                  <div className={`p-2 rounded-full text-white shrink-0 ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
-                    {status === 'correct' ? <Check className="w-6 h-6"/> : <AlertCircle className="w-6 h-6"/>}
-                  </div>
+                  <div className={`p-2 rounded-full text-white shrink-0 ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>{status === 'correct' ? <Check className="w-6 h-6"/> : <AlertCircle className="w-6 h-6"/>}</div>
                   <div>
                     <h3 className={`font-black text-xl ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? 'Excellent!' : 'Needs Work'}</h3>
                     <p className={`text-sm font-medium mt-1 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{feedbackMsg}</p>
                   </div>
                 </div>
-                {status === 'correct' && (qData.type === 'order' || qData.type === 'speak') && (
-                  <button onClick={() => playAudio(qData.answer || qData.targetText)} className="p-2 bg-emerald-200 text-emerald-800 rounded-full hover:bg-emerald-300 transition-colors shrink-0">
-                    <Volume2 className="w-5 h-5" />
-                  </button>
-                )}
               </div>
-              <button onClick={handleContinue} 
-                className={`w-full py-3 text-white font-black rounded-xl shadow-md transition-all active:translate-y-1 active:shadow-none ${status === 'correct' ? 'bg-emerald-500 hover:bg-emerald-600 border-b-4 border-emerald-700' : 'bg-rose-500 hover:bg-rose-600 border-b-4 border-rose-700'}`}>
-                {status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}
-              </button>
+              <button onClick={handleContinue} className={`w-full py-3 text-white font-black rounded-xl shadow-md active:translate-y-1 ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700' : 'bg-rose-500 border-b-4 border-rose-700'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
             </div>
           )}
         </div>
@@ -514,30 +372,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
   );
 };
 
-const MapView = ({ grade, unit, onBack, user, updateUser }) => {
+const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
   const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
   const [currentStationIdx, setCurrentStationIdx] = useState(unit.progress || 0);
   const [activeGame, setActiveGame] = useState(null);
 
   const getMapNodes = (themeId) => {
-    const baseNodes = [
-      { id: 1, type: "vocab", x: 20, y: 80 }, { id: 2, type: "grammar", x: 45, y: 65 }, 
-      { id: 3, type: "listen", x: 75, y: 55 }, { id: 4, type: "read", x: 40, y: 30 }, 
-      { id: 5, type: "boss", x: 80, y: 15 }
-    ];
-    const themeStyles = {
-      ocean: [ { label: "Word Island", icon: "🏝️" }, { label: "Grammar Reef", icon: "🪸" }, { label: "Listen Shell", icon: "🐚" }, { label: "Read Cave", icon: "🌊" }, { label: "Kraken Boss", icon: "🦑" } ],
-      forest: [ { label: "Word Tree", icon: "🌲" }, { label: "Grammar Hut", icon: "🛖" }, { label: "Listen Bird", icon: "🦜" }, { label: "Read Bear", icon: "🐻" }, { label: "Tiger Boss", icon: "🐯" } ],
-      space: [ { label: "Word Planet", icon: "🪐" }, { label: "Grammar Comet", icon: "☄️" }, { label: "Listen Radar", icon: "🛰️" }, { label: "Read Alien", icon: "👽" }, { label: "UFO Boss", icon: "🛸" } ]
-    };
-    const styles = themeStyles[themeId] || themeStyles.ocean;
-    
-    if (grade.id === 'g1' || grade.id === 'g2') {
-      return [
-        { ...baseNodes[0], ...styles[0] }, { ...baseNodes[2], ...styles[2], x: 60, y: 65 },
-        { ...baseNodes[3], ...styles[3], x: 30, y: 35 }, { ...baseNodes[4], ...styles[4], x: 70, y: 15, label: "Mini Boss" }
-      ];
-    }
+    const baseNodes = [ { id: 1, type: "vocab", x: 20, y: 80 }, { id: 2, type: "grammar", x: 45, y: 65 }, { id: 3, type: "listen", x: 75, y: 55 }, { id: 4, type: "read", x: 40, y: 30 }, { id: 5, type: "boss", x: 80, y: 15 } ];
+    const styles = [ { label: "Word Island", icon: "🏝️" }, { label: "Grammar Reef", icon: "🪸" }, { label: "Listen Shell", icon: "🐚" }, { label: "Read Cave", icon: "🌊" }, { label: "Kraken Boss", icon: "🦑" } ];
     return baseNodes.map((node, i) => ({ ...node, ...styles[i] }));
   };
   
@@ -574,14 +416,20 @@ const MapView = ({ grade, unit, onBack, user, updateUser }) => {
           );
         })}
       </div>
-      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} user={user} updateUser={updateUser} onWin={() => {
+      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} user={user} updateUser={updateUser} currentUnitData={currentUnitData} onWin={() => {
         setActiveGame(null);
-        if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory?.stars ?? 0) + 15}});
-        
+        if (updateUser && user) {
+           let newStars = (user.inventory?.stars ?? 0) + 15;
+           updateUser({...user, inventory: {...user.inventory, stars: newStars}});
+        }
         if (currentStationIdx < nodes.length - 1) setCurrentStationIdx(p => p + 1);
         else {
            alert("🎉 Incredible! You defeated the Boss and completed this Unit! (+50 Stars)");
-           if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory?.stars ?? 0) + 50}});
+           if (updateUser && user) {
+               let newStars = (user.inventory?.stars ?? 0) + 50;
+               let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
+               updateUser({...user, inventory: {...user.inventory, stars: newStars}, completedUnits: newCompleted});
+           }
            onBack();
         }
       }} />
@@ -589,26 +437,32 @@ const MapView = ({ grade, unit, onBack, user, updateUser }) => {
   );
 };
 
-const UnitsView = ({ grade, onBack, onSelectUnit }) => (
+const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
   <div className="w-full max-w-4xl mx-auto py-8 px-4 animate-fade-in h-full flex flex-col">
     <div className="flex items-center gap-4 mb-8 shrink-0">
       <button onClick={onBack} className="p-3 bg-white/10 rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-6 h-6" /></button>
       <div><h2 className="text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
     </div>
     <div className="flex-1 overflow-y-auto flex flex-col gap-4 pb-20 hide-scrollbar">
-      {GRADE_5_UNITS.map(unit => (
+      {GRADE_5_UNITS.map(unit => {
+        const isCompleted = user?.completedUnits?.includes(unit.id);
+        return (
         <button key={unit.id} onClick={() => !unit.locked && onSelectUnit(unit)} 
           className={`relative flex items-center p-5 rounded-[2rem] border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${unit.status === 'active' ? 'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl' : 'bg-slate-800/40 border-slate-900/50 opacity-80 cursor-not-allowed'}`}>
-          <div className="w-14 h-14 rounded-2xl bg-white/20 flex items-center justify-center mr-5 text-white shrink-0">
-            {unit.status === 'locked' ? <Lock className="w-6 h-6" /> : <Play className="w-7 h-7 ml-1" />}
+          ${unit.status === 'locked' ? 'bg-slate-800/40 border-slate-900/50 opacity-80 cursor-not-allowed' : 
+            isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
+            'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
+          
+          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'}`}>
+            {unit.status === 'locked' ? <Lock className="w-6 h-6" /> : isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Play className="w-7 h-7 ml-1" />}
           </div>
-          <div>
+          <div className="flex-1">
             <h3 className="text-xl font-black text-white">{unit.name}: {unit.title}</h3>
             {unit.status === 'locked' && <p className="text-sm font-medium text-blue-200 mt-1">Pass AI test to unlock</p>}
+            {isCompleted && <p className="text-sm font-bold text-emerald-100 mt-1 flex items-center gap-1"><Star className="w-4 h-4 fill-emerald-100"/> Mastered</p>}
           </div>
         </button>
-      ))}
+      )})}
     </div>
   </div>
 );
@@ -632,68 +486,77 @@ const GradesView = ({ onSelectGrade }) => (
 );
 
 const AdminPanel = ({ currentUser }) => {
-  const [users, setUsers] = useState(MOCK_USERS);
   const [activeTab, setActiveTab] = useState('cms');
+  const [dataType, setDataType] = useState('lessons'); 
   const [grade, setGrade] = useState('5');
   const [unit, setUnit] = useState('1');
-  const [jsonInput, setJsonInput] = useState(JSON.stringify(GAME_DATA, null, 2));
+  const [jsonInput, setJsonInput] = useState(JSON.stringify(TEMPLATE_GAME_DATA, null, 2));
   const [isPushing, setIsPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
   
-  const toggleBlock = (uid) => setUsers(users.map(u => u.uid === uid ? { ...u, status: u.status === 'active' ? 'blocked' : 'active' } : u));
-  const toggleRole = (uid) => setUsers(users.map(u => u.uid === uid ? { ...u, role: u.role === 'student' ? 'admin' : 'student' } : u));
-
   const handlePushData = async () => {
-    setIsPushing(true);
-    setPushMsg({ type: '', text: '' });
+    setIsPushing(true); setPushMsg({ type: '', text: '' });
     try {
+      if (!jsonInput.trim()) throw new Error("JSON data is empty!");
       const parsedData = JSON.parse(jsonInput);
-      if (!db) throw new Error("Firebase is not connected! Check your .env setup.");
-      const docId = `grade${grade}_unit${unit}`;
-      await setDoc(doc(db, "units", docId), parsedData);
-      setPushMsg({ type: 'success', text: `✅ Successfully overwritten data to cloud document: ${docId}` });
+      if (!db) throw new Error("Firebase is not connected. Check environment variables.");
+      
+      let collectionName = "units";
+      let docId = `grade${grade}_unit${unit}`;
+      if (dataType === 'mockTests') { collectionName = "mockTests"; docId = `grade${grade}_test${unit}`; }
+      if (dataType === 'cambridge') { collectionName = "cambridge"; docId = `grade${grade}_cambridge${unit}`; }
+
+      await setDoc(doc(db, collectionName, docId), parsedData);
+      setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
-      if (error instanceof SyntaxError) {
-        setPushMsg({ type: 'error', text: `❌ JSON Format Error: ${error.message}` });
-      } else {
-        setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
-      }
-    } finally {
-      setIsPushing(false);
-    }
+      if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Invalid JSON format: ${error.message}` });
+      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules.` });
+      else setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
+    } finally { setIsPushing(false); }
   };
+
+  const loadTemplate = () => {
+      if(dataType === 'lessons') setJsonInput(JSON.stringify(TEMPLATE_GAME_DATA, null, 2));
+      else setJsonInput(JSON.stringify(TEMPLATE_PRACTICE_DATA, null, 2));
+  }
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10">
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
         <div className="p-6 bg-slate-900 text-white border-b-4 border-slate-800 flex justify-between items-center">
-          <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-2xl font-black">Admin Control Panel</h2></div>
-          <div className="bg-slate-800 px-4 py-2 rounded-xl text-sm font-bold border border-slate-700">Logged in as: <span className="text-purple-400 uppercase">{currentUser?.role || 'UNKNOWN'}</span></div>
+          <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-2xl font-black">Admin CMS</h2></div>
         </div>
         <div className="flex bg-slate-50 border-b border-slate-200">
-           <button onClick={() => setActiveTab('cms')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'cms' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>☁️ PUSH DATA (CMS)</button>
-           <button onClick={() => setActiveTab('users')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'users' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>👥 USER MANAGEMENT</button>
+           <button onClick={() => setActiveTab('cms')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'cms' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>☁️ PUSH DATA TO CLOUD</button>
         </div>
       </div>
       
-      {activeTab === 'cms' ? (
+      {activeTab === 'cms' && (
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-6 flex flex-col gap-4 animate-fade-in">
-          <div className="flex flex-col md:flex-row items-center gap-4 bg-blue-50 p-5 rounded-xl border border-blue-200">
-             <div className="flex-1 w-full">
-                <label className="block text-sm font-bold text-blue-900 mb-2">Select Grade</label>
-                <select value={grade} onChange={e=>setGrade(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none focus:border-blue-500 shadow-sm">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-blue-50 p-5 rounded-xl border border-blue-200">
+             <div className="w-full">
+                <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
+                <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
+                  <option value="lessons">Standard Lesson</option>
+                  <option value="mockTests">45-Min Mock Test</option>
+                  <option value="cambridge">Cambridge Advanced</option>
+                </select>
+             </div>
+             <div className="w-full">
+                <label className="block text-sm font-bold text-blue-900 mb-2">Grade</label>
+                <select value={grade} onChange={e=>setGrade(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
                   {[1,2,3,4,5].map(g => <option key={g} value={g}>Grade {g}</option>)}
                 </select>
              </div>
-             <div className="flex-1 w-full">
-                <label className="block text-sm font-bold text-blue-900 mb-2">Select Unit</label>
-                <select value={unit} onChange={e=>setUnit(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none focus:border-blue-500 shadow-sm">
-                  {[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20].map(u => <option key={u} value={u}>Unit {u}</option>)}
+             <div className="w-full">
+                <label className="block text-sm font-bold text-blue-900 mb-2">Unit/Test ID</label>
+                <select value={unit} onChange={e=>setUnit(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
+                  {[1,2,3,4,5,6,7,8,9,10].map(u => <option key={u} value={u}>ID {u}</option>)}
                 </select>
              </div>
-             <div className="flex-1 w-full flex items-end">
-                <button onClick={handlePushData} disabled={isPushing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 mt-6 md:mt-0 shadow-lg">
-                   {isPushing ? 'PUSHING...' : '🚀 PUSH TO CLOUD'}
+             <div className="w-full flex items-end">
+                <button onClick={handlePushData} disabled={isPushing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg">
+                   {isPushing ? 'PUSHING...' : '🚀 PUSH DATA'}
                 </button>
              </div>
           </div>
@@ -706,77 +569,14 @@ const AdminPanel = ({ currentUser }) => {
 
           <div className="flex-1 flex flex-col gap-3 mt-2">
             <div className="flex justify-between items-center px-1">
-               <label className="font-black text-slate-700 flex items-center gap-2"><BookOpen className="w-5 h-5"/> Lesson Data (JSON Format)</label>
-               <button onClick={() => setJsonInput(JSON.stringify(GAME_DATA, null, 2))} className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-                 Reload Template
+               <label className="font-black text-slate-700 flex items-center gap-2"><BookOpen className="w-5 h-5"/> JSON Data Payload</label>
+               <button onClick={loadTemplate} className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+                 Load Example Template
                </button>
             </div>
-            <textarea 
-               value={jsonInput} 
-               onChange={e => setJsonInput(e.target.value)}
-               className="w-full h-[400px] bg-slate-900 text-emerald-400 font-mono text-sm p-5 rounded-2xl outline-none focus:ring-4 focus:ring-blue-500/30 border-4 border-slate-800 shadow-inner hide-scrollbar"
-               spellCheck="false"
-               placeholder="Paste your JSON lesson code here..."
-            />
-          </div>
-        </div>
-      ) : (
-        <div className="bg-white rounded-[2rem] shadow-xl overflow-hidden border-4 border-slate-200 animate-fade-in">
-          <div className="overflow-x-auto p-2">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="text-slate-400 font-bold border-b-2 border-slate-100">
-                  <th className="p-4">User</th><th className="p-4">Role</th><th className="p-4">Status</th><th className="p-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map(u => {
-                  const canModify = currentUser?.role === 'superadmin' || (currentUser?.role === 'admin' && u.role !== 'superadmin');
-                  return (
-                    <tr key={u.uid} className="border-b border-slate-50 hover:bg-slate-50 transition-colors">
-                      <td className="p-4 flex items-center gap-4">
-                        <img src={u.avatar} className="w-12 h-12 rounded-2xl bg-slate-200 border-2 border-white shadow-sm" alt="" />
-                        <div>
-                          <p className="font-bold text-slate-800 text-lg">{u.name}</p>
-                          <p className="text-sm text-slate-500 font-medium">{u.email}</p>
-                        </div>
-                      </td>
-                      <td className="p-4">
-                        <span className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wider
-                          ${u.role==='superadmin' ? 'bg-rose-100 text-rose-700 border border-rose-200' : 
-                            u.role==='admin' ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
-                          {u.role}
-                        </span>
-                      </td>
-                      <td className="p-4">
-                        <span className={`px-3 py-1.5 rounded-full text-xs font-black uppercase tracking-wider
-                          ${u.status==='active' ? 'bg-emerald-100 text-emerald-700 border border-emerald-200' : 'bg-slate-200 text-slate-600 border border-slate-300'}`}>
-                          {u.status}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right">
-                        {canModify ? (
-                          <div className="flex justify-end gap-2">
-                             {u.role !== 'superadmin' && (
-                               <button onClick={()=>toggleRole(u.uid)} className={`px-4 py-2 rounded-xl text-xs font-black transition-all active:scale-95 border
-                                 ${u.role === 'admin' ? 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200' : 'bg-purple-100 text-purple-700 border-purple-300 hover:bg-purple-200'}`}>
-                                 {u.role === 'admin' ? 'DEMOTE' : 'PROMOTE'}
-                               </button>
-                             )}
-                             <button onClick={()=>toggleBlock(u.uid)} className={`px-4 py-2 rounded-xl text-xs font-black text-white border-b-[3px] transition-all active:translate-y-[2px] active:border-b-0
-                               ${u.status==='active' ? 'bg-rose-500 border-rose-700 hover:bg-rose-400' : 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'}`}>
-                               {u.status === 'active' ? 'BLOCK' : 'UNBLOCK'}
-                             </button>
-                          </div>
-                        ) : (
-                          <span className="text-xs font-bold text-slate-400 bg-slate-100 px-3 py-1.5 rounded-lg">RESTRICTED</span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <textarea value={jsonInput} onChange={e => setJsonInput(e.target.value)}
+               className="w-full h-[400px] bg-slate-900 text-emerald-400 font-mono text-sm p-5 rounded-2xl outline-none border-4 border-slate-800 shadow-inner hide-scrollbar"
+               spellCheck="false" placeholder="Paste your JSON code here..." />
           </div>
         </div>
       )}
@@ -784,7 +584,8 @@ const AdminPanel = ({ currentUser }) => {
   );
 };
 
-const PracticeHub = () => (
+const PracticeHub = ({ user, updateUser }) => {
+    return (
   <div className="p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10">
     <div className="mb-8">
       <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">Practice Hub</h2>
@@ -792,34 +593,19 @@ const PracticeHub = () => (
     </div>
     
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <div className="col-span-1 md:col-span-2 p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white cursor-pointer hover:-translate-y-2 transition-transform shadow-xl">
+      <button onClick={() => alert("Chức năng tải bài thi từ Cloud sẽ được kích hoạt sau khi bạn Push Data Test lên Cloud!")} className="text-left col-span-1 md:col-span-2 p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
         <Timer className="w-12 h-12 mb-4 text-indigo-200" />
         <h3 className="text-3xl font-black mb-2">45-Min Mock Test</h3>
         <p className="text-indigo-100 text-base font-medium">Simulate a full school exam with diverse question types. Get ready for mid-terms!</p>
-      </div>
-      <div className="p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white cursor-pointer hover:-translate-y-2 transition-transform shadow-xl">
+      </button>
+      <button onClick={() => alert("Chức năng tải bài thi từ Cloud sẽ được kích hoạt sau khi bạn Push Data Cambridge lên Cloud!")} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
         <Medal className="w-12 h-12 mb-4 text-amber-100" />
         <h3 className="text-2xl font-black mb-2">Cambridge Advanced</h3>
         <p className="text-amber-50 text-sm font-medium">Extra vocabulary and complex structures to ace international exams.</p>
-      </div>
-      <div className="p-6 bg-slate-800/80 backdrop-blur-xl rounded-[2rem] border-b-[6px] border-slate-900 text-white cursor-pointer hover:-translate-y-1 transition-transform shadow-lg group">
-        <Headphones className="w-10 h-10 mb-4 text-blue-400 group-hover:scale-110 transition-transform" />
-        <h3 className="text-xl font-black mb-2">Listening Hub</h3>
-        <p className="text-slate-400 text-sm font-medium">Train your ears with native speaker audio and dictation exercises.</p>
-      </div>
-      <div className="p-6 bg-slate-800/80 backdrop-blur-xl rounded-[2rem] border-b-[6px] border-slate-900 text-white cursor-pointer hover:-translate-y-1 transition-transform shadow-lg group">
-        <BookOpen className="w-10 h-10 mb-4 text-emerald-400 group-hover:scale-110 transition-transform" />
-        <h3 className="text-xl font-black mb-2">Reading Comprehension</h3>
-        <p className="text-slate-400 text-sm font-medium">Read exciting stories and answer questions to boost understanding.</p>
-      </div>
-      <div className="p-6 bg-slate-800/80 backdrop-blur-xl rounded-[2rem] border-b-[6px] border-slate-900 text-white cursor-pointer hover:-translate-y-1 transition-transform shadow-lg group">
-        <PenTool className="w-10 h-10 mb-4 text-rose-400 group-hover:scale-110 transition-transform" />
-        <h3 className="text-xl font-black mb-2">Writing Mastery</h3>
-        <p className="text-slate-400 text-sm font-medium">Practice sentence ordering and paragraph construction step-by-step.</p>
-      </div>
+      </button>
     </div>
   </div>
-);
+)};
 
 const ArenaLobby = () => (
   <div className="p-8 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10">
@@ -829,20 +615,9 @@ const ArenaLobby = () => (
       </div>
       <h2 className="text-4xl font-black text-white mb-3">Arena Lobby</h2>
       <p className="text-slate-400 font-medium text-lg mb-10">Join a live multiplayer match or host your own epic battle!</p>
-      
-      <div className="flex flex-col gap-4">
-        <div className="bg-slate-800 p-2 rounded-3xl flex items-center gap-2 border border-slate-700 focus-within:border-blue-500 transition-colors">
-          <Gamepad2 className="w-6 h-6 text-slate-400 ml-4 shrink-0" />
-          <input type="text" placeholder="Enter Room PIN" className="w-full bg-transparent text-white font-black text-xl outline-none px-2 py-3 tracking-widest placeholder-slate-500" />
-          <button className="bg-blue-500 text-white font-black py-3 px-8 rounded-2xl hover:bg-blue-400 transition-colors shrink-0">JOIN</button>
-        </div>
-        
-        <div className="flex items-center gap-4 my-4"><div className="h-px bg-slate-700 flex-1"></div><span className="text-slate-500 font-bold text-sm uppercase tracking-widest">OR</span><div className="h-px bg-slate-700 flex-1"></div></div>
-        
-        <button className="w-full bg-slate-800 text-white font-black py-5 text-lg rounded-[2rem] border-2 border-slate-700 hover:bg-slate-700 hover:border-slate-600 transition-all flex items-center justify-center gap-3">
-          <Crown className="w-6 h-6 text-yellow-400" /> HOST A MATCH
-        </button>
-      </div>
+      <button className="w-full bg-slate-800 text-white font-black py-5 text-lg rounded-[2rem] border-2 border-slate-700 hover:bg-slate-700 flex items-center justify-center gap-3">
+        <Crown className="w-6 h-6 text-yellow-400" /> UNDER CONSTRUCTION
+      </button>
     </div>
   </div>
 );
@@ -851,28 +626,18 @@ const OnboardingView = () => {
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      if (auth) {
-        await signInWithPopup(auth, provider);
-      } else {
-        alert("Firebase is not fully configured to support Google Sign-In. Check your .env setup.");
-      }
-    } catch (error) {
-      console.error("Login failed", error);
-      alert("Login failed: " + error.message);
-    }
+      if (auth) await signInWithPopup(auth, provider);
+      else alert("Firebase is not fully configured to support Google Sign-In.");
+    } catch (error) { console.error("Login failed", error); alert("Login failed: " + error.message); }
   };
-
   return (
     <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-900 animate-fade-in relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-tr from-blue-900/20 to-purple-900/20"></div>
       <div className="z-10 bg-slate-950/60 backdrop-blur-2xl p-12 rounded-[3rem] border border-white/10 shadow-2xl flex flex-col items-center text-center max-w-md w-[90%]">
-        <div className="w-28 h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-[2rem] flex items-center justify-center mb-8 shadow-lg shadow-blue-500/20">
-          <Rocket className="w-14 h-14 text-white" />
-        </div>
+        <div className="w-28 h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-[2rem] flex items-center justify-center mb-8"><Rocket className="w-14 h-14 text-white" /></div>
         <h1 className="text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
         <p className="text-slate-400 font-medium text-lg mb-10">Embark on a journey to master English.</p>
-        
-        <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 transition-colors shadow-xl mb-4 text-lg">
+        <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-lg">
           <Fingerprint className="w-6 h-6" /> Login with Google
         </button>
       </div>
@@ -881,122 +646,99 @@ const OnboardingView = () => {
 };
 
 const MainLayout = ({ user, handleLogout, updateUser }) => {
-  const [currentView, setCurrentView] = useState('grades'); // grades, units, map, admin, practice, arena
+  const [currentView, setCurrentView] = useState('grades'); 
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
-  const [showOrientationWarning, setShowOrientationWarning] = useState(false);
+  const [currentUnitData, setCurrentUnitData] = useState(null); // CHỨA DỮ LIỆU TẢI TỪ FIREBASE
+  const [isLoadingData, setIsLoadingData] = useState(false);
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
 
-  useEffect(() => {
-    setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
-
-    const checkOrientation = () => {
-      const isPortrait = window.innerHeight > window.innerWidth;
-      const isTouch = (window.matchMedia("(pointer: coarse)").matches);
-      setShowOrientationWarning(isPortrait && isTouch);
-    };
-    checkOrientation();
-    window.addEventListener('resize', checkOrientation);
-    return () => window.removeEventListener('resize', checkOrientation);
-  }, []);
+  useEffect(() => { setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]); }, []);
 
   const navItems = [
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
     { id: 'arena', label: "Arena", icon: Swords, color: 'text-orange-400' }
   ];
+  if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
 
-  if (user?.role === 'admin' || user?.role === 'superadmin') {
-    navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
+  // HÀM TẢI DỮ LIỆU TRỰC TIẾP TỪ CLOUD (TRUNG TÂM CỦA ZERO HARDCODED DATA)
+  const handleSelectUnitAndFetch = async (unit) => {
+    setSelectedUnit(unit);
+    setIsLoadingData(true);
+    setCurrentView('map');
+    
+    try {
+      if(!db) throw new Error("Firebase DB not initialized");
+      const docId = `grade${selectedGrade.id.replace('g', '')}_unit${unit.id.replace('u', '')}`;
+      const docRef = doc(db, 'units', docId);
+      const snap = await getDoc(docRef);
+      
+      if(snap.exists()) {
+        setCurrentUnitData(snap.data());
+      } else {
+        alert("Dữ liệu của bài học này chưa được Push lên Cloud! Vui lòng dùng Admin CMS để đẩy Data lên.");
+        setCurrentView('units');
+      }
+    } catch(err) {
+      console.error(err);
+      alert("Lỗi tải dữ liệu. Firebase chưa kết nối hoặc chưa push data.");
+      setCurrentView('units');
+    } finally {
+      setIsLoadingData(false);
+    }
   }
 
   const renderContent = () => {
+    if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white"><Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-xl">Loading Cloud Data...</h3></div>;
+    
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
-      case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={(u) => { setSelectedUnit(u); setCurrentView('map'); }} />;
-      case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} />;
+      case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={handleSelectUnitAndFetch} user={user} />;
+      case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentUnitData} />;
       case 'admin': return <AdminPanel currentUser={user} />;
-      case 'practice': return <PracticeHub />;
+      case 'practice': return <PracticeHub user={user} updateUser={updateUser} />;
       case 'arena': return <ArenaLobby />;
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
 
   return (
-    <>
-      {showOrientationWarning && (
-        <div className="fixed top-4 left-1/2 -translate-x-1/2 w-fit z-[9999] bg-slate-900/90 backdrop-blur-xl text-white px-5 py-3 rounded-full shadow-2xl flex items-center justify-between border border-blue-500/30 animate-fade-in gap-4">
-          <RotateCw className="w-5 h-5 text-blue-400 shrink-0" />
-          <p className="text-xs font-bold text-slate-200">For the best experience, please rotate your device horizontally.</p>
-          <button onClick={() => setShowOrientationWarning(false)} className="p-1.5 hover:bg-white/10 rounded-full active:scale-95 shrink-0"><X className="w-4 h-4 text-slate-400" /></button>
+    <div className="flex h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
+      <style>{globalStyles}</style>
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[120px] animate-pulse-ring pointer-events-none"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-ring pointer-events-none" style={{animationDelay: '1s'}}></div>
+      
+      <aside className="hidden sm:flex flex-col bg-slate-950/60 backdrop-blur-2xl border-r border-white/10 transition-all duration-300 z-50 relative w-16 hover:w-64 group hide-scrollbar">
+        <div className="p-3 flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
+          <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
+          <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
-      )}
-
-      <div className="flex h-screen w-screen overflow-hidden bg-[#0f172a] font-sans selection:bg-white/30 relative">
-        <style>{globalStyles}</style>
-        
-        {/* Animated Background Orbs for Glassmorphism */}
-        <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[120px] animate-pulse-ring pointer-events-none"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-ring pointer-events-none" style={{animationDelay: '1s'}}></div>
-        
-        <aside className="hidden sm:flex flex-col bg-slate-950/60 backdrop-blur-2xl border-r border-white/10 transition-all duration-300 ease-in-out z-50 shadow-2xl relative w-16 hover:w-64 group hide-scrollbar">
-          <div className="p-3 flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
-            <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center shadow-lg"><Rocket className="w-6 h-6 text-white" /></div>
-            <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
-          </div>
-
-          <nav className="flex-1 flex flex-col gap-2 p-3 overflow-y-auto hide-scrollbar">
-            {navItems.map(item => (
-              <button key={item.id} onClick={() => setCurrentView(item.id)}
-                className={`flex items-center p-3 rounded-xl font-black text-sm transition-all border border-transparent overflow-hidden
-                ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
-                <item.icon className={`min-w-[24px] h-6 ${item.color}`} />
-                <span className="ml-4 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">{item.label}</span>
-              </button>
-            ))}
-          </nav>
-
-          <div className="p-4 border-t border-white/5 flex flex-col gap-4 shrink-0 overflow-hidden">
-            <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3 shadow-xl">
-              <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}>
-                <dailyQuote.icon className="w-8 h-8" />
-              </div>
-              <p className={`text-sm md:text-base font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
-            </div>
-
-            <div className="bg-slate-900/80 p-4 rounded-[1.5rem] border border-white/5 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-40 shadow-inner flex flex-col justify-center">
-               <p className="text-white/40 font-bold text-[10px] uppercase tracking-widest mb-1">Creator</p>
-               <p className="text-white font-black text-sm mb-2">Mr. Khoa</p>
-               <div className="flex flex-col gap-1.5 text-white/50 text-xs font-medium">
-                 <span className="flex items-center gap-2 truncate hover:text-white transition-colors"><Mail className="w-3.5 h-3.5 shrink-0"/> khoavuexp@gmail.com</span>
-                 <span className="flex items-center gap-2 truncate hover:text-white transition-colors"><Phone className="w-3.5 h-3.5 shrink-0"/> Zalo: 0901 637 827</span>
-               </div>
-            </div>
-            
-            <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 shadow-sm mt-1">
-              <LogOut className="min-w-[24px] h-5" /> 
-              <span className="ml-3 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">Log Out</span>
-            </button>
-          </div>
-        </aside>
-
-        <div className="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
-          <TopMetricsBar user={user} />
-          <div className="flex-1 overflow-hidden relative">
-            {renderContent()}
-          </div>
-        </div>
-
-        <nav className="sm:hidden fixed bottom-0 left-0 right-0 bg-slate-950/90 backdrop-blur-xl border-t border-white/10 flex justify-around p-1 z-50 pb-safe">
+        <nav className="flex-1 flex flex-col gap-2 p-3 overflow-y-auto hide-scrollbar">
           {navItems.map(item => (
-            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex flex-col items-center p-2 rounded-xl min-w-[4rem] transition-colors ${currentView === item.id ? 'bg-white/10' : 'hover:bg-white/5'}`}>
-              <item.icon className={`w-5 h-5 mb-0.5 ${item.color}`} />
-              <span className={`text-[9px] font-black ${item.color}`}>{item.label}</span>
+            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center p-3 rounded-xl font-black text-sm transition-all border border-transparent overflow-hidden ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
+              <item.icon className={`min-w-[24px] h-6 ${item.color}`} />
+              <span className="ml-4 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">{item.label}</span>
             </button>
           ))}
         </nav>
+        <div className="p-4 border-t border-white/5 flex flex-col gap-4 shrink-0 overflow-hidden">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
+            <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
+            <p className={`text-sm font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
+          </div>
+          <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
+            <LogOut className="min-w-[24px] h-5" /> 
+            <span className="ml-3 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">Log Out</span>
+          </button>
+        </div>
+      </aside>
+
+      <div className="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
+        <TopMetricsBar user={user} />
+        <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       </div>
-    </>
+    </div>
   );
 };
 
@@ -1005,49 +747,28 @@ export default function App() {
   const [isAuthChecking, setIsAuthChecking] = useState(true);
 
   useEffect(() => {
-    if (!auth) {
-      setIsAuthChecking(false);
-      return;
-    }
+    if (!auth) { setIsAuthChecking(false); return; }
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const userProfile = await syncUserWithDb(firebaseUser);
         setUser(userProfile);
-      } else {
-        setUser(null);
-      }
+      } else { setUser(null); }
       setIsAuthChecking(false);
     });
     return () => unsubscribe();
   }, []);
 
-  const handleLogout = async () => {
-    if (auth) await signOut(auth);
-    setUser(null);
-  };
+  const handleLogout = async () => { if (auth) await signOut(auth); setUser(null); };
 
   const updateUserAndDb = async (newUserData) => {
     setUser(newUserData);
     if (db && newUserData) {
-      const userRef = doc(db, "users", newUserData.uid);
-      await setDoc(userRef, newUserData, { merge: true });
+      try { await setDoc(doc(db, "users", newUserData.uid), newUserData, { merge: true }); } 
+      catch(e) { console.warn("Firestore save failed, but UI state updated.", e); }
     }
   };
 
-  if (isAuthChecking) {
-    return (
-      <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center">
-        <div className="flex flex-col items-center gap-4">
-           <Compass className="w-12 h-12 text-blue-500 animate-spin" />
-           <p className="text-white font-black animate-pulse">Checking credentials...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <OnboardingView />;
-  }
-
+  if (isAuthChecking) return <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center"><div className="flex flex-col items-center gap-4"><Compass className="w-12 h-12 text-blue-500 animate-spin" /><p className="text-white font-black animate-pulse">Checking credentials...</p></div></div>;
+  if (!user) return <OnboardingView />;
   return <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} />;
 }
