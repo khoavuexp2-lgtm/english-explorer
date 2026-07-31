@@ -6,7 +6,8 @@ import {
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
   AlertCircle, Check, Crown, ShieldAlert, BookOpen, Library,
   Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
-  Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code
+  Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
+  Bot, Cpu, Clock, LayoutGrid
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -54,6 +55,8 @@ const globalStyles = `
   .animate-slide-up { animation: slide-up 0.5s ease-out forwards; }
   @keyframes bounce-short { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
   .animate-bounce-short { animation: bounce-short 1.5s ease-in-out infinite; }
+  @keyframes timer-shrink { from { width: 100%; } to { width: 0%; } }
+  .animate-timer { animation: timer-shrink linear forwards; }
 `;
 
 const MOTIVATIONAL_QUOTES = [
@@ -64,11 +67,12 @@ const MOTIVATIONAL_QUOTES = [
   { text: "English is your superpower!", icon: Zap, color: "text-purple-400" }
 ];
 
+// ALL GRADES UNLOCKED AS REQUESTED
 const GRADES = [
   { id: 'g1', name: "Grade 1", desc: "Phonics & Words", locked: false, color: "from-emerald-400 to-teal-500", icon: Zap },
   { id: 'g2', name: "Grade 2", desc: "Basic Phrases", locked: false, color: "from-blue-400 to-cyan-500", icon: Shield },
-  { id: 'g3', name: "Grade 3", desc: "Beginner Sentences", locked: true, color: "from-slate-400 to-slate-500", icon: Shield },
-  { id: 'g4', name: "Grade 4", desc: "Intermediate", locked: true, color: "from-slate-400 to-slate-500", icon: Shield },
+  { id: 'g3', name: "Grade 3", desc: "Beginner Sentences", locked: false, color: "from-amber-400 to-orange-500", icon: LayoutGrid },
+  { id: 'g4', name: "Grade 4", desc: "Intermediate", locked: false, color: "from-rose-400 to-pink-500", icon: BookOpen },
   { id: 'g5', name: "Grade 5", desc: "Advanced Master", locked: false, color: "from-purple-500 to-indigo-600", icon: Crown },
 ];
 
@@ -78,14 +82,10 @@ const MAP_THEMES = {
   forest: { bg: "from-[#14532d] to-[#064e3b]", vehicle: "🚙", pathColor: "rgba(255,255,255,0.3)" }
 };
 
-const GRADE_5_UNITS = [
+const GRADE_UNITS = [
   { id: 'u1', name: "Unit 1", title: "What's your address?", status: 'active', theme: 'ocean', progress: 0 },
-  { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'locked', theme: 'forest', progress: 0 },
-];
-
-const TEMPLATE_PRACTICE_DATA = [
-    { type: 'multiple-choice', question: "Choose the correct word: A large community is called a ____.", options: ["Village", "Town", "City", "Country"], answer: "City" },
-    { type: 'multiple-choice', question: "Grammar: Where ____ you live?", options: ["do", "does", "are", "is"], answer: "do" }
+  { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'active', theme: 'forest', progress: 0 },
+  { id: 'u3', name: "Unit 3", title: "Where did you go on holiday?", status: 'active', theme: 'space', progress: 0 },
 ];
 
 const playAudio = (text) => {
@@ -101,11 +101,8 @@ const playAudio = (text) => {
 const evaluateSpeech = (transcript, target) => {
   const cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
   const cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-  
   if (cleanTranscript === cleanTarget) return { pass: true, msg: "Perfect pronunciation!" };
-  if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) {
-    return { pass: false, msg: "You pronounced 'bag' instead of 'big'. Try a short /ɪ/ sound!" };
-  }
+  if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) return { pass: false, msg: "You pronounced 'bag' instead of 'big'. Try a short /ɪ/ sound!" };
   return { pass: false, msg: `System heard: "${transcript}". Not quite right, try again!` };
 };
 
@@ -130,10 +127,7 @@ const syncUserWithDb = async (googleUser) => {
         completedUnits: data.completedUnits || []
       };
     } else {
-      const newUser = {
-        uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", 
-        avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: []
-      };
+      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [] };
       await setDoc(userRef, newUser);
       return newUser;
     }
@@ -143,10 +137,8 @@ const syncUserWithDb = async (googleUser) => {
   }
 };
 
-// ĐÃ SỬA VỊ TRÍ: Avatar góc phải, Metrics góc trái
 const TopMetricsBar = ({ user }) => (
-  <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-4 flex justify-between items-center z-40 relative shadow-lg">
-    {/* Trái: Điểm số & Sinh lực */}
+  <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-4 flex justify-between items-center z-40 relative shadow-lg shrink-0">
     <div className="flex gap-3">
       <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
          <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
@@ -157,17 +149,34 @@ const TopMetricsBar = ({ user }) => (
          <span className="text-white font-black">{user?.inventory?.lives ?? 5}</span>
       </div>
     </div>
-
-    {/* Phải: Avatar và Tên (Thiết kế chuẩn V12) */}
     <div className="flex items-center gap-3 text-right">
       <div className="hidden sm:block">
         <h2 className="text-white font-black text-lg leading-tight">{user?.name || "Explorer"}</h2>
         <span className="text-blue-400 font-bold text-xs uppercase tracking-widest">{user?.role || "STUDENT"}</span>
       </div>
-      <img src={user?.avatar || "https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer"} className="w-12 h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
+      <img src={user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer`} className="w-12 h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
     </div>
   </div>
 );
+
+// CENTRALIZED FALLBACK MODAL FOR MISSING DATA
+const UnderConstructionModal = ({ isOpen, onClose }) => {
+  if (!isOpen) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+      <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl border-4 border-slate-200">
+        <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
+           <Cpu className="w-10 h-10 text-blue-500 animate-bounce" />
+        </div>
+        <h3 className="text-2xl font-black text-slate-800 mb-2">Under Construction!</h3>
+        <p className="text-slate-600 font-medium mb-8">This module is currently being built and updated by our academic team. Data is not yet available on the Cloud.</p>
+        <button onClick={onClose} className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 transition-all">
+          GOT IT
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentUnitData }) => {
   const [qIndex, setQIndex] = useState(0);
@@ -201,7 +210,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
         recognitionRef.current.lang = 'en-US';
         recognitionRef.current.continuous = false;
         recognitionRef.current.interimResults = false;
-
         recognitionRef.current.onresult = (event) => {
           const spokenText = event.results[0][0].transcript;
           setTranscript(spokenText);
@@ -217,16 +225,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
   if (!isOpen || !station) return null;
 
+  // Failsafe: if data missing inside the station
   if (!qData) {
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-        <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl">
-          <h3 className="text-2xl font-black text-slate-800 mb-2">🚧 Dữ liệu chưa hoàn thiện!</h3>
-          <p className="text-slate-600 font-medium mb-6">Trạm này chưa có data trên Cloud. Hãy vào Admin push data.</p>
-          <button onClick={onClose} className="w-full py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0">CLOSE</button>
-        </div>
-      </div>
-    );
+    return <UnderConstructionModal isOpen={true} onClose={onClose} />;
   }
 
   const toggleListen = () => {
@@ -366,16 +367,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
 const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
   const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
-  const [currentStationIdx, setCurrentStationIdx] = useState(unit.progress || 0);
+  const [currentStationIdx, setCurrentStationIdx] = useState(0); // Progress managed locally or by DB later
   const [activeGame, setActiveGame] = useState(null);
 
-  const getMapNodes = (themeId) => {
+  const getMapNodes = () => {
     const baseNodes = [ { id: 1, type: "vocab", x: 20, y: 80 }, { id: 2, type: "grammar", x: 45, y: 65 }, { id: 3, type: "listen", x: 75, y: 55 }, { id: 4, type: "read", x: 40, y: 30 }, { id: 5, type: "boss", x: 80, y: 15 } ];
     const styles = [ { label: "Word Island", icon: "🏝️" }, { label: "Grammar Reef", icon: "🪸" }, { label: "Listen Shell", icon: "🐚" }, { label: "Read Cave", icon: "🌊" }, { label: "Kraken Boss", icon: "🦑" } ];
     return baseNodes.map((node, i) => ({ ...node, ...styles[i] }));
   };
   
-  const nodes = getMapNodes(unit.theme);
+  const nodes = getMapNodes();
   const pathD = nodes.reduce((acc, node, i) => i === 0 ? `M ${node.x} ${node.y}` : `${acc} L ${node.x} ${node.y}`, "");
 
   return (
@@ -430,27 +431,25 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
 };
 
 const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
-  <div className="w-full max-w-4xl mx-auto py-8 px-4 animate-fade-in h-full flex flex-col">
+  <div className="w-full max-w-4xl mx-auto py-8 px-4 animate-fade-in h-full flex flex-col z-10 relative">
     <div className="flex items-center gap-4 mb-8 shrink-0">
       <button onClick={onBack} className="p-3 bg-white/10 rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-6 h-6" /></button>
       <div><h2 className="text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
     </div>
     <div className="flex-1 overflow-y-auto flex flex-col gap-4 pb-20 hide-scrollbar">
-      {GRADE_5_UNITS.map(unit => {
+      {GRADE_UNITS.map(unit => {
         const isCompleted = user?.completedUnits?.includes(unit.id);
         return (
-        <button key={unit.id} onClick={() => !unit.locked && onSelectUnit(unit)} 
+        <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-5 rounded-[2rem] border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${unit.status === 'locked' ? 'bg-slate-800/40 border-slate-900/50 opacity-80 cursor-not-allowed' : 
-            isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
+          ${isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
           
           <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'}`}>
-            {unit.status === 'locked' ? <Lock className="w-6 h-6" /> : isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Play className="w-7 h-7 ml-1" />}
+            {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Play className="w-7 h-7 ml-1" />}
           </div>
           <div className="flex-1">
             <h3 className="text-xl font-black text-white">{unit.name}: {unit.title}</h3>
-            {unit.status === 'locked' && <p className="text-sm font-medium text-blue-200 mt-1">Pass AI test to unlock</p>}
             {isCompleted && <p className="text-sm font-bold text-emerald-100 mt-1 flex items-center gap-1"><Star className="w-4 h-4 fill-emerald-100"/> Mastered</p>}
           </div>
         </button>
@@ -464,10 +463,8 @@ const GradesView = ({ onSelectGrade }) => (
     <div className="mb-8 text-center"><h2 className="text-4xl font-black text-white drop-shadow-lg">Select Your Grade</h2></div>
     <div className="flex flex-wrap justify-center items-center gap-4 max-w-5xl w-full">
       {GRADES.map(grade => (
-        <button key={grade.id} onClick={() => !grade.locked && onSelectGrade(grade)} 
-          className={`relative flex-1 min-w-[140px] max-w-[180px] text-left p-5 rounded-[2rem] border-b-[8px] transition-all
-          ${grade.locked ? 'bg-slate-800/60 border-slate-900/80 cursor-not-allowed opacity-70' : `bg-gradient-to-b ${grade.color} border-black/20 hover:-translate-y-2 hover:shadow-2xl active:translate-y-0 active:border-b-0`}`}>
-          {grade.locked && <div className="absolute inset-0 bg-slate-900/60 z-10 rounded-[2rem] flex items-center justify-center"><Lock className="w-8 h-8 text-white/50" /></div>}
+        <button key={grade.id} onClick={() => onSelectGrade(grade)} 
+          className={`relative flex-1 min-w-[140px] max-w-[180px] text-left p-5 rounded-[2rem] border-b-[8px] transition-all bg-gradient-to-b ${grade.color} border-black/20 hover:-translate-y-2 hover:shadow-2xl active:translate-y-0 active:border-b-0`}>
           <div className="p-3 rounded-2xl bg-white/20 text-white w-fit mb-4"><grade.icon className="w-8 h-8" /></div>
           <h3 className="font-black text-2xl text-white">{grade.name}</h3>
           <p className="text-xs font-bold text-white/70 mt-1">{grade.desc}</p>
@@ -476,6 +473,208 @@ const GradesView = ({ onSelectGrade }) => (
     </div>
   </div>
 );
+
+const PracticeHub = ({ user, onTriggerMissingData }) => {
+  return (
+    <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10">
+      <div className="mb-8">
+        <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">Practice Hub</h2>
+        <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
+      </div>
+      
+      <div className="flex flex-col gap-8">
+        {/* Extra Exercises Section */}
+        <div>
+          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Extra Exercises</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
+              <Headphones className="w-8 h-8 mb-3 text-teal-100" />
+              <h4 className="text-xl font-black">Listening</h4>
+              <p className="text-sm font-medium text-teal-100">By Unit</p>
+            </button>
+            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
+              <Mic className="w-8 h-8 mb-3 text-cyan-100" />
+              <h4 className="text-xl font-black">Speaking</h4>
+              <p className="text-sm font-medium text-cyan-100">By Unit</p>
+            </button>
+            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
+              <BookOpen className="w-8 h-8 mb-3 text-rose-100" />
+              <h4 className="text-xl font-black">Reading</h4>
+              <p className="text-sm font-medium text-rose-100">By Unit</p>
+            </button>
+          </div>
+        </div>
+
+        {/* Exams Section */}
+        <div>
+          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-indigo-400"/> Full Exams</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <button onClick={onTriggerMissingData} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
+              <Timer className="w-12 h-12 mb-4 text-indigo-200" />
+              <h3 className="text-3xl font-black mb-2">45-Min Mock Test</h3>
+              <p className="text-indigo-100 text-base font-medium">Simulate a full school exam with diverse question types.</p>
+            </button>
+            <button onClick={onTriggerMissingData} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
+              <Medal className="w-12 h-12 mb-4 text-amber-100" />
+              <h3 className="text-2xl font-black mb-2">Cambridge Advanced</h3>
+              <p className="text-amber-50 text-sm font-medium">Extra vocabulary and complex structures.</p>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const ArenaView = ({ user }) => {
+  const [arenaState, setArenaState] = useState('lobby'); // lobby, hosting, battle, result
+  const [pin, setPin] = useState('');
+  const [players, setPlayers] = useState([]);
+  const [timer, setTimer] = useState(10);
+
+  // Simulate players joining if hosting
+  useEffect(() => {
+    if (arenaState === 'hosting') {
+      const interval = setInterval(() => {
+        const bots = ["Alex_99", "Sarah_Pro", "JohnDoe", "Emma_Star", "Mike_Gamer"];
+        setPlayers(prev => {
+          if (prev.length >= 5) return prev;
+          return [...prev, { name: bots[prev.length], avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${bots[prev.length]}` }];
+        });
+      }, 2000);
+      return () => clearInterval(interval);
+    }
+  }, [arenaState]);
+
+  // Simulate Battle Timer
+  useEffect(() => {
+    if (arenaState === 'battle' && timer > 0) {
+      const t = setTimeout(() => setTimer(timer - 1), 1000);
+      return () => clearTimeout(t);
+    } else if (arenaState === 'battle' && timer === 0) {
+      setArenaState('result');
+    }
+  }, [arenaState, timer]);
+
+  const handleHost = () => {
+    setPin(Math.floor(10000 + Math.random() * 90000).toString());
+    setPlayers([{ name: user?.name || "Host", avatar: user?.avatar, isHost: true }]);
+    setArenaState('hosting');
+  };
+
+  const handleStartBattle = () => {
+    setArenaState('battle');
+    setTimer(10);
+  };
+
+  if (arenaState === 'hosting') {
+    return (
+      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10">
+        <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-8 text-center shadow-2xl">
+          <p className="text-slate-400 font-bold mb-2">Join at <span className="text-white">explorer.edu/play</span></p>
+          <h2 className="text-6xl font-black text-white tracking-widest bg-slate-950 inline-block px-8 py-4 rounded-3xl border-4 border-blue-500 mb-8">{pin}</h2>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
+            {players.map((p, i) => (
+              <div key={i} className="bg-slate-800 p-4 rounded-2xl flex flex-col items-center animate-pop border border-white/5">
+                <img src={p.avatar} alt={p.name} className="w-16 h-16 rounded-full bg-slate-700 mb-2 border-2 border-white/20"/>
+                <span className="text-white font-bold">{p.name}</span>
+                {p.isHost && <span className="text-[10px] bg-blue-500 text-white px-2 py-0.5 rounded-full mt-1">HOST</span>}
+              </div>
+            ))}
+            {players.length < 5 && (
+              <div className="bg-slate-800/50 border-2 border-dashed border-slate-700 p-4 rounded-2xl flex items-center justify-center animate-pulse">
+                <span className="text-slate-500 font-bold">Waiting...</span>
+              </div>
+            )}
+          </div>
+          
+          <button onClick={handleStartBattle} disabled={players.length < 2} className="w-full sm:w-auto px-12 py-4 bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 disabled:opacity-50">
+            START AI BATTLE
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (arenaState === 'battle') {
+    return (
+      <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10">
+        <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10">
+          <div className="h-full bg-blue-500 animate-timer" style={{ animationDuration: '10s' }}></div>
+        </div>
+        
+        <div className="bg-white rounded-[2rem] p-8 text-center shadow-2xl flex-1 flex flex-col">
+          <div className="flex justify-center mb-4"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
+          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">AI Generated Challenge</p>
+          <h2 className="text-3xl font-black text-slate-800 mb-10">Complete the sentence: "I ____ to school every day."</h2>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-auto">
+            {['go', 'goes', 'went', 'going'].map((opt, i) => {
+              const colors = ['bg-rose-500 border-rose-700', 'bg-blue-500 border-blue-700', 'bg-amber-500 border-amber-700', 'bg-emerald-500 border-emerald-700'];
+              return (
+                <button key={opt} onClick={() => setArenaState('result')} className={`p-8 rounded-2xl text-white font-black text-2xl border-b-[8px] active:border-b-0 active:translate-y-2 transition-all ${colors[i]}`}>
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (arenaState === 'result') {
+    return (
+      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex items-center justify-center relative z-10">
+        <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-12 text-center shadow-2xl w-full">
+          <Trophy className="w-24 h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
+          <h2 className="text-4xl font-black text-white mb-2">Victory!</h2>
+          <p className="text-slate-400 text-lg mb-8">You answered faster than 80% of the room.</p>
+          
+          <div className="flex justify-center gap-4 mb-8 items-end">
+            <div className="flex flex-col items-center">
+              <span className="text-white font-bold mb-2">Sarah_Pro</span>
+              <div className="w-16 h-24 bg-slate-700 rounded-t-lg border-t-4 border-slate-400 flex justify-center items-start pt-2 font-black text-slate-400">2</div>
+            </div>
+            <div className="flex flex-col items-center z-10 relative">
+              <span className="text-white font-bold mb-2 text-xl">{user?.name}</span>
+              <div className="w-20 h-32 bg-yellow-500 rounded-t-lg border-t-4 border-yellow-300 flex justify-center items-start pt-2 font-black text-yellow-900 text-2xl shadow-[0_0_30px_rgba(234,179,8,0.5)]">1</div>
+            </div>
+            <div className="flex flex-col items-center">
+              <span className="text-white font-bold mb-2">Alex_99</span>
+              <div className="w-16 h-20 bg-orange-700 rounded-t-lg border-t-4 border-orange-500 flex justify-center items-start pt-2 font-black text-orange-400">3</div>
+            </div>
+          </div>
+
+          <button onClick={() => setArenaState('lobby')} className="px-8 py-4 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-700 transition-all border border-white/10">
+            RETURN TO LOBBY
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-8 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10">
+      <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 p-10 rounded-[3rem] w-full max-w-lg shadow-2xl text-center">
+        <div className="w-24 h-24 bg-gradient-to-tr from-orange-400 to-rose-500 rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/20">
+          <Swords className="w-12 h-12 text-white" />
+        </div>
+        <h2 className="text-4xl font-black text-white mb-3">AI Arena Lobby</h2>
+        <p className="text-slate-400 font-medium text-lg mb-8">Join a live multiplayer match or host your own epic battle generated by AI!</p>
+        
+        <input type="text" placeholder="Game PIN" className="w-full bg-slate-950 text-white font-black text-center text-2xl p-4 rounded-2xl mb-4 border-2 border-slate-700 outline-none focus:border-blue-500 transition-colors" />
+        <button onClick={() => setArenaState('hosting')} className="w-full bg-blue-600 text-white font-black py-4 text-xl rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4">
+          JOIN MATCH
+        </button>
+        <button onClick={handleHost} className="w-full bg-slate-800 text-white font-black py-4 text-lg rounded-2xl border-2 border-slate-700 hover:bg-slate-700">
+          HOST A MATCH
+        </button>
+      </div>
+    </div>
+  );
+};
 
 const AdminPanel = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState('cms');
@@ -502,7 +701,7 @@ const AdminPanel = ({ currentUser }) => {
       setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
       if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Invalid JSON format: ${error.message}` });
-      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules.` });
+      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules to allow read/write.` });
       else setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
     } finally { setIsPushing(false); }
   };
@@ -560,7 +759,7 @@ const AdminPanel = ({ currentUser }) => {
             </div>
             <textarea value={jsonInput} onChange={e => setJsonInput(e.target.value)}
                className="w-full h-[400px] bg-slate-900 text-emerald-400 font-mono text-sm p-5 rounded-2xl outline-none border-4 border-slate-800 shadow-inner hide-scrollbar"
-               spellCheck="false" placeholder='Paste your JSON code here...' />
+               spellCheck="false" placeholder='Paste your formatted JSON code here...' />
           </div>
         </div>
       )}
@@ -568,56 +767,20 @@ const AdminPanel = ({ currentUser }) => {
   );
 };
 
-const PracticeHub = ({ user, updateUser }) => {
-    return (
-  <div className="p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10">
-    <div className="mb-8">
-      <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">Practice Hub</h2>
-      <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
-    </div>
-    
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <button onClick={() => alert("Chức năng tải bài thi từ Cloud sẽ được kích hoạt sau khi bạn Push Data Test lên Cloud!")} className="text-left col-span-1 md:col-span-2 p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
-        <Timer className="w-12 h-12 mb-4 text-indigo-200" />
-        <h3 className="text-3xl font-black mb-2">45-Min Mock Test</h3>
-        <p className="text-indigo-100 text-base font-medium">Simulate a full school exam with diverse question types. Get ready for mid-terms!</p>
-      </button>
-      <button onClick={() => alert("Chức năng tải bài thi từ Cloud sẽ được kích hoạt sau khi bạn Push Data Cambridge lên Cloud!")} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
-        <Medal className="w-12 h-12 mb-4 text-amber-100" />
-        <h3 className="text-2xl font-black mb-2">Cambridge Advanced</h3>
-        <p className="text-amber-50 text-sm font-medium">Extra vocabulary and complex structures to ace international exams.</p>
-      </button>
-    </div>
-  </div>
-)};
-
-const ArenaLobby = () => (
-  <div className="p-8 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10">
-    <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 p-10 rounded-[3rem] w-full max-w-lg shadow-2xl text-center">
-      <div className="w-24 h-24 bg-gradient-to-tr from-orange-400 to-rose-500 rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/20">
-        <Swords className="w-12 h-12 text-white" />
-      </div>
-      <h2 className="text-4xl font-black text-white mb-3">Arena Lobby</h2>
-      <p className="text-slate-400 font-medium text-lg mb-10">Join a live multiplayer match or host your own epic battle!</p>
-      <button className="w-full bg-slate-800 text-white font-black py-5 text-lg rounded-[2rem] border-2 border-slate-700 hover:bg-slate-700 flex items-center justify-center gap-3">
-        <Crown className="w-6 h-6 text-yellow-400" /> UNDER CONSTRUCTION
-      </button>
-    </div>
-  </div>
-);
-
 const OnboardingView = () => {
+  const [errorMsg, setErrorMsg] = useState('');
+  
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
       if (auth) {
         await signInWithPopup(auth, provider);
       } else {
-        alert("Firebase is not fully configured. Please set environment variables.");
+        setErrorMsg("Firebase Auth is missing. Check your .env config.");
       }
     } catch (error) { 
       console.error("Login failed", error); 
-      alert("Login Error: " + error.message); 
+      setErrorMsg(`Error: ${error.message}`); 
     }
   };
   return (
@@ -626,8 +789,11 @@ const OnboardingView = () => {
       <div className="z-10 bg-slate-950/60 backdrop-blur-2xl p-12 rounded-[3rem] border border-white/10 shadow-2xl flex flex-col items-center text-center max-w-md w-[90%]">
         <div className="w-28 h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-[2rem] flex items-center justify-center mb-8"><Rocket className="w-14 h-14 text-white" /></div>
         <h1 className="text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
-        <p className="text-slate-400 font-medium text-lg mb-10">Embark on a journey to master English.</p>
-        <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-lg">
+        <p className="text-slate-400 font-medium text-lg mb-8">Embark on a journey to master English.</p>
+        
+        {errorMsg && <div className="w-full p-4 mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-sm text-left">{errorMsg}</div>}
+        
+        <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-lg transition-transform active:scale-95">
           <Fingerprint className="w-6 h-6" /> Login with Google
         </button>
       </div>
@@ -641,6 +807,7 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   const [selectedUnit, setSelectedUnit] = useState(null);
   const [currentUnitData, setCurrentUnitData] = useState(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
+  const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
 
   useEffect(() => { setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]); }, []);
@@ -648,14 +815,13 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   const navItems = [
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
-    { id: 'arena', label: "Arena", icon: Swords, color: 'text-orange-400' }
+    { id: 'arena', label: "AI Arena", icon: Swords, color: 'text-orange-400' }
   ];
   if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
 
   const handleSelectUnitAndFetch = async (unit) => {
     setSelectedUnit(unit);
     setIsLoadingData(true);
-    setCurrentView('map');
     
     try {
       if(!db) throw new Error("Firebase DB not initialized");
@@ -665,41 +831,40 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
       
       if(snap.exists()) {
         setCurrentUnitData(snap.data());
+        setCurrentView('map');
       } else {
-        alert("Cloud Data Not Found! Please use Admin CMS to push data first.");
-        setCurrentView('units');
+        // Fallback gracefully without crashing
+        setIsUnderConstruction(true);
       }
     } catch(err) {
       console.error(err);
-      alert("Error fetching cloud data.");
-      setCurrentView('units');
+      setIsUnderConstruction(true);
     } finally {
       setIsLoadingData(false);
     }
   }
 
   const renderContent = () => {
-    if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white"><Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-xl">Loading Cloud Data...</h3></div>;
+    if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-xl">Loading Cloud Data...</h3></div>;
     
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
       case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={handleSelectUnitAndFetch} user={user} />;
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentUnitData} />;
       case 'admin': return <AdminPanel currentUser={user} />;
-      case 'practice': return <PracticeHub user={user} updateUser={updateUser} />;
-      case 'arena': return <ArenaLobby />;
+      case 'practice': return <PracticeHub user={user} onTriggerMissingData={() => setIsUnderConstruction(true)} />;
+      case 'arena': return <ArenaView user={user} />;
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
 
   return (
-    // Responsive Wrapper: flex-col-reverse (mobile bottom nav) / sm:flex-row (desktop left sidebar)
     <div className="flex flex-col-reverse sm:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
       
       {/* Background Orbs (Glassmorphism Base) */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[120px] animate-pulse-ring pointer-events-none"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-ring pointer-events-none" style={{animationDelay: '1s'}}></div>
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
       {/* RESPONSIVE SIDEBAR */}
       <aside className="flex flex-row sm:flex-col bg-slate-950/60 backdrop-blur-2xl border-t sm:border-t-0 sm:border-r border-white/10 transition-all duration-300 z-50 relative w-full sm:w-16 hover:sm:w-64 h-16 sm:h-full group hide-scrollbar shrink-0">
@@ -751,6 +916,9 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
         <TopMetricsBar user={user} />
         <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       </div>
+      
+      {/* Global Modals */}
+      <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
     </div>
   );
 };
