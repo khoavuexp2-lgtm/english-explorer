@@ -898,10 +898,15 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
           </div>
           
           {/* Author Tag */}
+          
           <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2">
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
             <p className="text-xs text-blue-400 font-black">Mr. Khoa</p>
+            <p className="text-xs text-blue-600 flex items-center gap-2 font-medium"><Mail className="w-3 h-3"/> khoavuexp@gmail.com</p>
+            <p className="text-xs text-slate-600 flex items-center gap-2 font-medium"><Phone className="w-3 h-3"/> 0901.637.827</p>
+       
           </div>
+          
 
           {/* Desktop Logout */}
           <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
