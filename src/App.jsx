@@ -5,8 +5,9 @@ import {
   ArrowRight, Globe, MessageCircle, Mic, Compass, Rocket, TreePine, Anchor,
   LogOut, Play, Headphones, Flame, Heart, MessageSquare, Library,
   Mail, Phone, Crown, RotateCw, Target, Clock, Gamepad2, Timer,
-  ShieldAlert, Check, AlertCircle, Fingerprint, Sparkles, Medal, BookOpen, PenTool
+  ShieldAlert, Check, AlertCircle, Fingerprint, Sparkles, Medal, BookOpen, PenTool, Swords
 } from 'lucide-react';
+
 
 /* ==============================================================================
    🔥 CẤU HÌNH FIREBASE THẬT 100%
