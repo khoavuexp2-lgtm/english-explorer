@@ -899,14 +899,11 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
           
           {/* Author Tag */}
           
-            <div className="bg-slate-900/80 p-4 rounded-[1.5rem] border border-white/5 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-40 shadow-inner flex flex-col justify-center">
-               <p className="text-white/40 font-bold text-[10px] uppercase tracking-widest mb-1">Creator</p>
-               <p className="text-white font-black text-sm mb-2">Mr. Khoa</p>
-               <div className="flex flex-col gap-1.5 text-white/50 text-xs font-medium">
-                 <span className="flex items-center gap-2 truncate hover:text-white transition-colors"><Mail className="w-3.5 h-3.5 shrink-0"/> khoavuexp@gmail.com</span>
-                 <span className="flex items-center gap-2 truncate hover:text-white transition-colors"><Phone className="w-3.5 h-3.5 shrink-0"/> Zalo: 0901 637 827</span>
-               </div>
-            </div>
+          <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
+            <p className="text-sm text-blue-400 font-black">Mr. Khoa</p>
+            <p className="text-[10px] text-emerald-400 font-bold mt-1 bg-emerald-400/10 px-2 py-0.5 rounded-full">Zalo/Viber: 0901637827</p>
+          </div>
           
 
           {/* Desktop Logout */}
