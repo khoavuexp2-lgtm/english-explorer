@@ -859,38 +859,39 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   };
 
   return (
-    <div className="flex flex-col-reverse sm:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
+    <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
       
       {/* Background Orbs (Glassmorphism Base) */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
-      {/* RESPONSIVE SIDEBAR */}
-      <aside className="flex flex-row sm:flex-col bg-slate-950/60 backdrop-blur-2xl border-t sm:border-t-0 sm:border-r border-white/10 transition-all duration-300 z-50 relative w-full sm:w-16 hover:sm:w-64 h-16 sm:h-full group hide-scrollbar shrink-0">
+      {/* RESPONSIVE SIDEBAR: Tối ưu chống bấm nhầm trên Mobile */}
+      {/* Ẩn hoàn toàn thanh Sidebar trên Mobile khi ở chế độ "map" (đang học/chơi) để tránh bấm nhầm */}
+      <aside className={`flex flex-row lg:flex-col bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 relative w-full lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
         
-        {/* Logo (Desktop Only) */}
-        <div className="p-3 hidden sm:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
+        {/* Logo (Chỉ hiển thị ở Màn hình lớn) */}
+        <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
         
-        {/* Navigation Items */}
-        <nav className="flex-1 flex flex-row sm:flex-col gap-2 p-2 sm:p-3 overflow-x-auto sm:overflow-y-auto hide-scrollbar justify-around sm:justify-start items-center sm:items-stretch">
+        {/* Navigation Items (Là thanh ngang ở đáy trên Mobile, và cột dọc trên PC) */}
+        <nav className="flex-1 flex flex-row lg:flex-col gap-2 p-2 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch">
           {navItems.map(item => (
-            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center sm:justify-start p-2 sm:p-3 rounded-xl font-black text-sm transition-all border border-transparent overflow-hidden ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
-              <item.icon className={`min-w-[24px] h-6 sm:h-6 ${item.color}`} />
-              <span className="ml-4 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100 hidden sm:block">{item.label}</span>
+            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-sm transition-all border border-transparent overflow-hidden ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
+              <item.icon className={`min-w-[24px] h-6 lg:h-6 ${item.color}`} />
+              <span className="ml-4 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100 hidden lg:block">{item.label}</span>
             </button>
           ))}
-          {/* Logout button on Mobile (Bottom Nav) */}
-          <button onClick={handleLogout} className="sm:hidden flex items-center justify-center p-2 rounded-xl font-black text-slate-500 hover:bg-rose-500 hover:text-white transition-all">
+          {/* Nút Đăng xuất trên Mobile */}
+          <button onClick={handleLogout} className="lg:hidden flex items-center justify-center p-2 rounded-xl font-black text-slate-500 hover:bg-rose-500 hover:text-white transition-all">
             <LogOut className="w-6 h-6" />
           </button>
         </nav>
 
-        {/* Desktop Extras: Quote, Author, Logout */}
-        <div className="hidden sm:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
+        {/* Desktop Extras: Quote, Author, Logout (Ẩn hoàn toàn trên Mobile để tiết kiệm không gian) */}
+        <div className="hidden lg:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
           {/* Daily Quote */}
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
             <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
@@ -898,13 +899,11 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
           </div>
           
           {/* Author Tag */}
-          
           <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
             <p className="text-sm text-blue-400 font-black">Mr. Khoa</p>
-            <p className="text-[10px] text-emerald-400 font-bold mt-1 bg-emerald-400/10 px-2 py-0.5 rounded-full">Zalo/Viber: 0901637827</p>
+            <p className="text-[10px] text-emerald-400 font-bold mt-1 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">Zalo/Viber: 0901637827</p>
           </div>
-          
 
           {/* Desktop Logout */}
           <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
