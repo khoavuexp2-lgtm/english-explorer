@@ -7,7 +7,7 @@ import {
   RotateCw, Plus, Users, Target, Clock, Settings, Gamepad2, Volume2, Type
 } from 'lucide-react';
 
-// --- STYLES ẨN THANH CUỘN & YÊU CẦU XOAY NGANG ---
+// --- STYLES ẨN THANH CUỘN ---
 const globalStyles = `
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
@@ -15,16 +15,6 @@ const globalStyles = `
   .hide-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
-  }
-  
-  /* Chặn màn hình dọc (Portrait) trên thiết bị di động */
-  @media screen and (orientation: portrait) and (max-width: 900px) {
-    .portrait-blocker {
-      display: flex !important;
-    }
-    .app-content {
-      display: none !important;
-    }
   }
 `;
 
@@ -407,6 +397,22 @@ const MainLayout = ({ user, handleLogout }) => {
   // Trạng thái hover menu trên Desktop
   const [isSidebarHovered, setIsSidebarHovered] = useState(false);
 
+  // Cảnh báo màn hình dọc (Không khóa cứng nữa)
+  const [isPortrait, setIsPortrait] = useState(false);
+  const [dismissWarning, setDismissWarning] = useState(false);
+
+  useEffect(() => {
+    const checkOrientation = () => {
+      // Chỉ kiểm tra đơn giản: Chiều cao > Rộng và thiết bị nhỏ
+      const portrait = window.innerHeight > window.innerWidth && window.innerWidth < 900;
+      setIsPortrait(portrait); 
+    };
+    
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    return () => window.removeEventListener('resize', checkOrientation);
+  }, []);
+
   const navItems = [
     { id: 'classes', label: "Courses", icon: Library, color: 'text-emerald-400', onClick: () => setCurrentView('grades') },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400', onClick: () => setCurrentView('practice') },
@@ -432,15 +438,21 @@ const MainLayout = ({ user, handleLogout }) => {
 
   return (
     <>
-      {/* KHỐI CHẶN MÀN HÌNH DỌC (Chỉ hiện trên Mobile khi cầm dọc) */}
-      <div className="portrait-blocker fixed inset-0 z-[9999] bg-slate-900 flex flex-col items-center justify-center p-8 text-center text-white">
-        <RotateCw className="w-16 h-16 animate-spin-slow mb-6 text-blue-400" />
-        <h2 className="text-2xl font-black mb-2">Rotate Your Device!</h2>
-        <p className="text-slate-400 font-medium text-sm">Please turn your device horizontally (Landscape Mode) to explore the universe.</p>
-      </div>
+      {/* KHUYẾN CÁO XOAY MÀN HÌNH (Không khóa cứng) */}
+      {(isPortrait && !dismissWarning) && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 w-[90%] max-w-md z-[9999] bg-slate-800/90 backdrop-blur-xl text-white p-3 rounded-2xl shadow-2xl flex items-center justify-between border border-blue-500/50 animate-fade-in">
+          <div className="flex items-center gap-3">
+            <RotateCw className="w-6 h-6 animate-spin-slow text-blue-400 shrink-0" />
+            <p className="text-xs font-bold text-slate-200">For the best experience, please rotate your device horizontally.</p>
+          </div>
+          <button onClick={() => setDismissWarning(true)} className="p-1.5 bg-white/10 rounded-lg hover:bg-white/20 active:scale-95 shrink-0 ml-3">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
-      {/* GIAO DIỆN CHÍNH (Chỉ hiện khi xoay ngang) */}
-      <div className={`app-content flex h-screen w-screen overflow-hidden ${appBg} font-sans selection:bg-white/30`}>
+      {/* GIAO DIỆN CHÍNH */}
+      <div className={`flex h-screen w-screen overflow-hidden ${appBg} font-sans selection:bg-white/30`}>
         <style>{globalStyles}</style>
         
         {/* Nền lưới trang trí toàn bối cảnh */}
