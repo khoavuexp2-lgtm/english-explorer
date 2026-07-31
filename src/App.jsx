@@ -6,15 +6,13 @@ import {
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
   AlertCircle, Check, Crown, ShieldAlert, BookOpen, Library,
   Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
-  Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2
+  Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
-// Cấu hình Firebase an toàn (Tự động lấy từ file .env của bạn)
-// Không còn lỗi chặn Sign-in hay sập màn hình trắng nữa.
 let firebaseConfig = {};
 try {
   firebaseConfig = {
@@ -27,7 +25,7 @@ try {
     measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
   };
 } catch (error) {
-  console.warn("Đang chạy ở môi trường Preview, bỏ qua import.meta");
+  console.warn("Running in Preview Mode. .env variables not found.");
 }
 
 let app, auth, db;
@@ -38,7 +36,7 @@ try {
     db = getFirestore(app);
   }
 } catch (error) {
-  console.warn("Firebase not fully configured. Running in UI-only mode.", error);
+  console.warn("Firebase config error:", error);
 }
 
 const globalStyles = `
@@ -84,19 +82,6 @@ const GRADE_5_UNITS = [
   { id: 'u1', name: "Unit 1", title: "What's your address?", status: 'active', theme: 'ocean', progress: 0 },
   { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'locked', theme: 'forest', progress: 0 },
 ];
-
-const TEMPLATE_GAME_DATA = {
-  vocab: [
-    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=500&q=80", question: "Vocabulary: A large and busy settlement.", options: ["Village", "City", "Mountain", "Tower"], answer: "City", explain: "City means a large and busy settlement." },
-    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=500&q=80", question: "Vocabulary: A small community in a rural area.", options: ["City", "Town", "Village", "Flat"], answer: "Village", explain: "A village is a small community in the countryside." }
-  ],
-  listen: [
-    { type: 'listen-fill', audioText: "My address is 105 Hoa Binh Lane.", question: "Listening: Listen and choose the missing part.", textBefore: "My address is", textAfter: "Hoa Binh Lane.", options: ["105", "150", "115", "100"], answer: "105", explain: "The audio says '105'." }
-  ],
-  boss: [
-    { type: 'speak', question: "Speak: Read this question clearly.", targetText: "What is your address", hint: "Tap the Mic button. Ask clearly." }
-  ]
-};
 
 const TEMPLATE_PRACTICE_DATA = [
     { type: 'multiple-choice', question: "Choose the correct word: A large community is called a ____.", options: ["Village", "Town", "City", "Country"], answer: "City" },
@@ -158,15 +143,10 @@ const syncUserWithDb = async (googleUser) => {
   }
 };
 
+// ĐÃ SỬA VỊ TRÍ: Avatar góc phải, Metrics góc trái
 const TopMetricsBar = ({ user }) => (
   <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-4 flex justify-between items-center z-40 relative shadow-lg">
-    <div className="flex items-center gap-3">
-      <img src={user?.avatar || "https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer"} className="w-12 h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
-      <div>
-        <h2 className="text-white font-black text-lg leading-tight">{user?.name || "Explorer"}</h2>
-        <span className="text-blue-400 font-bold text-xs uppercase tracking-widest">{user?.role || "STUDENT"}</span>
-      </div>
-    </div>
+    {/* Trái: Điểm số & Sinh lực */}
     <div className="flex gap-3">
       <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
          <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
@@ -176,6 +156,15 @@ const TopMetricsBar = ({ user }) => (
          <Heart className="w-5 h-5 text-rose-500 fill-rose-500 animate-bounce-short" />
          <span className="text-white font-black">{user?.inventory?.lives ?? 5}</span>
       </div>
+    </div>
+
+    {/* Phải: Avatar và Tên (Thiết kế chuẩn V12) */}
+    <div className="flex items-center gap-3 text-right">
+      <div className="hidden sm:block">
+        <h2 className="text-white font-black text-lg leading-tight">{user?.name || "Explorer"}</h2>
+        <span className="text-blue-400 font-bold text-xs uppercase tracking-widest">{user?.role || "STUDENT"}</span>
+      </div>
+      <img src={user?.avatar || "https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer"} className="w-12 h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
     </div>
   </div>
 );
@@ -196,7 +185,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
     setSelectedOpt(null); setOrderedWords([]); setTranscript("");
   }, [station, isOpen]);
 
-  // LẤY DỮ LIỆU TỪ CLOUD (TRUYỀN QUA PROPS currentUnitData) THAY VÌ HARDCODE GAME_DATA
   let qList = (station && currentUnitData) ? currentUnitData[station.type] : null;
   if (qList && !Array.isArray(qList)) qList = [qList]; 
   const qData = qList ? qList[qIndex] : null;
@@ -494,7 +482,7 @@ const AdminPanel = ({ currentUser }) => {
   const [dataType, setDataType] = useState('lessons'); 
   const [grade, setGrade] = useState('5');
   const [unit, setUnit] = useState('1');
-  const [jsonInput, setJsonInput] = useState(JSON.stringify(TEMPLATE_GAME_DATA, null, 2));
+  const [jsonInput, setJsonInput] = useState("");
   const [isPushing, setIsPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
   
@@ -518,11 +506,6 @@ const AdminPanel = ({ currentUser }) => {
       else setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
     } finally { setIsPushing(false); }
   };
-
-  const loadTemplate = () => {
-      if(dataType === 'lessons') setJsonInput(JSON.stringify(TEMPLATE_GAME_DATA, null, 2));
-      else setJsonInput(JSON.stringify(TEMPLATE_PRACTICE_DATA, null, 2));
-  }
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10">
@@ -574,13 +557,10 @@ const AdminPanel = ({ currentUser }) => {
           <div className="flex-1 flex flex-col gap-3 mt-2">
             <div className="flex justify-between items-center px-1">
                <label className="font-black text-slate-700 flex items-center gap-2"><BookOpen className="w-5 h-5"/> JSON Data Payload</label>
-               <button onClick={loadTemplate} className="text-sm font-bold text-blue-600 hover:text-blue-800 transition-colors bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
-                 Load Example Template
-               </button>
             </div>
             <textarea value={jsonInput} onChange={e => setJsonInput(e.target.value)}
                className="w-full h-[400px] bg-slate-900 text-emerald-400 font-mono text-sm p-5 rounded-2xl outline-none border-4 border-slate-800 shadow-inner hide-scrollbar"
-               spellCheck="false" placeholder="Paste your JSON code here..." />
+               spellCheck="false" placeholder='Paste your JSON code here...' />
           </div>
         </div>
       )}
@@ -633,11 +613,11 @@ const OnboardingView = () => {
       if (auth) {
         await signInWithPopup(auth, provider);
       } else {
-        alert("Firebase chưa được khởi tạo đúng cách. Vui lòng kiểm tra lại cấu hình .env!");
+        alert("Firebase is not fully configured. Please set environment variables.");
       }
     } catch (error) { 
       console.error("Login failed", error); 
-      alert("Lỗi Đăng Nhập Firebase: " + error.message); 
+      alert("Login Error: " + error.message); 
     }
   };
   return (
@@ -686,12 +666,12 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
       if(snap.exists()) {
         setCurrentUnitData(snap.data());
       } else {
-        alert("Dữ liệu của bài học này chưa được Push lên Cloud! Vui lòng dùng Admin CMS để đẩy Data lên.");
+        alert("Cloud Data Not Found! Please use Admin CMS to push data first.");
         setCurrentView('units');
       }
     } catch(err) {
       console.error(err);
-      alert("Lỗi tải dữ liệu. Firebase chưa kết nối hoặc chưa push data.");
+      alert("Error fetching cloud data.");
       setCurrentView('units');
     } finally {
       setIsLoadingData(false);
@@ -713,29 +693,52 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
+    // Responsive Wrapper: flex-col-reverse (mobile bottom nav) / sm:flex-row (desktop left sidebar)
+    <div className="flex flex-col-reverse sm:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
+      
+      {/* Background Orbs (Glassmorphism Base) */}
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[120px] animate-pulse-ring pointer-events-none"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-ring pointer-events-none" style={{animationDelay: '1s'}}></div>
       
-      <aside className="hidden sm:flex flex-col bg-slate-950/60 backdrop-blur-2xl border-r border-white/10 transition-all duration-300 z-50 relative w-16 hover:w-64 group hide-scrollbar">
-        <div className="p-3 flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
+      {/* RESPONSIVE SIDEBAR */}
+      <aside className="flex flex-row sm:flex-col bg-slate-950/60 backdrop-blur-2xl border-t sm:border-t-0 sm:border-r border-white/10 transition-all duration-300 z-50 relative w-full sm:w-16 hover:sm:w-64 h-16 sm:h-full group hide-scrollbar shrink-0">
+        
+        {/* Logo (Desktop Only) */}
+        <div className="p-3 hidden sm:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
-        <nav className="flex-1 flex flex-col gap-2 p-3 overflow-y-auto hide-scrollbar">
+        
+        {/* Navigation Items */}
+        <nav className="flex-1 flex flex-row sm:flex-col gap-2 p-2 sm:p-3 overflow-x-auto sm:overflow-y-auto hide-scrollbar justify-around sm:justify-start items-center sm:items-stretch">
           {navItems.map(item => (
-            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center p-3 rounded-xl font-black text-sm transition-all border border-transparent overflow-hidden ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
-              <item.icon className={`min-w-[24px] h-6 ${item.color}`} />
-              <span className="ml-4 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">{item.label}</span>
+            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center sm:justify-start p-2 sm:p-3 rounded-xl font-black text-sm transition-all border border-transparent overflow-hidden ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
+              <item.icon className={`min-w-[24px] h-6 sm:h-6 ${item.color}`} />
+              <span className="ml-4 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100 hidden sm:block">{item.label}</span>
             </button>
           ))}
+          {/* Logout button on Mobile (Bottom Nav) */}
+          <button onClick={handleLogout} className="sm:hidden flex items-center justify-center p-2 rounded-xl font-black text-slate-500 hover:bg-rose-500 hover:text-white transition-all">
+            <LogOut className="w-6 h-6" />
+          </button>
         </nav>
-        <div className="p-4 border-t border-white/5 flex flex-col gap-4 shrink-0 overflow-hidden">
+
+        {/* Desktop Extras: Quote, Author, Logout */}
+        <div className="hidden sm:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
+          {/* Daily Quote */}
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
             <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
             <p className={`text-sm font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
           </div>
+          
+          {/* Author Tag */}
+          <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2">
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
+            <p className="text-xs text-blue-400 font-black">Mr. Khoa</p>
+          </div>
+
+          {/* Desktop Logout */}
           <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
             <LogOut className="min-w-[24px] h-5" /> 
             <span className="ml-3 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">Log Out</span>
@@ -743,6 +746,7 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
         </div>
       </aside>
 
+      {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
         <TopMetricsBar user={user} />
         <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
