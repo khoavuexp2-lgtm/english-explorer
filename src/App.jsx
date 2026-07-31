@@ -899,12 +899,14 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
           
           {/* Author Tag */}
           
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1 mb-4 whitespace-nowrap overflow-hidden">
-            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Teacher & Dev</span>
-            <span className="font-black text-slate-800 text-lg">Mr. Khoa</span>
-            <span className="text-xs text-blue-600 flex items-center gap-2 font-medium"><Mail className="w-3 h-3"/> khoavuexp@gmail.com</span>
-            <span className="text-xs text-slate-600 flex items-center gap-2 font-medium"><Phone className="w-3 h-3"/> 0901.637.827</span>
-          </div>
+            <div className="bg-slate-900/80 p-4 rounded-[1.5rem] border border-white/5 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-40 shadow-inner flex flex-col justify-center">
+               <p className="text-white/40 font-bold text-[10px] uppercase tracking-widest mb-1">Creator</p>
+               <p className="text-white font-black text-sm mb-2">Mr. Khoa</p>
+               <div className="flex flex-col gap-1.5 text-white/50 text-xs font-medium">
+                 <span className="flex items-center gap-2 truncate hover:text-white transition-colors"><Mail className="w-3.5 h-3.5 shrink-0"/> khoavuexp@gmail.com</span>
+                 <span className="flex items-center gap-2 truncate hover:text-white transition-colors"><Phone className="w-3.5 h-3.5 shrink-0"/> Zalo: 0901 637 827</span>
+               </div>
+            </div>
           
 
           {/* Desktop Logout */}
