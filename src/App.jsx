@@ -19,7 +19,7 @@ import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 // Ở BIẾN firebaseConfig DƯỚI ĐÂY, VÀ XÓA DÒNG "const firebaseConfig = {};" 
 // NẾU KHÔNG BẠN SẼ GẶP LỖI "FIREBASE KHÔNG HỖ TRỢ SIGN IN"!
 // =========================================================================
-/*
+
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -29,8 +29,8 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
-*/
-const firebaseConfig = {}; // <--- BẠN NHỚ XÓA DÒNG NÀY KHI CHẠY CODE Ở MÁY NHÉ
+
+
 
 let app, auth, db;
 try {
