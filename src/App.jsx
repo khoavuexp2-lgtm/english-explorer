@@ -16,6 +16,7 @@ import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 // --- FIREBASE CONFIGURATION ---
 let firebaseConfig = {};
 try {
+  // Use your real credentials in production
   firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -86,46 +87,43 @@ const GRADE_5_UNITS = [
   { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'locked', theme: 'forest', progress: 0 },
 ];
 
+// 25-Question Curriculum for Grade 5 Unit 1
 const GAME_DATA = {
-  vocab: {
-    type: 'multiple-choice',
-    image: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=500&q=80",
-    question: "Vocabulary: Look at the picture and choose the correct word.",
-    options: ["Village", "City", "Mountain", "Tower"],
-    answer: "City",
-    explain: "City means a large and busy settlement."
-  },
-  grammar: {
-    type: 'order',
-    question: "Grammar: Arrange the words to make a correct sentence.",
-    words: ["live", "do", "Where", "you", "?"],
-    answer: "Where do you live ?",
-    explain: "Question structure: Where + do/does + S + live?"
-  },
-  listen: {
-    type: 'listen-fill',
-    audioText: "My hometown is a small and quiet village.",
-    question: "Listening: Listen and choose the missing words.",
-    textBefore: "My hometown is a",
-    textAfter: "village.",
-    options: ["big and noisy", "small and quiet", "large and crowded", "far and busy"],
-    answer: "small and quiet",
-    explain: "The audio clearly says 'small and quiet'."
-  },
-  read: {
-    type: 'multiple-choice',
-    passage: "Trung lives with his grandparents in Hanoi. His address is 81, Tran Hung Dao Street, Hoan Kiem District. It is a big and busy city.",
-    question: "Reading: Who does Trung live with?",
-    options: ["His parents", "His friends", "His grandparents", "His uncle"],
-    answer: "His grandparents",
-    explain: "The passage states: 'Trung lives with his grandparents'."
-  },
-  boss: {
-    type: 'speak',
-    question: "Final Boss! Read the sentence aloud clearly to defeat the Boss:",
-    targetText: "I live in a big city",
-    hint: "Tap the Mic button to start recording. Pronounce each word clearly!"
-  }
+  vocab: [
+    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=500&q=80", question: "Vocabulary: A large and busy settlement.", options: ["Village", "City", "Mountain", "Tower"], answer: "City", explain: "City means a large and busy settlement." },
+    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1500382017468-9049fed747ef?w=500&q=80", question: "Vocabulary: A small community in a rural area.", options: ["City", "Town", "Village", "Flat"], answer: "Village", explain: "A village is a small community in the countryside." },
+    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?w=500&q=80", question: "Vocabulary: A tall, narrow building.", options: ["Lane", "Tower", "Floor", "Street"], answer: "Tower", explain: "A tower is a tall building." },
+    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?w=500&q=80", question: "Vocabulary: A set of rooms for living in, usually on one floor.", options: ["House", "Flat", "Village", "Tower"], answer: "Flat", explain: "A flat (or apartment) is a set of rooms on one floor." },
+    { type: 'multiple-choice', image: "https://images.unsplash.com/photo-1524661135-423995f22d0b?w=500&q=80", question: "Vocabulary: The details of where a building is located.", options: ["Name", "Phone", "Address", "City"], answer: "Address", explain: "An address tells you exactly where a place is." }
+  ],
+  grammar: [
+    { type: 'order', question: "Grammar: Arrange the words to make a question.", words: ["live", "do", "Where", "you", "?"], answer: "Where do you live ?", explain: "Question structure: Where + do/does + S + live?" },
+    { type: 'order', question: "Grammar: Ask about someone's address.", words: ["your", "is", "address", "What", "?"], answer: "What is your address ?", explain: "Structure: What + is + your address?" },
+    { type: 'order', question: "Grammar: Describe your living place.", words: ["small", "live", "I", "a", "village.", "in"], answer: "I live in a small village.", explain: "S + V + in + a + adj + noun." },
+    { type: 'order', question: "Grammar: Talk about a specific floor.", words: ["on", "lives", "second", "He", "floor.", "the"], answer: "He lives on the second floor.", explain: "Use preposition 'on' for floors." },
+    { type: 'order', question: "Grammar: Describe a city.", words: ["big", "a", "Da Nang", "is", "city."], answer: "Da Nang is a big city.", explain: "Subject + to be + a + adj + noun." }
+  ],
+  listen: [
+    { type: 'listen-fill', audioText: "My address is 105 Hoa Binh Lane.", question: "Listening: Listen and choose the missing part.", textBefore: "My address is", textAfter: "Hoa Binh Lane.", options: ["105", "150", "115", "100"], answer: "105", explain: "The audio says '105'." },
+    { type: 'listen-fill', audioText: "I live in a tall tower.", question: "Listening: What kind of building?", textBefore: "I live in a", textAfter: "tower.", options: ["small", "big", "tall", "short"], answer: "tall", explain: "The audio says 'tall tower'." },
+    { type: 'listen-fill', audioText: "Her village is small and quiet.", question: "Listening: Describe the village.", textBefore: "Her village is", textAfter: ".", options: ["big and noisy", "small and quiet", "large and busy", "far and beautiful"], answer: "small and quiet", explain: "The audio clearly says 'small and quiet'." },
+    { type: 'listen-fill', audioText: "We live on the third floor.", question: "Listening: Which floor?", textBefore: "We live on the", textAfter: "floor.", options: ["first", "second", "third", "fourth"], answer: "third", explain: "The audio says 'third floor'." },
+    { type: 'listen-fill', audioText: "What is your address?", question: "Listening: Fill in the missing word.", textBefore: "What is your", textAfter: "?", options: ["name", "address", "school", "class"], answer: "address", explain: "The audio asks 'What is your address?'" }
+  ],
+  read: [
+    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: Where is Peter from?", options: ["England", "Vietnam", "America", "Australia"], answer: "America", explain: "The text says: 'Peter is from America.'" },
+    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: Who does he live with?", options: ["Grandparents", "Parents", "Friends", "Uncle"], answer: "Parents", explain: "The text states: 'He lives with his parents.'" },
+    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: What is his address?", options: ["25, Washington Street", "52, Washington Street", "25, New York Street", "12, Washington Lane"], answer: "25, Washington Street", explain: "His address is explicitly mentioned in the text." },
+    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: How is New York described?", options: ["Small and quiet", "Big and busy", "Far and beautiful", "Old and peaceful"], answer: "Big and busy", explain: "It is described as a 'very big and busy city'." },
+    { type: 'multiple-choice', passage: "Peter is from America. He lives with his parents in New York. His address is 25, Washington Street. It is a very big and busy city. He loves his city because it has many tall towers.", question: "Reading: Why does he love his city?", options: ["It has nice parks", "It is quiet", "It has tall towers", "It has good food"], answer: "It has tall towers", explain: "The text says 'He loves his city because it has many tall towers.'" }
+  ],
+  boss: [
+    { type: 'speak', question: "Speak: Read this question clearly.", targetText: "What is your address", hint: "Tap the Mic button. Ask clearly." },
+    { type: 'speak', question: "Speak: Describe where you live.", targetText: "I live in a big city", hint: "Tap the Mic. Focus on the /i/ sound in 'city'." },
+    { type: 'speak', question: "Speak: Describe your hometown.", targetText: "My hometown is small and quiet", hint: "Tap the Mic. Pronounce 'quiet' clearly." },
+    { type: 'speak', question: "Speak: Read this long sentence.", targetText: "I live on the second floor of Hanoi Tower", hint: "Tap the Mic. Take a breath and read naturally." },
+    { type: 'speak', question: "Speak: Ask your friend this question.", targetText: "Where do you live", hint: "Tap the Mic. Make it sound like a real question!" }
+  ]
 };
 
 // --- UTILITIES ---
@@ -150,7 +148,7 @@ const evaluateSpeech = (transcript, target) => {
   return { pass: false, msg: `System heard: "${transcript}". Not quite right, try again!` };
 };
 
-// --- SECURE FIREBASE SYNC (Fix for White Screen) ---
+// --- SECURE FIREBASE SYNC ---
 const syncUserWithDb = async (googleUser) => {
   if (!db) return null;
   
@@ -164,7 +162,6 @@ const syncUserWithDb = async (googleUser) => {
 
     if (userSnap.exists()) {
       const data = userSnap.data();
-      // Defensive merging to prevent undefined properties crashing React
       return {
         ...data,
         name: data.name || defaultName,
@@ -186,8 +183,7 @@ const syncUserWithDb = async (googleUser) => {
       return newUser;
     }
   } catch (error) {
-    console.error("Firestore sync error (Check your database rules):", error);
-    // Fallback: If Firestore fails, return a functional mock user so app doesn't crash
+    console.error("Firestore sync error:", error);
     return {
       uid: googleUser.uid,
       name: defaultName,
@@ -202,40 +198,33 @@ const syncUserWithDb = async (googleUser) => {
 
 // --- COMPONENTS ---
 const TopMetricsBar = ({ user }) => (
-  <div className="flex items-center justify-between px-4 sm:px-8 py-2 bg-slate-900/40 backdrop-blur-xl sticky top-0 z-40 border-b border-white/10 shadow-sm h-14 shrink-0">
+  <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-4 flex justify-between items-center z-40 relative shadow-lg">
     <div className="flex items-center gap-3">
-      <div className="flex items-center gap-2 px-3 py-1 bg-white/10 rounded-xl border border-white/20">
-        <Compass className="w-5 h-5 text-yellow-300 animate-pulse" />
-        <span className="font-black text-sm text-white tracking-wide">EXPLORER</span>
+      <img src={user?.avatar || "https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer"} className="w-12 h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
+      <div>
+        <h2 className="text-white font-black text-lg leading-tight">{user?.name || "Explorer"}</h2>
+        <span className="text-blue-400 font-bold text-xs uppercase tracking-widest">{user?.role || "STUDENT"}</span>
       </div>
     </div>
-    <div className="flex items-center gap-2 sm:gap-4 scale-90 sm:scale-100 origin-right">
-      <div className="flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-rose-500/30 shadow-lg">
-        <Heart className="w-4 h-4 text-rose-500 fill-rose-500" />
-        <span className="font-black text-rose-100 text-sm">{user?.inventory?.lives ?? 5}</span>
+    <div className="flex gap-3">
+      <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
+         <Flame className="w-5 h-5 text-orange-500 fill-orange-500 animate-pulse" />
+         <span className="text-white font-black">{user?.inventory?.flames || 0}</span>
       </div>
-      <div className="flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-orange-500/30 shadow-lg">
-        <Flame className="w-4 h-4 text-orange-500 fill-orange-500" />
-        <span className="font-black text-orange-100 text-sm">{user?.inventory?.flames ?? 0}</span>
+      <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
+         <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
+         <span className="text-white font-black">{user?.inventory?.stars || 0}</span>
       </div>
-      <div className="flex items-center gap-1.5 bg-slate-800/80 backdrop-blur-md px-3 py-1.5 rounded-full border border-yellow-500/30 shadow-lg">
-        <Star className="w-4 h-4 text-yellow-400 fill-yellow-400" />
-        <span className="font-black text-yellow-100 text-sm">{user?.inventory?.stars ?? 0}</span>
-      </div>
-      <div className="h-6 w-px bg-white/20 mx-1 hidden sm:block"></div>
-      <div className="hidden sm:flex items-center gap-2 bg-white/5 backdrop-blur-md px-2 py-1 rounded-xl border border-white/10 shadow-lg">
-        <div className="flex flex-col text-right">
-          <span className="text-[9px] font-black text-blue-200 uppercase tracking-wider">{user?.role || "STUDENT"}</span>
-          <span className="text-xs font-black text-white leading-none">{(user?.name || "User").split(' ')[0]}</span>
-        </div>
-        <img src={user?.avatar || "https://api.dicebear.com/7.x/adventurer/svg"} alt="Avatar" className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/30 object-cover" />
+      <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
+         <Heart className="w-5 h-5 text-rose-500 fill-rose-500 animate-bounce-short" />
+         <span className="text-white font-black">{user?.inventory?.lives ?? 5}</span>
       </div>
     </div>
   </div>
 );
 
 const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
-  if (!isOpen || !station) return null;
+  const [qIndex, setQIndex] = useState(0);
   const [selectedOpt, setSelectedOpt] = useState(null);
   const [orderedWords, setOrderedWords] = useState([]);
   const [status, setStatus] = useState('playing'); 
@@ -245,7 +234,18 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef(null);
 
-  const qData = GAME_DATA[station.type];
+  useEffect(() => {
+    setQIndex(0);
+    setStatus('playing');
+    setFeedbackMsg("");
+    setSelectedOpt(null);
+    setOrderedWords([]);
+    setTranscript("");
+  }, [station, isOpen]);
+
+  let qList = station ? GAME_DATA[station.type] : null;
+  if (qList && !Array.isArray(qList)) qList = [qList]; 
+  const qData = qList ? qList[qIndex] : null;
 
   useEffect(() => {
     if (status === 'correct' && qData?.type === 'order') {
@@ -280,6 +280,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
       }
     }
   }, [qData]);
+
+  if (!isOpen || !station) return null;
 
   if (!qData) {
     return (
@@ -359,6 +361,26 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
     }
   };
 
+  const handleContinue = () => {
+    if (status === 'correct') {
+      if (qIndex < qList.length - 1) {
+        setQIndex(p => p + 1);
+        setStatus('playing');
+        setFeedbackMsg("");
+        setSelectedOpt(null);
+        setOrderedWords([]);
+        setTranscript("");
+      } else {
+        onWin();
+      }
+    } else {
+      setSelectedOpt(null);
+      setOrderedWords([]);
+      setStatus('playing');
+      setTranscript("");
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       {(user?.inventory?.lives ?? 5) <= 0 ? (
@@ -380,7 +402,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
         <div className="bg-slate-100 p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-2xl">{station.icon}</span>
-            <h3 className="font-black text-slate-800 text-lg uppercase tracking-wide">{station.label}</h3>
+            <div className="flex flex-col">
+              <h3 className="font-black text-slate-800 text-lg uppercase tracking-wide leading-none">{station.label}</h3>
+              {qList && qList.length > 1 && (
+                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest mt-1">Question {qIndex + 1} of {qList.length}</span>
+              )}
+            </div>
           </div>
           <button onClick={onClose} className="p-2 bg-slate-200 rounded-full hover:bg-slate-300 text-slate-600"><X className="w-5 h-5"/></button>
         </div>
@@ -474,7 +501,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
                   </button>
                 )}
               </div>
-              <button onClick={status === 'correct' ? onWin : () => {setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript("");}} 
+              <button onClick={handleContinue} 
                 className={`w-full py-3 text-white font-black rounded-xl shadow-md transition-all active:translate-y-1 active:shadow-none ${status === 'correct' ? 'bg-emerald-500 hover:bg-emerald-600 border-b-4 border-emerald-700' : 'bg-rose-500 hover:bg-rose-600 border-b-4 border-rose-700'}`}>
                 {status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}
               </button>
@@ -627,7 +654,7 @@ const AdminPanel = ({ currentUser }) => {
       setPushMsg({ type: 'success', text: `✅ Successfully overwritten data to cloud document: ${docId}` });
     } catch (error) {
       if (error instanceof SyntaxError) {
-        setPushMsg({ type: 'error', text: `❌ JSON Format Error (extra comma, missing quotes, etc.): ${error.message}` });
+        setPushMsg({ type: 'error', text: `❌ JSON Format Error: ${error.message}` });
       } else {
         setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
       }
