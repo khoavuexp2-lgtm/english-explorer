@@ -59,14 +59,14 @@ const GAME_DATA = {
   vocab: {
     type: 'multiple-choice',
     image: "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df?w=500&q=80",
-    question: "Look at the picture and choose the correct word:",
-    options: ["Village", "City", "Mountain", "Island"],
+    question: "Vocabulary: Look at the picture and choose the correct word.",
+    options: ["Village", "City", "Mountain", "Tower"],
     answer: "City",
     explain: "City (Thành phố) là nơi có nhiều tòa nhà cao tầng và giao thông nhộn nhịp."
   },
   grammar: {
     type: 'order',
-    question: "Arrange the words to make a correct sentence:",
+    question: "Grammar: Arrange the words to make a correct sentence.",
     words: ["live", "do", "Where", "you", "?"],
     answer: "Where do you live ?",
     explain: "Cấu trúc hỏi nơi ở: Where + do/does + S + live?"
@@ -74,7 +74,7 @@ const GAME_DATA = {
   listen: {
     type: 'listen-fill',
     audioText: "My hometown is a small and quiet village.",
-    question: "Listen and choose the missing words:",
+    question: "Listening: Listen and choose the missing words.",
     textBefore: "My hometown is a",
     textAfter: "village.",
     options: ["big and noisy", "small and quiet", "large and crowded", "far and busy"],
@@ -83,17 +83,17 @@ const GAME_DATA = {
   },
   read: {
     type: 'multiple-choice',
-    passage: "Hoa lives in Hanoi. It is a big and busy city. She lives with her parents at 20 Hoa Binh Lane, Hoan Kiem District.",
-    question: "What is Hanoi like?",
-    options: ["Small and quiet", "Big and busy", "Far and noisy", "Large and crowded"],
-    answer: "Big and busy",
-    explain: "Đoạn văn có ghi rõ: 'It is a big and busy city'."
+    passage: "Trung lives with his grandparents in Hanoi. His address is 81, Tran Hung Dao Street, Hoan Kiem District. It is a big and busy city.",
+    question: "Reading: Who does Trung live with?",
+    options: ["His parents", "His friends", "His grandparents", "His uncle"],
+    answer: "His grandparents",
+    explain: "Đoạn văn ghi rõ: 'Trung lives with his grandparents' (Trung sống với ông bà)."
   },
   boss: {
     type: 'speak',
-    question: "Final Boss! Read the sentence aloud clearly:",
+    question: "Final Boss! Read the sentence aloud clearly to defeat the Boss:",
     targetText: "I live in a big city",
-    hint: "Nhấn nút Mic để bắt đầu nói. Không được gõ chữ!"
+    hint: "Nhấn nút Mic để bắt đầu thu âm. Bạn cần phát âm chuẩn từng từ nhé!"
   }
 };
 
@@ -145,17 +145,17 @@ const TopMetricsBar = ({ user }) => (
       </div>
       <div className="h-6 w-px bg-white/20 mx-1 hidden sm:block"></div>
       <div className="hidden sm:flex items-center gap-2 bg-white/5 backdrop-blur-md px-2 py-1 rounded-xl border border-white/10 shadow-lg">
-        <div className="flex flex-col text-right">
-          <span className="text-[9px] font-black text-blue-200 uppercase tracking-wider">{user.role}</span>
-          <span className="text-xs font-black text-white leading-none">{user.name.split(' ')[0]}</span>
-        </div>
-        <img src={user.avatar} alt="Avatar" className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/30 object-cover" />
+      <div className="flex flex-col text-right">
+        <span className="text-[9px] font-black text-blue-200 uppercase tracking-wider">{user.role}</span>
+        <span className="text-xs font-black text-white leading-none">{user.name.split(' ')[0]}</span>
       </div>
+      <img src={user.avatar} alt="Avatar" className="w-8 h-8 rounded-lg bg-white/20 border-2 border-white/30 object-cover" />
     </div>
   </div>
+</div>
 );
 
-const GameModal = ({ isOpen, onClose, station, onWin }) => {
+const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser }) => {
   if (!isOpen || !station) return null;
   const [selectedOpt, setSelectedOpt] = useState(null);
   const [orderedWords, setOrderedWords] = useState([]);
@@ -232,8 +232,14 @@ const GameModal = ({ isOpen, onClose, station, onWin }) => {
   const handleVoiceCheck = (spokenText) => {
     const evaluation = evaluateSpeech(spokenText, qData.targetText);
     setFeedbackMsg(evaluation.msg);
-    if (evaluation.pass) setStatus('correct');
-    else setStatus('wrong');
+    if (evaluation.pass) {
+       setStatus('correct');
+    } else {
+       setStatus('wrong');
+       if (user && updateUser && user.inventory.lives > 0) {
+          updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
+       }
+    }
   };
 
   const handleSelectOption = (opt) => {
@@ -250,6 +256,9 @@ const GameModal = ({ isOpen, onClose, station, onWin }) => {
       else {
         setStatus('wrong');
         setFeedbackMsg(qData.explain);
+        if (user && updateUser && user.inventory.lives > 0) {
+           updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
+        }
       }
     } else if (qData.type === 'order') {
       if (orderedWords.join(" ") === qData.answer) {
@@ -259,6 +268,9 @@ const GameModal = ({ isOpen, onClose, station, onWin }) => {
       else {
         setStatus('wrong');
         setFeedbackMsg(qData.explain);
+        if (user && updateUser && user.inventory.lives > 0) {
+           updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
+        }
       }
     }
   };
@@ -273,6 +285,20 @@ const GameModal = ({ isOpen, onClose, station, onWin }) => {
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+      {user && user.inventory.lives <= 0 ? (
+        <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl animate-pop border-4 border-rose-500">
+          <Heart className="w-20 h-20 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
+          <h3 className="text-3xl font-black text-slate-800 mb-2">Hết Tim Rồi!</h3>
+          <p className="text-slate-600 font-medium mb-8">Bạn đã trả lời sai quá nhiều. Hãy nghỉ ngơi một chút hoặc bơm tim để tiếp tục hành trình nhé!</p>
+          <button onClick={() => { 
+            updateUser({...user, inventory: {...user.inventory, lives: 5}});
+            setStatus('playing');
+            setFeedbackMsg("");
+          }} className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-black text-lg rounded-xl border-b-4 border-rose-700 active:translate-y-1 active:border-b-0 shadow-lg">
+            BƠM ĐẦY TIM (DEMO)
+          </button>
+        </div>
+      ) : (
       <div className={`bg-white rounded-[2rem] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative ${status==='wrong' ? 'animate-shake border-4 border-rose-500' : status==='correct' ? 'border-4 border-emerald-500' : ''}`}>
         
         <div className="bg-slate-100 p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
@@ -383,11 +409,12 @@ const GameModal = ({ isOpen, onClose, station, onWin }) => {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };
 
-const MapView = ({ grade, unit, onBack }) => {
+const MapView = ({ grade, unit, onBack, user, updateUser }) => {
   const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
   const [currentStationIdx, setCurrentStationIdx] = useState(unit.progress || 0);
   const [activeGame, setActiveGame] = useState(null);
@@ -428,32 +455,38 @@ const MapView = ({ grade, unit, onBack }) => {
            <path d={pathD} fill="transparent" stroke={theme.pathColor} strokeWidth="2.5" strokeDasharray="4 6" strokeLinecap="round" />
         </svg>
         <div className="absolute z-30 transition-all duration-1000 -translate-x-1/2 -translate-y-1/2 drop-shadow-2xl pointer-events-none" style={{ left: `${nodes[currentStationIdx].x}%`, top: `${nodes[currentStationIdx].y}%`, marginTop: '-35px' }}>
-          <div className="text-6xl animate-float">{theme.vehicle}</div>
-        </div>
-        {nodes.map((node, index) => {
-          const isPassed = index < currentStationIdx;
-          const isCurrent = index === currentStationIdx;
-          const isLocked = index > currentStationIdx;
-          return (
-            <button key={node.id} onClick={() => index <= currentStationIdx && setActiveGame(node)}
-              className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
-              <div className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl shadow-2xl border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
-                {node.icon}
-                {isPassed && <div className="absolute -bottom-2 -right-2 bg-emerald-500 rounded-full p-1 border-2 border-white"><CheckCircle2 className="w-5 h-5 text-white" /></div>}
-                {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-8 h-8 text-white/50"/></div>}
-              </div>
-              <div className="px-4 py-1.5 rounded-xl text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
-            </button>
-          );
-        })}
-      </div>
-      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} onWin={() => {
-        setActiveGame(null);
-        if (currentStationIdx < nodes.length - 1) setCurrentStationIdx(p => p + 1);
-        else alert("🎉 You defeated the Boss! Unit Completed!");
-      }} />
+      <div className="text-6xl animate-float">{theme.vehicle}</div>
     </div>
-  );
+    {nodes.map((node, index) => {
+      const isPassed = index < currentStationIdx;
+      const isCurrent = index === currentStationIdx;
+      const isLocked = index > currentStationIdx;
+      return (
+        <button key={node.id} onClick={() => index <= currentStationIdx && setActiveGame(node)}
+          className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
+          <div className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl shadow-2xl border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
+            {node.icon}
+            {isPassed && <div className="absolute -bottom-2 -right-2 bg-emerald-500 rounded-full p-1 border-2 border-white"><CheckCircle2 className="w-5 h-5 text-white" /></div>}
+            {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-8 h-8 text-white/50"/></div>}
+          </div>
+          <div className="px-4 py-1.5 rounded-xl text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
+        </button>
+      );
+    })}
+  </div>
+  <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} user={user} updateUser={updateUser} onWin={() => {
+    setActiveGame(null);
+    if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: user.inventory.stars + 15}});
+    
+    if (currentStationIdx < nodes.length - 1) setCurrentStationIdx(p => p + 1);
+    else {
+       alert("🎉 Xuất sắc! Bạn đã đánh bại Boss và hoàn thành Unit này! (+50 Sao)");
+       if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: user.inventory.stars + 50}});
+       onBack();
+    }
+  }} />
+</div>
+);
 };
 
 const UnitsView = ({ grade, onBack, onSelectUnit }) => (
@@ -650,14 +683,11 @@ const OnboardingView = ({ onLogin }) => (
       <button onClick={() => onLogin(MOCK_USERS[2])} className="w-full bg-white text-slate-900 font-black py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 transition-colors shadow-xl mb-4 text-lg">
         <Fingerprint className="w-6 h-6" /> Login as Student
       </button>
-      <button onClick={() => onLogin(MOCK_USERS[0])} className="w-full bg-slate-800 text-white font-black py-4 rounded-2xl flex items-center justify-center gap-3 border border-slate-700 hover:bg-slate-700 transition-colors text-lg">
-        <Shield className="w-6 h-6 text-rose-400" /> Login as Super Admin
-      </button>
-    </div>
-  </div>
+</div>
+</div>
 );
 
-const MainLayout = ({ user, handleLogout }) => {
+const MainLayout = ({ user, handleLogout, updateUser }) => {
   const [currentView, setCurrentView] = useState('grades'); // grades, units, map, admin, practice, arena
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
@@ -691,7 +721,7 @@ const MainLayout = ({ user, handleLogout }) => {
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
       case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={(u) => { setSelectedUnit(u); setCurrentView('map'); }} />;
-      case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} />;
+      case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} />;
       case 'admin': return <AdminPanel currentUser={user} />;
       case 'practice': return <PracticeHub />;
       case 'arena': return <ArenaLobby />;
@@ -784,5 +814,5 @@ export default function App() {
     return <OnboardingView onLogin={(mockUser) => setUser(mockUser)} />;
   }
 
-  return <MainLayout user={user} handleLogout={() => setUser(null)} />;
+  return <MainLayout user={user} handleLogout={() => setUser(null)} updateUser={setUser} />;
 }
