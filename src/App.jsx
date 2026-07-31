@@ -13,17 +13,24 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
 
-// Vui lòng DÁN TRỰC TIẾP các mã (String) từ Firebase Console của bạn vào đây.
-// (Môi trường Web Editor này biên dịch ở chuẩn es2015 nên không hỗ trợ cú pháp import.meta.env)
+// =========================================================================
+// LƯU Ý CỰC KỲ QUAN TRỌNG: 
+// ĐỂ ĐĂNG NHẬP FIREBASE BÌNH THƯỜNG, BẠN BẮT BUỘC PHẢI BỎ KHÓA COMMENT (DẤU /* VÀ */)
+// Ở BIẾN firebaseConfig DƯỚI ĐÂY, VÀ XÓA DÒNG "const firebaseConfig = {};" 
+// NẾU KHÔNG BẠN SẼ GẶP LỖI "FIREBASE KHÔNG HỖ TRỢ SIGN IN"!
+// =========================================================================
+/*
 const firebaseConfig = {
-  apiKey: "DÁN_API_KEY_CỦA_BẠN_VÀO_ĐÂY",
-  authDomain: "DÁN_AUTH_DOMAIN_CỦA_BẠN_VÀO_ĐÂY",
-  projectId: "DÁN_PROJECT_ID_CỦA_BẠN_VÀO_ĐÂY",
-  storageBucket: "DÁN_STORAGE_BUCKET_CỦA_BẠN_VÀO_ĐÂY",
-  messagingSenderId: "DÁN_MESSAGING_SENDER_ID_CỦA_BẠN_VÀO_ĐÂY",
-  appId: "DÁN_APP_ID_CỦA_BẠN_VÀO_ĐÂY",
-  measurementId: "DÁN_MEASUREMENT_ID_CỦA_BẠN_VÀO_ĐÂY"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
+*/
+const firebaseConfig = {}; // <--- BẠN NHỚ XÓA DÒNG NÀY KHI CHẠY CODE Ở MÁY NHÉ
 
 let app, auth, db;
 try {
@@ -624,9 +631,16 @@ const OnboardingView = () => {
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      if (auth) await signInWithPopup(auth, provider);
-      else alert("Firebase is not fully configured to support Google Sign-In.");
-    } catch (error) { console.error("Login failed", error); alert("Login failed: " + error.message); }
+      if (auth) {
+        await signInWithPopup(auth, provider);
+      } else {
+        alert("Firebase chưa được khởi tạo. Bạn đã dán mã Firebase Config vào code chưa?");
+      }
+    } catch (error) { 
+      console.error("Login failed", error); 
+      // Hiển thị lỗi chi tiết để bắt bệnh
+      alert("Lỗi Đăng Nhập Firebase: " + error.message); 
+    }
   };
   return (
     <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-900 animate-fade-in relative overflow-hidden">
