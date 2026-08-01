@@ -82,7 +82,6 @@ const MAP_THEMES = {
   forest: { bg: "from-[#14532d] to-[#064e3b]", vehicle: "🚙", pathColor: "rgba(255,255,255,0.3)" }
 };
 
-// Đã cập nhật đúng chuẩn Tiếng Anh 5 Global Success
 const GRADE_UNITS = [
   { id: 'u1', name: "Unit 1", title: "All about me!", status: 'active', theme: 'ocean' },
   { id: 'u2', name: "Unit 2", title: "Our homes", status: 'active', theme: 'forest' },
@@ -102,14 +101,13 @@ const playAudio = (text) => {
     if (typeof text !== 'string') return;
     
     let speakText = text;
-    
-    // 1. Xử lý lỗi đọc dấu điền khuyết: Biến "___" thành từ "blank" (chỗ trống)
+    // 1. Convert underscores to "blank" so TTS doesn't say "underscore underscore"
     speakText = speakText.replace(/_+/g, 'blank');
 
-    // 2. Ép máy luôn đọc từ "live" là động từ ở mọi ngữ cảnh, sửa lỗi AI của trình duyệt
-    speakText = speakText.replace(/\blive\b/gi, 'liv');
-    speakText = speakText.replace(/\blives\b/gi, 'livz');
-    speakText = speakText.replace(/\bread\b/gi, 'reed');
+    // 2. Phonetic hack for "live/lives" (verb) to force short 'i' sound (/lɪv/)
+    // We spell it "livv" so the TTS engine evaluates it correctly instead of /laɪv/
+    speakText = speakText.replace(/\blive\b/gi, 'livv');
+    speakText = speakText.replace(/\blives\b/gi, 'livvz');
 
     const utterance = new SpeechSynthesisUtterance(speakText);
     utterance.lang = 'en-US';
@@ -122,7 +120,7 @@ const evaluateSpeech = (transcript, target) => {
   let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
   let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
 
-  // Chuẩn hóa Anh - Mĩ vs Anh - Anh để tránh chấm sai oan uổng
+  // Normalize UK/US spellings
   cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
   cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
 
@@ -144,7 +142,7 @@ const syncUserWithDb = async (googleUser) => {
     if (userSnap.exists()) {
       const data = userSnap.data();
       return {
-        uid: googleUser.uid, // Đảm bảo không bao giờ mất UID
+        uid: googleUser.uid,
         ...data,
         name: data.name || defaultName,
         avatar: data.avatar || defaultAvatar,
@@ -212,18 +210,25 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   const [status, setStatus] = useState('playing'); 
   const [feedbackMsg, setFeedbackMsg] = useState("");
   
+  // Strict 80% Logic States
+  const [correctCount, setCorrectCount] = useState(0);
+  const [isFirstTry, setIsFirstTry] = useState(true);
+  const [isStationFinished, setIsStationFinished] = useState(false);
+
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef(null);
 
   useEffect(() => {
+    // Reset Everything on mount
     setQIndex(0); setStatus('playing'); setFeedbackMsg("");
     setSelectedOpt(null); setOrderedWords([]); setTranscript("");
+    setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
   }, [station, isOpen]);
 
   let qList = (station && currentUnitData) ? currentUnitData[station.type] : null;
   if (qList && !Array.isArray(qList)) qList = [qList]; 
-  const qData = qList ? qList[qIndex] : null;
+  const qData = qList && !isStationFinished ? qList[qIndex] : null;
 
   useEffect(() => {
     if (status === 'correct' && qData?.type === 'order') playAudio(qData.answer);
@@ -244,14 +249,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
           setIsListening(false);
         };
         recognitionRef.current.onerror = (event) => {
-          setFeedbackMsg("Mic Error: " + event.error); setIsListening(false); setStatus('wrong');
+          setFeedbackMsg("Mic Error: " + event.error); setIsListening(false); setStatus('wrong'); setIsFirstTry(false);
         };
       }
     }
   }, [qData]);
 
   if (!isOpen || !station) return null;
-  if (!qData) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
+  if (!qList) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
   const toggleListen = () => {
     if (isListening) { recognitionRef.current?.stop(); setIsListening(false); } 
@@ -267,19 +272,33 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   const handleVoiceCheck = (spokenText) => {
     const evaluation = evaluateSpeech(spokenText, qData.targetText);
     setFeedbackMsg(evaluation.msg);
-    if (evaluation.pass) setStatus('correct');
-    else { setStatus('wrong'); deductLife(); }
+    if (evaluation.pass) {
+        if (isFirstTry) setCorrectCount(c => c + 1);
+        setStatus('correct');
+    } else { 
+        setStatus('wrong'); 
+        if (isFirstTry) { setIsFirstTry(false); deductLife(); }
+    }
   };
 
   const handleSelectOption = (opt) => { setSelectedOpt(opt); playAudio(opt); };
 
   const handleCheck = () => {
+    let isCorrect = false;
     if (['multiple-choice', 'listen-fill', 'read'].includes(qData.type)) {
-      if (selectedOpt === qData.answer) { setStatus('correct'); setFeedbackMsg("Excellent!"); }
-      else { setStatus('wrong'); setFeedbackMsg(qData.explain); deductLife(); }
+      isCorrect = (selectedOpt === qData.answer);
     } else if (qData.type === 'order') {
-      if (orderedWords.join(" ") === qData.answer) { setStatus('correct'); setFeedbackMsg("Perfect!"); }
-      else { setStatus('wrong'); setFeedbackMsg(qData.explain); deductLife(); }
+      isCorrect = (orderedWords.join(" ") === qData.answer);
+    }
+
+    if (isCorrect) {
+        if (isFirstTry) setCorrectCount(c => c + 1);
+        setStatus('correct'); 
+        setFeedbackMsg("Excellent!");
+    } else {
+        setStatus('wrong'); 
+        setFeedbackMsg(qData.explain || "Not quite right.");
+        if (isFirstTry) { setIsFirstTry(false); deductLife(); }
     }
   };
 
@@ -292,29 +311,89 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
     if (status === 'correct') {
       if (qIndex < qList.length - 1) {
         setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
-        setSelectedOpt(null); setOrderedWords([]); setTranscript("");
-      } else { onWin(); }
-    } else { setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); }
+        setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setIsFirstTry(true);
+      } else { 
+        setIsStationFinished(true); 
+      }
+    } else { 
+        setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); 
+    }
   };
 
   const handleSkip = () => {
-    deductLife(); // Trừ 1 tim khi skip
+    if (isFirstTry) deductLife(); // If skipped without even checking, still deduct.
     if (qIndex < qList.length - 1) {
         setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
-        setSelectedOpt(null); setOrderedWords([]); setTranscript("");
-    } else { onWin(); }
+        setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setIsFirstTry(true);
+    } else { 
+        setIsStationFinished(true); 
+    }
+  };
+
+  // Safe checks for rendering economy UI
+  const currentLives = user?.inventory?.lives ?? 5;
+  const currentStars = user?.inventory?.stars ?? 0;
+
+  if (currentLives <= 0 && !isStationFinished) {
+      return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/90 backdrop-blur-md animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
+            <Heart className="w-16 h-16 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
+            <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
+            <p className="text-slate-600 font-medium mb-6 text-sm sm:text-base">You need hearts to continue the journey.</p>
+            
+            <div className="flex flex-col gap-3">
+              {currentStars >= 30 ? (
+                 <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5, stars: currentStars - 30}}); setStatus('playing'); }} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-sm border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all flex justify-center items-center gap-2">
+                   REFILL 5 HEARTS <span className="flex items-center text-yellow-300">(-30 <Star className="w-4 h-4 fill-yellow-300 ml-1"/>)</span>
+                 </button>
+              ) : (
+                 <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-sm border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
+                   EMERGENCY REFILL (FREE)
+                 </button>
+              )}
+              <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">
+                QUIT & PRACTICE MORE
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+  }
+
+  if (isStationFinished) {
+      const accuracy = Math.round((correctCount / qList.length) * 100);
+      const isPassed = accuracy >= 80;
+      return (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/90 backdrop-blur-md animate-fade-in">
+           <div className={`bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl border-4 ${isPassed ? 'border-emerald-500' : 'border-rose-500'}`}>
+              <div className="w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-4 border-4 bg-slate-50">
+                 {isPassed ? <Crown className="w-10 h-10 text-yellow-500 fill-yellow-500 animate-bounce" /> : <AlertCircle className="w-10 h-10 text-rose-500 animate-shake" />}
+              </div>
+              <h3 className={`text-2xl sm:text-3xl font-black mb-2 ${isPassed ? 'text-emerald-600' : 'text-rose-600'}`}>{isPassed ? 'Station Cleared!' : 'Station Failed'}</h3>
+              <p className="text-slate-600 font-bold mb-6 text-lg">Accuracy: <span className={isPassed ? 'text-emerald-500' : 'text-rose-500'}>{accuracy}%</span> {isPassed ? '' : '(Need 80%)'}</p>
+              
+              <div className="flex flex-col gap-3">
+                 {isPassed ? (
+                    <button onClick={onWin} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-base border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
+                      CLAIM REWARDS
+                    </button>
+                 ) : (
+                    <button onClick={() => { setQIndex(0); setCorrectCount(0); setIsStationFinished(false); setStatus('playing'); setIsFirstTry(true); }} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">
+                      RETRY STATION
+                    </button>
+                 )}
+                 <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">
+                   RETURN TO MAP
+                 </button>
+              </div>
+           </div>
+        </div>
+      );
   }
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-      {(user?.inventory?.lives ?? 5) <= 0 ? (
-        <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
-          <Heart className="w-16 h-16 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
-          <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
-          <p className="text-slate-600 font-medium mb-6 text-sm sm:text-base">Take a break or refill hearts to continue!</p>
-          <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-3 sm:py-4 bg-rose-500 text-white font-black rounded-xl text-sm sm:text-base">REFILL HEARTS</button>
-        </div>
-      ) : (
       <div className={`bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative max-h-[95vh] sm:max-h-[90vh] ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
         <div className="bg-slate-100 p-3 sm:p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
@@ -328,13 +407,11 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
         </div>
 
         <div className="p-3 sm:p-6 flex flex-col gap-3 sm:gap-5 overflow-y-auto flex-1 hide-scrollbar">
-          {qData.image && <img src={qData.image} alt="Visual" className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
+          {qData.image && <img src={qData.image} alt="Visual" onError={(e) => e.target.style.display='none'} className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            {(qData.audioText || qData.targetText) && (
-               <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
-            )}
+            <button onClick={() => playAudio(qData.audioText || qData.targetText || qData.question)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
             <span className="pt-0.5">{qData.question}</span>
           </h2>
           
@@ -399,7 +476,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
           )}
         </div>
       </div>
-      )}
     </div>
   );
 };
@@ -452,6 +528,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
           );
         })}
       </div>
+      
       <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} user={user} updateUser={updateUser} currentUnitData={currentUnitData} onWin={() => {
         setActiveGame(null);
         let newStars = (user?.inventory?.stars ?? 0) + 15;
@@ -465,11 +542,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
                updateUser({...user, inventory: {...user.inventory, stars: newStars}});
             }
         } else {
-           if(!isUnitCompleted) {
-               // Only admin should use native alerts realistically, but for victory celebration we use custom modal or alert for now.
-               // We will keep standard alert for Victory since it doesn't break UX as much as error alerts.
-               alert("🎉 Incredible! You defeated the Boss and completed this Unit! (+50 Stars)");
-           }
+           // Nếu là Boss station
            if (updateUser && user) {
                let finalStars = newStars + (isUnitCompleted ? 0 : 35); 
                let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
@@ -580,16 +653,12 @@ const PracticeHub = ({ user, onTriggerMissingData }) => {
 };
 
 const ArenaView = ({ user }) => {
-  const [arenaState, setArenaState] = useState('lobby'); // lobby, setup, hosting, battle, result
+  const [arenaState, setArenaState] = useState('lobby'); 
   const [pin, setPin] = useState('');
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
   
   const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium' });
-  const [arenaQuestion, setArenaQuestion] = useState({
-    text: "Waiting for Cloud Data...",
-    options: ["Awaiting", "Database", "Connection", "..."]
-  });
 
   useEffect(() => {
     if (arenaState === 'hosting') {
@@ -621,8 +690,7 @@ const ArenaView = ({ user }) => {
 
   const handleStartBattle = () => {
     setArenaState('battle');
-    setTimer(config.timeLimit * 60); 
-    setTimer(10); // Cố định 10s cho bản Preview
+    setTimer(10); // Fixed 10s for demo
   };
 
   if (arenaState === 'setup') {
@@ -716,13 +784,13 @@ const ArenaView = ({ user }) => {
         <div className="bg-white rounded-[2rem] p-8 text-center shadow-2xl flex-1 flex flex-col">
           <div className="flex justify-center mb-4"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
           <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">AI Generated Challenge ({config.difficulty})</p>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-10">{arenaQuestion.text}</h2>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-10">Waiting for Cloud Data...</h2>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-auto">
-            {arenaQuestion.options.map((opt, i) => {
+            {['...', '...', '...', '...'].map((opt, i) => {
               const colors = ['bg-rose-500 border-rose-700', 'bg-blue-500 border-blue-700', 'bg-amber-500 border-amber-700', 'bg-emerald-500 border-emerald-700'];
               return (
-                <button key={opt} onClick={() => setArenaState('result')} className={`p-6 sm:p-8 rounded-2xl text-white font-black text-xl sm:text-2xl border-b-[8px] active:border-b-0 active:translate-y-2 transition-all ${colors[i%4]}`}>
+                <button key={i} onClick={() => setArenaState('result')} className={`p-6 sm:p-8 rounded-2xl text-white font-black text-xl sm:text-2xl border-b-[8px] active:border-b-0 active:translate-y-2 transition-all ${colors[i]}`}>
                   {opt}
                 </button>
               );
@@ -796,6 +864,12 @@ const AdminPanel = ({ currentUser }) => {
   
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [adminNotification, setAdminNotification] = useState("");
+
+  const showAdminToast = (msg) => {
+      setAdminNotification(msg);
+      setTimeout(() => setAdminNotification(""), 3000);
+  }
 
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
@@ -808,8 +882,7 @@ const AdminPanel = ({ currentUser }) => {
         });
         setUsersList(users);
     } catch (e) {
-        console.error(e);
-        // Removed alert here, can log to console instead
+        showAdminToast(`Fetch Error: ${e.message}`);
     }
     setIsLoadingUsers(false);
   }
@@ -825,7 +898,8 @@ const AdminPanel = ({ currentUser }) => {
     try {
         await updateDoc(doc(db, "users", userId), { role: newRole });
         fetchUsers();
-    } catch(e) { console.error("Error updating user role"); }
+        showAdminToast("User role updated successfully");
+    } catch(e) { showAdminToast(`Role Update Error: ${e.message}`); }
   };
 
   const handleToggleBlockUser = async (userId, currentStatus) => {
@@ -833,7 +907,8 @@ const AdminPanel = ({ currentUser }) => {
     try {
         await updateDoc(doc(db, "users", userId), { status: newStatus });
         fetchUsers();
-    } catch(e) { console.error("Error blocking/unblocking user"); }
+        showAdminToast("User status updated successfully");
+    } catch(e) { showAdminToast(`Block Error: ${e.message}`); }
   };
 
   const handlePushData = async () => {
@@ -852,13 +927,19 @@ const AdminPanel = ({ currentUser }) => {
       setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
       if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Invalid JSON format: ${error.message}` });
-      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules to allow read/write.` });
+      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules.` });
       else setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
     } finally { setIsPushing(false); }
   };
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10 pb-24 lg:pb-8">
+      {adminNotification && (
+          <div className="fixed top-4 right-4 bg-slate-800 text-emerald-400 px-6 py-3 rounded-xl shadow-2xl z-[200] font-bold border border-emerald-500 animate-slide-up">
+              {adminNotification}
+          </div>
+      )}
+
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
         <div className="p-6 bg-slate-900 text-white border-b-4 border-slate-800 flex justify-between items-center">
           <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-xl sm:text-2xl font-black">Admin Dashboard</h2></div>
@@ -1108,7 +1189,6 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
           {navItems.map(item => (
             <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
               <item.icon className={`w-5 h-5 lg:w-6 lg:h-6 shrink-0 ${item.color}`} />
-              {/* FIXED SIDEBAR TEXT: Always block on lg, visibility handled by opacity */}
               <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block text-[9px] lg:text-sm' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
           ))}
@@ -1154,6 +1234,12 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [globalToast, setGlobalToast] = useState("");
+
+  const showToast = (msg) => {
+      setGlobalToast(msg);
+      setTimeout(() => setGlobalToast(""), 4000);
+  };
 
   useEffect(() => {
     if (!auth) { setIsAuthChecking(false); return; }
@@ -1176,24 +1262,29 @@ export default function App() {
         const cleanData = JSON.parse(JSON.stringify(newUserData));
         const targetUid = cleanData.uid || auth?.currentUser?.uid; 
         
-        if (!targetUid) {
-           console.error("Lỗi: Không tìm thấy ID người dùng để lưu tiến trình.");
-           return;
-        }
+        if (!targetUid) return;
 
         await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
       } 
       catch(e) { 
         console.error("Firestore save failed:", e); 
-        // Chỉ hiện Toast Notification an toàn cho Admin
         if (newUserData.role === 'admin' || newUserData.role === 'superadmin') {
-           console.warn(`[Admin Alert] Firebase Error: ${e.message}`);
+           showToast(`[Admin Error] Firebase: ${e.message}`);
         }
       }
     }
   };
 
   if (isAuthChecking) return <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center px-4"><div className="flex flex-col items-center gap-4 text-center"><Compass className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500 animate-spin" /><p className="text-white font-black animate-pulse text-sm sm:text-base">Checking credentials...</p></div></div>;
-  if (!user) return <OnboardingView />;
-  return <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} />;
+  
+  return (
+    <>
+      {globalToast && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-slate-900 text-rose-400 px-6 py-3 rounded-xl shadow-2xl z-[200] font-bold border border-rose-500 animate-slide-up whitespace-nowrap">
+              {globalToast}
+          </div>
+      )}
+      {!user ? <OnboardingView /> : <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} />}
+    </>
+  );
 }
