@@ -60,6 +60,7 @@ const globalStyles = `
   .animate-timer { animation: timer-shrink linear forwards; }
 `;
 
+const COMPLIMENTS = ["Excellent!", "Awesome!", "Perfect!", "Brilliant!", "Fantastic!", "Great job!", "You're a star!"];
 const MOTIVATIONAL_QUOTES = [
   { text: "Every mistake is a step forward!", icon: Sparkles, color: "text-yellow-400" },
   { text: "You are a vocabulary ninja!", icon: Swords, color: "text-blue-400" },
@@ -83,9 +84,9 @@ const MAP_THEMES = {
 };
 
 const GRADE_UNITS = [
-  { id: 'u1', name: "Unit 1", title: "All about me!", status: 'active', theme: 'ocean' },
-  { id: 'u2', name: "Unit 2", title: "Our homes", status: 'active', theme: 'forest' },
-  { id: 'u3', name: "Unit 3", title: "My foreign friends", status: 'active', theme: 'space' },
+  { id: 'u1', name: "Unit 1", title: "What's your address?", status: 'active', theme: 'ocean' },
+  { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'active', theme: 'forest' },
+  { id: 'u3', name: "Unit 3", title: "Where did you go on holiday?", status: 'active', theme: 'space' },
   { id: 'u4', name: "Unit 4", title: "Our free-time activities", status: 'active', theme: 'ocean' },
   { id: 'u5', name: "Unit 5", title: "My future job", status: 'active', theme: 'space' },
   { id: 'u6', name: "Unit 6", title: "Our school rooms", status: 'active', theme: 'forest' },
@@ -101,10 +102,9 @@ const playAudio = (text) => {
     if (typeof text !== 'string') return;
     
     let speakText = text;
-    // 1. Convert underscores to "blank" so TTS doesn't say "underscore underscore"
+    // Lọc bỏ ký tự gạch dưới để đọc thành chữ "blank"
     speakText = speakText.replace(/_+/g, 'blank');
-
-    // 2. Phonetic hack for "live/lives" (verb) to force short 'i' sound (/lɪv/) anywhere in the sentence
+    // Ép phát âm từ live/lives thành động từ
     speakText = speakText.replace(/\blive\b/gi, 'livv');
     speakText = speakText.replace(/\blives\b/gi, 'livvz');
 
@@ -129,11 +129,10 @@ const evaluateSpeech = (transcript, target) => {
 
 const syncUserWithDb = async (googleUser) => {
   if (!db) return null;
-  const defaultInventory = { stars: 0, flames: 0, lives: 5 };
+  const defaultInventory = { stars: 0, flames: 0, lives: 5, freeRefillUsed: false };
   const defaultName = googleUser.displayName || "Explorer";
   const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
 
-  // KHAI BÁO EMAIL ADMIN GỐC CỦA BẠN (Hardcoded Admins)
   const adminEmails = ["khoavuexp2@gmail.com", "khoavuexp@gmail.com"];
   const isHardcodedAdmin = adminEmails.includes(googleUser.email);
 
@@ -144,30 +143,15 @@ const syncUserWithDb = async (googleUser) => {
     if (userSnap.exists()) {
       const data = userSnap.data();
       const finalRole = isHardcodedAdmin ? "admin" : (data.role || "student");
-      
-      // Nếu là email của bạn nhưng Database chưa cập nhật, ép nó cập nhật thành Admin
-      if (isHardcodedAdmin && data.role !== "admin") {
-         await updateDoc(userRef, { role: "admin" });
-      }
+      if (isHardcodedAdmin && data.role !== "admin") await updateDoc(userRef, { role: "admin" });
 
-      return {
-        uid: googleUser.uid,
-        ...data,
-        name: data.name || defaultName,
-        avatar: data.avatar || defaultAvatar,
-        role: finalRole,
-        status: data.status || "active",
-        inventory: data.inventory || defaultInventory,
-        completedUnits: data.completedUnits || [],
-        unitProgress: data.unitProgress || {}
-      };
+      return { uid: googleUser.uid, ...data, name: data.name || defaultName, avatar: data.avatar || defaultAvatar, role: finalRole, status: data.status || "active", inventory: data.inventory || defaultInventory, completedUnits: data.completedUnits || [], unitProgress: data.unitProgress || {} };
     } else {
       const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
       await setDoc(userRef, newUser);
       return newUser;
     }
   } catch (error) {
-    console.error("Firestore sync error:", error);
     return { uid: googleUser.uid, name: defaultName, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
   }
 };
@@ -199,27 +183,26 @@ const UnderConstructionModal = ({ isOpen, onClose }) => {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl border-4 border-slate-200">
-        <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6">
-           <Cpu className="w-10 h-10 text-blue-500 animate-bounce" />
-        </div>
+        <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6"><Cpu className="w-10 h-10 text-blue-500 animate-bounce" /></div>
         <h3 className="text-2xl font-black text-slate-800 mb-2">Under Construction!</h3>
         <p className="text-slate-600 font-medium mb-8">This module is currently being built and updated by our academic team. Data is not yet available on the Cloud.</p>
-        <button onClick={onClose} className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 transition-all">
-          GOT IT
-        </button>
+        <button onClick={onClose} className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 transition-all">GOT IT</button>
       </div>
     </div>
   );
 };
 
 const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentUnitData }) => {
+  const [sessionQList, setSessionQList] = useState([]);
+  const [retryTrigger, setRetryTrigger] = useState(0);
+
   const [qIndex, setQIndex] = useState(0);
   const [selectedOpt, setSelectedOpt] = useState(null);
   const [orderedWords, setOrderedWords] = useState([]);
+  const [shuffledWords, setShuffledWords] = useState([]);
   const [status, setStatus] = useState('playing'); 
   const [feedbackMsg, setFeedbackMsg] = useState("");
   
-  // Strict 80% Logic States
   const [correctCount, setCorrectCount] = useState(0);
   const [isFirstTry, setIsFirstTry] = useState(true);
   const [isStationFinished, setIsStationFinished] = useState(false);
@@ -228,16 +211,29 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef(null);
 
+  // Initialize and Pool Randomization
   useEffect(() => {
-    // Reset Everything on mount
-    setQIndex(0); setStatus('playing'); setFeedbackMsg("");
-    setSelectedOpt(null); setOrderedWords([]); setTranscript("");
-    setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
-  }, [station, isOpen]);
+    if (station && currentUnitData && isOpen) {
+       let fullList = currentUnitData[station.type] || [];
+       if (!Array.isArray(fullList)) fullList = [fullList];
+       // Lấy ngẫu nhiên 5 câu từ kho dữ liệu
+       const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, 5);
+       setSessionQList(shuffled);
+       
+       setQIndex(0); setStatus('playing'); setFeedbackMsg("");
+       setSelectedOpt(null); setOrderedWords([]); setTranscript("");
+       setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
+    }
+  }, [station, currentUnitData, isOpen, retryTrigger]);
 
-  let qList = (station && currentUnitData) ? currentUnitData[station.type] : null;
-  if (qList && !Array.isArray(qList)) qList = [qList]; 
-  const qData = qList && !isStationFinished ? qList[qIndex] : null;
+  const qData = sessionQList[qIndex];
+
+  // Shuffle order words per question
+  useEffect(() => {
+    if (qData?.type === 'order' && qData.words) {
+       setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
+    }
+  }, [qData]);
 
   useEffect(() => {
     if (status === 'correct' && qData?.type === 'order') playAudio(qData.answer);
@@ -265,7 +261,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   }, [qData]);
 
   if (!isOpen || !station) return null;
-  if (!qList) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
+  if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
   const toggleListen = () => {
     if (isListening) { recognitionRef.current?.stop(); setIsListening(false); } 
@@ -273,19 +269,26 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   };
 
   const deductLife = () => {
-    if (user && updateUser && (user.inventory?.lives ?? 5) > 0) {
-       updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
+    if (updateUser && user && (user.inventory?.lives ?? 0) > 0) {
+       updateUser({...user, inventory: {...user.inventory, lives: (user.inventory.lives || 1) - 1}});
     }
   }
 
+  const rewardStars = (amount) => {
+    if (updateUser && user) {
+       updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + amount}});
+    }
+  }
+
+  const getCompliment = () => COMPLIMENTS[Math.floor(Math.random() * COMPLIMENTS.length)];
+
   const handleVoiceCheck = (spokenText) => {
     const evaluation = evaluateSpeech(spokenText, qData.targetText);
-    setFeedbackMsg(evaluation.msg);
     if (evaluation.pass) {
-        if (isFirstTry) setCorrectCount(c => c + 1);
-        setStatus('correct');
+        if (isFirstTry) { setCorrectCount(c => c + 1); rewardStars(2); }
+        setStatus('correct'); setFeedbackMsg(getCompliment());
     } else { 
-        setStatus('wrong'); 
+        setStatus('wrong'); setFeedbackMsg(evaluation.msg);
         if (isFirstTry) { setIsFirstTry(false); deductLife(); }
     }
   };
@@ -294,16 +297,13 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
   const handleCheck = () => {
     let isCorrect = false;
-    if (['multiple-choice', 'listen-fill', 'read'].includes(qData.type)) {
-      isCorrect = (selectedOpt === qData.answer);
-    } else if (qData.type === 'order') {
-      isCorrect = (orderedWords.join(" ") === qData.answer);
-    }
+    if (['multiple-choice', 'listen-fill', 'read'].includes(qData.type)) isCorrect = (selectedOpt === qData.answer);
+    else if (qData.type === 'order') isCorrect = (orderedWords.join(" ") === qData.answer);
 
     if (isCorrect) {
-        if (isFirstTry) setCorrectCount(c => c + 1);
+        if (isFirstTry) { setCorrectCount(c => c + 1); rewardStars(2); }
         setStatus('correct'); 
-        setFeedbackMsg("Excellent!");
+        setFeedbackMsg(getCompliment());
     } else {
         setStatus('wrong'); 
         setFeedbackMsg(qData.explain || "Not quite right.");
@@ -318,30 +318,28 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
   const handleContinue = () => {
     if (status === 'correct') {
-      if (qIndex < qList.length - 1) {
+      if (qIndex < sessionQList.length - 1) {
         setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
         setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setIsFirstTry(true);
-      } else { 
-        setIsStationFinished(true); 
-      }
+      } else { setIsStationFinished(true); }
     } else { 
         setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); 
+        // Shuffle order words again when trying again
+        if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
     }
   };
 
   const handleSkip = () => {
-    if (isFirstTry) deductLife(); // If skipped without even checking, still deduct.
-    if (qIndex < qList.length - 1) {
+    if (isFirstTry) deductLife();
+    if (qIndex < sessionQList.length - 1) {
         setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
         setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setIsFirstTry(true);
-    } else { 
-        setIsStationFinished(true); 
-    }
+    } else { setIsStationFinished(true); }
   };
 
-  // Safe checks for rendering economy UI
   const currentLives = user?.inventory?.lives ?? 5;
   const currentStars = user?.inventory?.stars ?? 0;
+  const hasUsedFreeRefill = user?.inventory?.freeRefillUsed === true;
 
   if (currentLives <= 0 && !isStationFinished) {
       return (
@@ -356,14 +354,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
                  <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5, stars: currentStars - 30}}); setStatus('playing'); }} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-sm border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all flex justify-center items-center gap-2">
                    REFILL 5 HEARTS <span className="flex items-center text-yellow-300">(-30 <Star className="w-4 h-4 fill-yellow-300 ml-1"/>)</span>
                  </button>
-              ) : (
-                 <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-sm border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
-                   EMERGENCY REFILL (FREE)
+              ) : !hasUsedFreeRefill ? (
+                 <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5, freeRefillUsed: true}}); setStatus('playing'); }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-sm border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
+                   EMERGENCY REFILL (FREE 1 TIME)
                  </button>
+              ) : (
+                 <button disabled className="w-full py-3.5 bg-slate-300 text-slate-500 font-black rounded-xl text-sm border-b-4 border-slate-400 cursor-not-allowed">NOT ENOUGH STARS</button>
               )}
-              <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">
-                QUIT & PRACTICE MORE
-              </button>
+              <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">QUIT & PRACTICE MORE</button>
             </div>
           </div>
         </div>
@@ -371,7 +369,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   }
 
   if (isStationFinished) {
-      const accuracy = Math.round((correctCount / qList.length) * 100);
+      const accuracy = Math.round((correctCount / sessionQList.length) * 100);
       const isPassed = accuracy >= 80;
       return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/90 backdrop-blur-md animate-fade-in">
@@ -384,17 +382,11 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
               
               <div className="flex flex-col gap-3">
                  {isPassed ? (
-                    <button onClick={onWin} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-base border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
-                      CLAIM REWARDS
-                    </button>
+                    <button onClick={onWin} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-base border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">CLAIM REWARDS</button>
                  ) : (
-                    <button onClick={() => { setQIndex(0); setCorrectCount(0); setIsStationFinished(false); setStatus('playing'); setIsFirstTry(true); }} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">
-                      RETRY STATION
-                    </button>
+                    <button onClick={() => setRetryTrigger(p => p + 1)} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">RETRY STATION</button>
                  )}
-                 <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">
-                   RETURN TO MAP
-                 </button>
+                 <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">RETURN TO MAP</button>
               </div>
            </div>
         </div>
@@ -409,10 +401,18 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
             <span className="text-xl sm:text-2xl">{station.icon}</span>
             <div className="flex flex-col">
               <h3 className="font-black text-slate-800 text-sm sm:text-lg uppercase leading-none">{station.label}</h3>
-              {qList && qList.length > 1 && <span className="text-[10px] sm:text-xs font-black text-blue-600 uppercase">Question {qIndex + 1} of {qList.length}</span>}
+              {sessionQList.length > 1 && <span className="text-[10px] sm:text-xs font-black text-blue-600 uppercase">Question {qIndex + 1} of {sessionQList.length}</span>}
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 sm:p-2 bg-slate-200 rounded-full hover:bg-slate-300"><X className="w-4 h-4 sm:w-5 sm:h-5"/></button>
+          <div className="flex items-center gap-2 sm:gap-3">
+             <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg shadow-sm border border-slate-200" title="Hearts (Lives)">
+                <Heart className="w-4 h-4 text-rose-500 fill-rose-500"/><span className="font-bold text-slate-700 text-xs sm:text-sm">{currentLives}</span>
+             </div>
+             <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg shadow-sm border border-slate-200" title="Stars">
+                <Star className="w-4 h-4 text-yellow-400 fill-yellow-400"/><span className="font-bold text-slate-700 text-xs sm:text-sm">{currentStars}</span>
+             </div>
+             <button onClick={onClose} className="p-1 sm:p-1.5 bg-slate-200 rounded-full hover:bg-slate-300 ml-1"><X className="w-4 h-4 sm:w-5 sm:h-5"/></button>
+          </div>
         </div>
 
         <div className="p-3 sm:p-6 flex flex-col gap-3 sm:gap-5 overflow-y-auto flex-1 hide-scrollbar">
@@ -453,7 +453,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
                 {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-2 py-1 sm:px-3 sm:py-2 bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-lg cursor-pointer hover:scale-105">{w}</span>)}
               </div>
               <div className="flex flex-wrap gap-2 justify-center">
-                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-2 py-1 sm:px-3 sm:py-2 bg-white border-2 border-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-lg cursor-pointer hover:-translate-y-1">{w}</span>)}
+                {shuffledWords.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-2 py-1 sm:px-3 sm:py-2 bg-white border-2 border-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-lg cursor-pointer hover:-translate-y-1">{w}</span>)}
               </div>
             </div>
           )}
@@ -468,8 +468,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
                 <div className="flex items-start gap-2">
                   <div className={`p-1.5 rounded-full text-white shrink-0 ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>{status === 'correct' ? <Check className="w-4 h-4 sm:w-5 sm:h-5"/> : <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5"/>}</div>
                   <div>
-                    <h3 className={`font-black text-sm sm:text-lg ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? 'Excellent!' : 'Needs Work'}</h3>
-                    <p className={`text-[10px] sm:text-xs font-medium mt-0.5 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{feedbackMsg}</p>
+                    <h3 className={`font-black text-sm sm:text-lg ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? feedbackMsg : 'Needs Work'}</h3>
+                    <p className={`text-[10px] sm:text-xs font-medium mt-0.5 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{status === 'correct' ? '+2 Stars Awarded' : feedbackMsg}</p>
                   </div>
                 </div>
               </div>
@@ -491,7 +491,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
 const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
   const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
-  
   const isUnitCompleted = user?.completedUnits?.includes(unit.id);
   const savedProgress = isUnitCompleted ? 4 : (user?.unitProgress?.[unit.id] || 0);
   
@@ -541,7 +540,6 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
       <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} user={user} updateUser={updateUser} currentUnitData={currentUnitData} onWin={() => {
         setActiveGame(null);
         let newStars = (user?.inventory?.stars ?? 0) + 15;
-        
         if (currentStationIdx < nodes.length - 1) {
             const nextIdx = currentStationIdx + 1;
             if(!isUnitCompleted) setCurrentStationIdx(nextIdx); 
@@ -610,7 +608,13 @@ const GradesView = ({ onSelectGrade }) => (
   </div>
 );
 
-const PracticeHub = ({ user, onTriggerMissingData }) => {
+const PracticeHub = ({ user, updateUser, onTriggerMissingData }) => {
+  const handleClaimMockReward = () => {
+     if(updateUser && user) {
+        updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + 20}});
+     }
+     onTriggerMissingData();
+  }
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
       <div className="mb-8">
@@ -620,19 +624,19 @@ const PracticeHub = ({ user, onTriggerMissingData }) => {
       
       <div className="flex flex-col gap-8">
         <div>
-          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Extra Exercises</h3>
+          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Extra Exercises (+10 Stars)</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <button onClick={handleClaimMockReward} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <Headphones className="w-8 h-8 mb-3 text-teal-100" />
               <h4 className="text-xl font-black">Listening</h4>
               <p className="text-sm font-medium text-teal-100">By Unit</p>
             </button>
-            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <button onClick={handleClaimMockReward} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <Mic className="w-8 h-8 mb-3 text-cyan-100" />
               <h4 className="text-xl font-black">Speaking</h4>
               <p className="text-sm font-medium text-cyan-100">By Unit</p>
             </button>
-            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <button onClick={handleClaimMockReward} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <BookOpen className="w-8 h-8 mb-3 text-rose-100" />
               <h4 className="text-xl font-black">Reading</h4>
               <p className="text-sm font-medium text-rose-100">By Unit</p>
@@ -641,14 +645,14 @@ const PracticeHub = ({ user, onTriggerMissingData }) => {
         </div>
 
         <div>
-          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-indigo-400"/> Full Exams</h3>
+          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-indigo-400"/> Full Exams (+50 Stars)</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button onClick={onTriggerMissingData} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
+            <button onClick={handleClaimMockReward} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
               <Timer className="w-12 h-12 mb-4 text-indigo-200" />
               <h3 className="text-3xl font-black mb-2">45-Min Mock Test</h3>
               <p className="text-indigo-100 text-base font-medium">Simulate a full school exam with diverse question types.</p>
             </button>
-            <button onClick={onTriggerMissingData} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
+            <button onClick={handleClaimMockReward} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
               <Medal className="w-12 h-12 mb-4 text-amber-100" />
               <h3 className="text-2xl font-black mb-2">Cambridge Advanced</h3>
               <p className="text-amber-50 text-sm font-medium">Extra vocabulary and complex structures.</p>
@@ -660,11 +664,12 @@ const PracticeHub = ({ user, onTriggerMissingData }) => {
   );
 };
 
-const ArenaView = ({ user }) => {
+const ArenaView = ({ user, updateUser }) => {
   const [arenaState, setArenaState] = useState('lobby'); 
   const [pin, setPin] = useState('');
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
+  const [rewardClaimed, setRewardClaimed] = useState(false);
   
   const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium' });
 
@@ -687,6 +692,7 @@ const ArenaView = ({ user }) => {
       return () => clearTimeout(t);
     } else if (arenaState === 'battle' && timer === 0) {
       setArenaState('result');
+      setRewardClaimed(false);
     }
   }, [arenaState, timer]);
 
@@ -815,7 +821,7 @@ const ArenaView = ({ user }) => {
         <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-8 sm:p-12 text-center shadow-2xl w-full">
           <Trophy className="w-20 h-20 sm:w-24 sm:h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
           <h2 className="text-3xl sm:text-4xl font-black text-white mb-2">Victory!</h2>
-          <p className="text-slate-400 text-base sm:text-lg mb-8">You answered faster than 80% of the room.</p>
+          <p className="text-emerald-400 font-bold text-lg sm:text-xl mb-8">+50 Stars Earned</p>
           
           <div className="flex justify-center gap-2 sm:gap-4 mb-8 items-end">
             <div className="flex flex-col items-center">
@@ -832,8 +838,14 @@ const ArenaView = ({ user }) => {
             </div>
           </div>
 
-          <button onClick={() => setArenaState('lobby')} className="w-full sm:w-auto px-8 py-4 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-700 transition-all border border-white/10">
-            RETURN TO LOBBY
+          <button onClick={() => {
+             if (!rewardClaimed && updateUser && user) {
+                updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + 50}});
+                setRewardClaimed(true);
+             }
+             setArenaState('lobby');
+          }} className="w-full sm:w-auto px-8 py-4 bg-emerald-500 text-white font-black rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
+            CLAIM REWARD & RETURN
           </button>
         </div>
       </div>
@@ -911,7 +923,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
         await updateDoc(doc(db, "users", userId), { status: newStatus });
         fetchUsers();
         showToast("User blocked/unblocked");
-    } catch(e) { showToast("Error blocking user"); }
+    } catch(e) { showToast("Error blocking/unblocking user"); }
   };
 
   const handlePushData = async () => {
@@ -930,7 +942,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
       setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
       if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Invalid JSON format: ${error.message}` });
-      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules to allow read/write.` });
+      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules.` });
       else setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
     } finally { setIsPushing(false); }
   };
@@ -1128,11 +1140,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
     { id: 'arena', label: "AI Arena", icon: Swords, color: 'text-orange-400' }
   ];
-  
-  // Tab Admin tự động xuất hiện nếu tài khoản là admin
-  if (user?.role === 'admin' || user?.role === 'superadmin') {
-      navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
-  }
+  if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
 
   const handleSelectUnitAndFetch = async (unit) => {
     setSelectedUnit(unit);
@@ -1166,8 +1174,8 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={handleSelectUnitAndFetch} user={user} />;
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentUnitData} />;
       case 'admin': return <AdminPanel currentUser={user} showToast={showToast} />;
-      case 'practice': return <PracticeHub user={user} onTriggerMissingData={() => setIsUnderConstruction(true)} />;
-      case 'arena': return <ArenaView user={user} />;
+      case 'practice': return <PracticeHub user={user} updateUser={updateUser} onTriggerMissingData={() => setIsUnderConstruction(true)} />;
+      case 'arena': return <ArenaView user={user} updateUser={updateUser} />;
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
@@ -1181,7 +1189,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       
       <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
         
-        <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden select-none">
+        <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
@@ -1264,7 +1272,6 @@ export default function App() {
         const targetUid = cleanData.uid || auth?.currentUser?.uid; 
         
         if (!targetUid) return;
-
         await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
       } 
       catch(e) { 
