@@ -8,7 +8,7 @@ import {
   Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
   Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
   Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock, SkipForward,
-  Settings, Database, TrendingUp
+  Settings, Database, TrendingUp, Filter
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -23,11 +23,10 @@ try {
     projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
     storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
     messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID,
-    measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
+    appId: import.meta.env.VITE_FIREBASE_APP_ID
   };
 } catch (error) {
-  console.warn("Running in Preview Mode. .env variables not found.");
+  console.warn("Running in Preview Mode.");
 }
 
 let app, auth, db;
@@ -116,7 +115,6 @@ const playAudio = (text) => {
 const evaluateSpeech = (transcript, target) => {
   let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
   let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-
   cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
   cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
 
@@ -143,22 +141,17 @@ const syncUserWithDb = async (googleUser) => {
       const data = userSnap.data();
       const finalRole = isHardcodedAdmin ? "admin" : (data.role || "student");
       
-      // Daily Streak Logic
       let streak = data.streak || 0;
       let lastLogin = data.lastLogin || "";
       if (lastLogin !== today) {
          const yesterday = new Date();
          yesterday.setDate(yesterday.getDate() - 1);
-         if (lastLogin === yesterday.toDateString()) {
-             streak += 1;
-         } else {
-             streak = 1;
-         }
+         if (lastLogin === yesterday.toDateString()) streak += 1;
+         else streak = 1;
          await updateDoc(userRef, { streak, lastLogin: today, role: finalRole });
       } else if (isHardcodedAdmin && data.role !== "admin") {
          await updateDoc(userRef, { role: "admin" });
       }
-
       return { uid: googleUser.uid, ...data, name: data.name || defaultName, avatar: data.avatar || defaultAvatar, role: finalRole, status: data.status || "active", inventory: data.inventory || defaultInventory, completedUnits: data.completedUnits || [], unitProgress: data.unitProgress || {}, streak, lastLogin: today, badges: data.badges || [] };
     } else {
       const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [] };
@@ -193,7 +186,6 @@ const TopMetricsBar = ({ user }) => (
       </div>
       <div className="relative cursor-pointer group">
         <img src={user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer`} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
-        {user?.badges?.length > 0 && <div className="absolute -bottom-1 -right-1 bg-yellow-500 text-yellow-900 text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-slate-900">{user.badges.length}</div>}
       </div>
     </div>
   </div>
@@ -211,14 +203,13 @@ const LeaderboardView = ({ showToast }) => {
         const users = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          if (data.role !== 'admin') { // Loại Admin khỏi bảng xếp hạng
+          if (data.role !== 'admin') {
              users.push({ id: doc.id, name: data.name, avatar: data.avatar, stars: data.inventory?.stars || 0, streak: data.streak || 0 });
           }
         });
         users.sort((a, b) => b.stars - a.stars);
-        setTopUsers(users.slice(0, 10)); // Top 10
+        setTopUsers(users.slice(0, 10));
       } catch (e) {
-        console.error(e);
         showToast("Cannot fetch leaderboard data.");
       }
       setLoading(false);
@@ -243,9 +234,7 @@ const LeaderboardView = ({ showToast }) => {
            <div className="flex flex-col gap-2 sm:gap-3">
              {topUsers.map((u, i) => (
                <div key={u.id} className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-white/10 transition-transform hover:-translate-y-1 ${i===0 ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/10' : i===1 ? 'bg-gradient-to-r from-slate-300/20 to-slate-400/10' : i===2 ? 'bg-gradient-to-r from-orange-400/20 to-orange-500/10' : 'bg-slate-800/50'}`}>
-                 <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-black text-sm sm:text-base shrink-0 ${i===0 ? 'bg-yellow-400 text-yellow-900 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : i===1 ? 'bg-slate-300 text-slate-800' : i===2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-700 text-slate-300'}`}>
-                    {i+1}
-                 </div>
+                 <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-black text-sm sm:text-base shrink-0 ${i===0 ? 'bg-yellow-400 text-yellow-900 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : i===1 ? 'bg-slate-300 text-slate-800' : i===2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-700 text-slate-300'}`}>{i+1}</div>
                  <img src={u.avatar} alt="avatar" className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-white/20 bg-slate-700"/>
                  <div className="flex-1 min-w-0">
                     <h3 className="text-white font-bold text-sm sm:text-lg truncate">{u.name}</h3>
@@ -273,51 +262,57 @@ const UnderConstructionModal = ({ isOpen, onClose }) => {
       <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl border-4 border-slate-200">
         <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6"><Cpu className="w-10 h-10 text-blue-500 animate-bounce" /></div>
         <h3 className="text-2xl font-black text-slate-800 mb-2">Under Construction!</h3>
-        <p className="text-slate-600 font-medium mb-8">This module is currently being built and updated by our academic team. Data is not yet available on the Cloud.</p>
+        <p className="text-slate-600 font-medium mb-8">This module is currently being updated by our academic team. Data is not yet available on the Cloud.</p>
         <button onClick={onClose} className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 transition-all">GOT IT</button>
       </div>
     </div>
   );
 };
 
-const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentUnitData }) => {
+const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionData, titleLabel }) => {
   const [sessionQList, setSessionQList] = useState([]);
   const [retryTrigger, setRetryTrigger] = useState(0);
-
   const [qIndex, setQIndex] = useState(0);
   const [selectedOpt, setSelectedOpt] = useState(null);
   const [orderedWords, setOrderedWords] = useState([]);
   const [shuffledWords, setShuffledWords] = useState([]);
   const [status, setStatus] = useState('playing'); 
   const [feedbackMsg, setFeedbackMsg] = useState("");
-  
   const [correctCount, setCorrectCount] = useState(0);
   const [isFirstTry, setIsFirstTry] = useState(true);
   const [isStationFinished, setIsStationFinished] = useState(false);
-
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef(null);
 
   useEffect(() => {
-    if (station && currentUnitData && isOpen) {
-       let fullList = currentUnitData[station.type] || [];
+    if (sessionData && isOpen) {
+       let fullList = [];
+       if (station && station.type) {
+           fullList = sessionData[station.type] || [];
+       } else if (Array.isArray(sessionData)) {
+           fullList = sessionData;
+       } else if (sessionData.questions) {
+           fullList = sessionData.questions;
+       }
        if (!Array.isArray(fullList)) fullList = [fullList];
-       const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, 5);
-       setSessionQList(shuffled);
        
+       // Handle large sets (e.g. 45-min tests) differently than standard 5-question nodes
+       const isLongTest = fullList.length > 10;
+       const limit = isLongTest ? fullList.length : Math.min(5, fullList.length);
+       
+       const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, limit);
+       setSessionQList(shuffled);
        setQIndex(0); setStatus('playing'); setFeedbackMsg("");
        setSelectedOpt(null); setOrderedWords([]); setTranscript("");
        setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
     }
-  }, [station, currentUnitData, isOpen, retryTrigger]);
+  }, [station, sessionData, isOpen, retryTrigger]);
 
   const qData = sessionQList[qIndex];
 
   useEffect(() => {
-    if (qData?.type === 'order' && qData.words) {
-       setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
-    }
+    if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
   }, [qData]);
 
   useEffect(() => {
@@ -334,9 +329,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
         recognitionRef.current.interimResults = false;
         recognitionRef.current.onresult = (event) => {
           const spokenText = event.results[0][0].transcript;
-          setTranscript(spokenText);
-          handleVoiceCheck(spokenText);
-          setIsListening(false);
+          setTranscript(spokenText); handleVoiceCheck(spokenText); setIsListening(false);
         };
         recognitionRef.current.onerror = (event) => {
           setFeedbackMsg("Mic Error: " + event.error); setIsListening(false); setStatus('wrong'); setIsFirstTry(false);
@@ -345,7 +338,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
     }
   }, [qData]);
 
-  if (!isOpen || !station) return null;
+  if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
   const toggleListen = () => {
@@ -387,11 +380,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
     if (isCorrect) {
         if (isFirstTry) { setCorrectCount(c => c + 1); rewardStars(2); }
-        setStatus('correct'); 
-        setFeedbackMsg(getCompliment());
+        setStatus('correct'); setFeedbackMsg(getCompliment());
     } else {
-        setStatus('wrong'); 
-        setFeedbackMsg(qData.explain || "Not quite right.");
+        setStatus('wrong'); setFeedbackMsg(qData.explain || "Not quite right.");
         if (isFirstTry) { setIsFirstTry(false); deductLife(); }
     }
   };
@@ -432,7 +423,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
             <Heart className="w-16 h-16 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
             <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
             <p className="text-slate-600 font-medium mb-6 text-sm sm:text-base">You need hearts to continue the journey.</p>
-            
             <div className="flex flex-col gap-3">
               {currentStars >= 30 ? (
                  <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5, stars: currentStars - 30}}); setStatus('playing'); }} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-sm border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all flex justify-center items-center gap-2">
@@ -461,16 +451,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
               <div className="w-20 h-20 mx-auto rounded-full flex items-center justify-center mb-4 border-4 bg-slate-50">
                  {isPassed ? <Crown className="w-10 h-10 text-yellow-500 fill-yellow-500 animate-bounce" /> : <AlertCircle className="w-10 h-10 text-rose-500 animate-shake" />}
               </div>
-              <h3 className={`text-2xl sm:text-3xl font-black mb-2 ${isPassed ? 'text-emerald-600' : 'text-rose-600'}`}>{isPassed ? 'Station Cleared!' : 'Station Failed'}</h3>
-              <p className="text-slate-600 font-bold mb-6 text-lg">Accuracy: <span className={isPassed ? 'text-emerald-500' : 'text-rose-500'}>{accuracy}%</span> {isPassed ? '' : '(Need 80%)'}</p>
+              <h3 className={`text-2xl sm:text-3xl font-black mb-2 ${isPassed ? 'text-emerald-600' : 'text-rose-600'}`}>{isPassed ? 'Test Cleared!' : 'Test Failed'}</h3>
+              <p className="text-slate-600 font-bold mb-6 text-lg">Score: <span className={isPassed ? 'text-emerald-500' : 'text-rose-500'}>{accuracy}%</span> {isPassed ? '' : '(Need 80%)'}</p>
               
               <div className="flex flex-col gap-3">
                  {isPassed ? (
-                    <button onClick={onWin} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-base border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">CLAIM REWARDS</button>
+                    <button onClick={() => { if(onWin) onWin(); else onClose(); }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-base border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">CLAIM REWARDS</button>
                  ) : (
-                    <button onClick={() => setRetryTrigger(p => p + 1)} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">RETRY STATION</button>
+                    <button onClick={() => setRetryTrigger(p => p + 1)} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">RETRY TEST</button>
                  )}
-                 <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">RETURN TO MAP</button>
+                 <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">RETURN</button>
               </div>
            </div>
         </div>
@@ -482,9 +472,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
       <div className={`bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative max-h-[95vh] sm:max-h-[90vh] ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
         <div className="bg-slate-100 p-3 sm:p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-xl sm:text-2xl">{station.icon}</span>
+            <span className="text-xl sm:text-2xl">{station?.icon || <Library className="w-6 h-6 text-blue-500"/>}</span>
             <div className="flex flex-col">
-              <h3 className="font-black text-slate-800 text-sm sm:text-lg uppercase leading-none">{station.label}</h3>
+              <h3 className="font-black text-slate-800 text-sm sm:text-lg uppercase leading-none">{titleLabel || station?.label || "Practice"}</h3>
               {sessionQList.length > 1 && <span className="text-[10px] sm:text-xs font-black text-blue-600 uppercase">Question {qIndex + 1} of {sessionQList.length}</span>}
             </div>
           </div>
@@ -621,7 +611,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
         })}
       </div>
       
-      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} user={user} updateUser={updateUser} currentUnitData={currentUnitData} onWin={() => {
+      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit.name} - ${activeGame?.label}`} onWin={() => {
         setActiveGame(null);
         let newStars = (user?.inventory?.stars ?? 0) + 15;
         if (currentStationIdx < nodes.length - 1) {
@@ -645,30 +635,22 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
   );
 };
 
-const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
+const GenericListSelector = ({ title, grade, items, onBack, onSelect, user, icon: Icon, colorClass }) => (
   <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
     <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
       <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
-      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
+      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} - {title}</h2></div>
     </div>
     <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
-      {GRADE_UNITS.map(unit => {
-        const isCompleted = user?.completedUnits?.includes(unit.id);
-        const progress = user?.unitProgress?.[unit.id] || 0;
+      {items.map(item => {
         return (
-        <button key={unit.id} onClick={() => onSelectUnit(unit)} 
-          className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
-            progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 hover:brightness-110 shadow-xl' :
-            'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
-          
-          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : progress > 0 ? 'bg-orange-700 text-white' : 'bg-white/20 text-white'}`}>
-            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
+        <button key={item.id} onClick={() => onSelect(item)} 
+          className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0 ${colorClass}`}>
+          <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 bg-white/20 text-white">
+            <Icon className="w-5 h-5 sm:w-7 sm:h-7" />
           </div>
           <div className="flex-1">
-            <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
-            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
-            {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
+            <h3 className="text-sm sm:text-xl font-black text-white">{item.name}: {item.title}</h3>
           </div>
         </button>
       )})}
@@ -692,54 +674,53 @@ const GradesView = ({ onSelectGrade }) => (
   </div>
 );
 
-const PracticeHub = ({ user, updateUser, onTriggerMissingData }) => {
-  const handleClaimMockReward = () => {
-     if(updateUser && user) {
-        updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + 20}});
-     }
-     onTriggerMissingData();
-  }
+const PracticeHub = ({ grade, user, updateUser, onSelectCategory }) => {
   return (
     <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
       <div className="mb-8">
-        <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">Practice Hub</h2>
+        <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">{grade.name} Practice Hub</h2>
         <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
       </div>
       
       <div className="flex flex-col gap-8">
         <div>
-          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Extra Exercises (+10 Stars)</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <button onClick={handleClaimMockReward} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
+          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Skill Drills</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <button onClick={() => onSelectCategory('listening')} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <Headphones className="w-8 h-8 mb-3 text-teal-100" />
               <h4 className="text-xl font-black">Listening</h4>
               <p className="text-sm font-medium text-teal-100">By Unit</p>
             </button>
-            <button onClick={handleClaimMockReward} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <button onClick={() => onSelectCategory('speaking')} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <Mic className="w-8 h-8 mb-3 text-cyan-100" />
               <h4 className="text-xl font-black">Speaking</h4>
               <p className="text-sm font-medium text-cyan-100">By Unit</p>
             </button>
-            <button onClick={handleClaimMockReward} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <button onClick={() => onSelectCategory('reading')} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <BookOpen className="w-8 h-8 mb-3 text-rose-100" />
               <h4 className="text-xl font-black">Reading</h4>
               <p className="text-sm font-medium text-rose-100">By Unit</p>
+            </button>
+            <button onClick={() => onSelectCategory('extra')} className="p-6 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl border-b-[6px] border-purple-800 text-white hover:-translate-y-1 shadow-lg text-left">
+              <Star className="w-8 h-8 mb-3 text-purple-100" />
+              <h4 className="text-xl font-black">Extra Exercises</h4>
+              <p className="text-sm font-medium text-purple-100">Arena Prep</p>
             </button>
           </div>
         </div>
 
         <div>
-          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-indigo-400"/> Full Exams (+50 Stars)</h3>
+          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-amber-400"/> Full Exams</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button onClick={handleClaimMockReward} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
+            <button onClick={() => onSelectCategory('tests')} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
               <Timer className="w-12 h-12 mb-4 text-indigo-200" />
               <h3 className="text-3xl font-black mb-2">45-Min Test</h3>
               <p className="text-indigo-100 text-base font-medium">Review and End-of-Term comprehensive tests.</p>
             </button>
-            <button onClick={handleClaimMockReward} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
+            <button onClick={() => onSelectCategory('cambridge')} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
               <Medal className="w-12 h-12 mb-4 text-amber-100" />
-              <h3 className="text-2xl font-black mb-2">Cambridge Advanced</h3>
-              <p className="text-amber-50 text-sm font-medium">Extra vocabulary and complex structures.</p>
+              <h3 className="text-2xl font-black mb-2">Cambridge A2</h3>
+              <p className="text-amber-50 text-sm font-medium">Flyers/KET level reading and vocabulary.</p>
             </button>
           </div>
         </div>
@@ -755,7 +736,7 @@ const ArenaView = ({ user, updateUser }) => {
   const [timer, setTimer] = useState(10);
   const [rewardClaimed, setRewardClaimed] = useState(false);
   
-  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium', source: 'ai' });
+  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium', source: 'ai', scope: 'u1' });
 
   useEffect(() => {
     if (arenaState === 'hosting') {
@@ -802,38 +783,40 @@ const ArenaView = ({ user, updateUser }) => {
           
           <div className="flex flex-col gap-5 mb-8">
             <div>
+              <label className="text-slate-400 font-bold mb-2 block flex items-center gap-2"><Filter className="w-4 h-4"/> Knowledge Scope</label>
+              <select value={config.scope} onChange={(e) => setConfig({...config, scope: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
+                  <option value="u1">Unit 1 Only</option>
+                  <option value="u1-u5">Units 1 - 5 (Mid-Term)</option>
+                  <option value="all">All Grade 5 Units</option>
+                  <option value="mixed">Mixed Grades (3, 4, 5)</option>
+              </select>
+            </div>
+
+            <div>
               <label className="text-slate-400 font-bold mb-2 block flex items-center gap-2"><Database className="w-4 h-4"/> Question Source</label>
               <div className="flex flex-col sm:flex-row gap-2">
                 <button onClick={() => setConfig({...config, source: 'ai'})} className={`flex-1 py-3 px-4 rounded-xl font-black transition-all ${config.source === 'ai' ? 'bg-blue-600 text-white shadow-lg border-2 border-blue-400' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
                   Dynamic (AI Generated)
                 </button>
                 <button onClick={() => setConfig({...config, source: 'bank'})} className={`flex-1 py-3 px-4 rounded-xl font-black transition-all ${config.source === 'bank' ? 'bg-purple-600 text-white shadow-lg border-2 border-purple-400' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
-                  Static (Question Bank)
+                  Static (Extra Exercises Bank)
                 </button>
               </div>
             </div>
 
-            <div>
-              <label className="text-slate-400 font-bold mb-2 block">Number of Questions</label>
-              <input type="range" min="10" max="50" step="5" value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full accent-blue-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
-              <div className="text-white font-black mt-2 text-right">{config.questions} Questions</div>
-            </div>
-            
-            <div>
-              <label className="text-slate-400 font-bold mb-2 block">Time Limit (Minutes)</label>
-              <input type="range" min="1" max="10" step="1" value={config.timeLimit} onChange={(e) => setConfig({...config, timeLimit: e.target.value})} className="w-full accent-emerald-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
-              <div className="text-white font-black mt-2 text-right">{config.timeLimit} Minutes</div>
-            </div>
-
-            <div>
-              <label className="text-slate-400 font-bold mb-2 block">Difficulty Level</label>
-              <div className="flex gap-2">
-                {['Easy', 'Medium', 'Hard'].map(lvl => (
-                  <button key={lvl} onClick={() => setConfig({...config, difficulty: lvl})} className={`flex-1 py-3 rounded-xl font-black transition-all ${config.difficulty === lvl ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
-                    {lvl}
-                  </button>
-                ))}
-              </div>
+            <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-slate-400 font-bold mb-2 block">Number of Questions</label>
+                  <select value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
+                      {[10, 20, 30, 40, 50].map(n => <option key={n} value={n}>{n} Qs</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-slate-400 font-bold mb-2 block">Time Limit (Mins)</label>
+                  <select value={config.timeLimit} onChange={(e) => setConfig({...config, timeLimit: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
+                      {[1, 3, 5, 10].map(n => <option key={n} value={n}>{n} Min</option>)}
+                  </select>
+                </div>
             </div>
           </div>
 
@@ -856,9 +839,8 @@ const ArenaView = ({ user, updateUser }) => {
           <h2 className="text-6xl font-black text-white tracking-widest bg-slate-950 inline-block px-8 py-4 rounded-3xl border-4 border-blue-500 mb-8">{pin}</h2>
           
           <div className="flex justify-center gap-4 mb-8 text-xs font-bold text-slate-400 uppercase tracking-wider flex-wrap">
-             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.questions} Qs</span>
-             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.timeLimit} Mins</span>
-             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.difficulty}</span>
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.scope}</span>
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.questions} Qs | {config.timeLimit} Mins</span>
              <span className="bg-indigo-900/50 text-indigo-300 border border-indigo-500/30 px-3 py-1 rounded-full">{config.source === 'ai' ? 'AI Dynamic' : 'Static Bank'}</span>
           </div>
 
@@ -894,7 +876,7 @@ const ArenaView = ({ user, updateUser }) => {
         
         <div className="bg-white rounded-[2rem] p-8 text-center shadow-2xl flex-1 flex flex-col">
           <div className="flex justify-center mb-4"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
-          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">{config.source === 'ai' ? `AI Challenge (${config.difficulty})` : `Bank Challenge (${config.difficulty})`}</p>
+          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">{config.source === 'ai' ? `AI Challenge` : `Bank Challenge`} - {config.scope}</p>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-10">Waiting for Cloud Data...</h2>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-auto">
@@ -916,22 +898,22 @@ const ArenaView = ({ user, updateUser }) => {
     return (
       <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex items-center justify-center relative z-10 pb-24 lg:pb-4">
         <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-8 sm:p-12 text-center shadow-2xl w-full">
-          <Trophy className="w-20 h-20 sm:w-24 sm:h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
+          <Trophy className="w-20 h-20 sm:w-24 h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
           <h2 className="text-3xl sm:text-4xl font-black text-white mb-2">Victory!</h2>
           <p className="text-emerald-400 font-bold text-lg sm:text-xl mb-8">+50 Stars Earned</p>
           
           <div className="flex justify-center gap-2 sm:gap-4 mb-8 items-end">
             <div className="flex flex-col items-center">
               <span className="text-white font-bold mb-2 text-xs sm:text-base">Sarah_Pro</span>
-              <div className="w-12 h-16 sm:w-16 sm:h-24 bg-slate-700 rounded-t-lg border-t-4 border-slate-400 flex justify-center items-start pt-2 font-black text-slate-400">2</div>
+              <div className="w-12 h-16 sm:w-16 h-24 bg-slate-700 rounded-t-lg border-t-4 border-slate-400 flex justify-center items-start pt-2 font-black text-slate-400">2</div>
             </div>
             <div className="flex flex-col items-center z-10 relative">
               <span className="text-white font-bold mb-2 text-sm sm:text-xl truncate max-w-[80px] sm:max-w-none">{user?.name}</span>
-              <div className="w-16 h-24 sm:w-20 sm:h-32 bg-yellow-500 rounded-t-lg border-t-4 border-yellow-300 flex justify-center items-start pt-2 font-black text-yellow-900 text-xl sm:text-2xl shadow-[0_0_30px_rgba(234,179,8,0.5)]">1</div>
+              <div className="w-16 h-24 sm:w-20 h-32 bg-yellow-500 rounded-t-lg border-t-4 border-yellow-300 flex justify-center items-start pt-2 font-black text-yellow-900 text-xl sm:text-2xl shadow-[0_0_30px_rgba(234,179,8,0.5)]">1</div>
             </div>
             <div className="flex flex-col items-center">
               <span className="text-white font-bold mb-2 text-xs sm:text-base">Alex_99</span>
-              <div className="w-12 h-12 sm:w-16 sm:h-20 bg-orange-700 rounded-t-lg border-t-4 border-orange-500 flex justify-center items-start pt-2 font-black text-orange-400">3</div>
+              <div className="w-12 h-12 sm:w-16 h-20 bg-orange-700 rounded-t-lg border-t-4 border-orange-500 flex justify-center items-start pt-2 font-black text-orange-400">3</div>
             </div>
           </div>
 
@@ -972,7 +954,7 @@ const ArenaView = ({ user, updateUser }) => {
 
 const AdminPanel = ({ currentUser, showToast }) => {
   const [activeTab, setActiveTab] = useState('cms');
-  const [dataType, setDataType] = useState('lessons'); 
+  const [dataType, setDataType] = useState('units'); 
   const [grade, setGrade] = useState('5');
   const [unit, setUnit] = useState('1');
   const [jsonInput, setJsonInput] = useState("");
@@ -1028,22 +1010,21 @@ const AdminPanel = ({ currentUser, showToast }) => {
     try {
       if (!jsonInput.trim()) throw new Error("JSON data is empty!");
       const parsedData = JSON.parse(jsonInput);
-      if (!db) throw new Error("Firebase is not connected. Check environment variables.");
+      if (!db) throw new Error("Firebase is not connected.");
       
-      let collectionName = "units";
-      let docId = `grade${grade}_unit${unit}`;
-      
-      // Updated Data Types for Push
-      if (dataType === 'practice') { collectionName = "practice"; docId = `grade${grade}_prac${unit}`; }
-      if (dataType === 'tests') { collectionName = "tests"; docId = `grade${grade}_test${unit}`; }
-      if (dataType === 'arena') { collectionName = "arena"; docId = `grade${grade}_arena${unit}`; }
-      if (dataType === 'cambridge') { collectionName = "cambridge"; docId = `grade${grade}_cambridge${unit}`; }
+      let collectionName = dataType; // units, practice, extra, tests, cambridge
+      let prefix = "";
+      if (dataType === 'units') prefix = 'unit';
+      if (dataType === 'practice') prefix = 'prac';
+      if (dataType === 'extra') prefix = 'extra';
+      if (dataType === 'tests') prefix = 'test';
+      if (dataType === 'cambridge') prefix = 'cambridge';
 
+      let docId = `grade${grade}_${prefix}${unit}`;
       await setDoc(doc(db, collectionName, docId), parsedData);
       setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
-      if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Invalid JSON format: ${error.message}` });
-      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules.` });
+      if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Invalid JSON format.` });
       else setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
     } finally { setIsPushing(false); }
   };
@@ -1066,10 +1047,10 @@ const AdminPanel = ({ currentUser, showToast }) => {
              <div className="w-full">
                 <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
                 <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
-                  <option value="lessons">1. Standard Lesson</option>
-                  <option value="practice">2. Practice (By Unit)</option>
-                  <option value="tests">3. 45-Min Test</option>
-                  <option value="arena">4. Arena Question Bank</option>
+                  <option value="units">1. Standard Lesson</option>
+                  <option value="practice">2. Practice Hub (Listen/Speak/Read)</option>
+                  <option value="extra">3. Extra Exercises (Arena Bank)</option>
+                  <option value="tests">4. 45-Min Test</option>
                   <option value="cambridge">5. Cambridge Advanced</option>
                 </select>
              </div>
@@ -1212,7 +1193,11 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [currentView, setCurrentView] = useState('grades'); 
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
-  const [currentUnitData, setCurrentUnitData] = useState(null);
+  
+  // States for sub-menus in Practice Hub
+  const [practiceCategory, setPracticeCategory] = useState(null); 
+  const [currentSessionData, setCurrentSessionData] = useState(null);
+  
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
@@ -1246,19 +1231,35 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   ];
   if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
 
-  const handleSelectUnitAndFetch = async (unit) => {
-    setSelectedUnit(unit);
+  // Unified Data Fetcher
+  const handleFetchAndPlay = async (collectionName, docIdPrefix, unitItem, targetType = null) => {
     setIsLoadingData(true);
-    
     try {
       if(!db) throw new Error("Firebase DB not initialized");
-      const docId = `grade${selectedGrade.id.replace('g', '')}_unit${unit.id.replace('u', '')}`;
-      const docRef = doc(db, 'units', docId);
+      const docId = `grade${selectedGrade.id.replace('g', '')}_${docIdPrefix}${unitItem.id.replace('u', '')}`;
+      const docRef = doc(db, collectionName, docId);
       const snap = await getDoc(docRef);
       
       if(snap.exists()) {
-        setCurrentUnitData(snap.data());
-        setCurrentView('map');
+        let data = snap.data();
+        if (targetType) {
+            // For Practice (listen, speak, read) stored in one doc
+            if (data[targetType]) {
+                setCurrentSessionData(data[targetType]);
+                setCurrentView('gameModalOnly');
+            } else {
+                setIsUnderConstruction(true);
+            }
+        } else {
+            // For Units, Extra, Tests, Cambridge
+            setCurrentSessionData(data);
+            if (collectionName === 'units') {
+                setSelectedUnit(unitItem);
+                setCurrentView('map');
+            } else {
+                setCurrentView('gameModalOnly');
+            }
+        }
       } else {
         setIsUnderConstruction(true);
       }
@@ -1275,15 +1276,53 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
-      case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={handleSelectUnitAndFetch} user={user} />;
-      case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentUnitData} />;
+      case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={(u) => handleFetchAndPlay('units', 'unit', u)} user={user} />;
+      case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentSessionData} />;
       case 'admin': return <AdminPanel currentUser={user} showToast={showToast} />;
-      case 'practice': return <PracticeHub user={user} updateUser={updateUser} onTriggerMissingData={() => setIsUnderConstruction(true)} />;
+      
+      case 'practice': 
+          if (!selectedGrade) return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('practice'); }} />;
+          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => setPracticeCategory(cat)} />;
+      
       case 'arena': return <ArenaView user={user} updateUser={updateUser} />;
       case 'leaderboard': return <LeaderboardView showToast={showToast} />;
+      
+      // Generic List Selector for Practice Categories
+      case 'listSelector':
+          let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
+          if (practiceCategory === 'listening') { icon = Headphones; color = "bg-gradient-to-r from-teal-500 to-emerald-600 border-teal-800"; }
+          if (practiceCategory === 'speaking') { icon = Mic; color = "bg-gradient-to-r from-cyan-500 to-blue-600 border-cyan-800"; }
+          if (practiceCategory === 'reading') { icon = BookOpen; color = "bg-gradient-to-r from-rose-500 to-pink-600 border-rose-800"; }
+          if (practiceCategory === 'extra') { icon = Star; color = "bg-gradient-to-r from-purple-500 to-indigo-600 border-purple-800"; }
+          if (practiceCategory === 'tests') { icon = Timer; color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; }
+          if (practiceCategory === 'cambridge') { icon = Medal; color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; }
+
+          return <GenericListSelector title={practiceCategory.toUpperCase()} grade={selectedGrade} items={GRADE_UNITS} icon={icon} colorClass={color}
+              onBack={() => setPracticeCategory(null)} 
+              onSelect={(u) => {
+                  if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory);
+                  else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u);
+                  else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test', u);
+                  else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u);
+              }} 
+          />;
+
+      case 'gameModalOnly':
+          return (
+             <div className="w-full h-full bg-slate-900 relative">
+               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade.name} - ${practiceCategory}`} onWin={() => {
+                   if(updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + 20}});
+                   setCurrentView(practiceCategory ? 'listSelector' : 'practice');
+               }} />
+             </div>
+          );
+
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
+
+  // If a category is selected in Practice Hub, override view
+  if (currentView === 'practice' && practiceCategory) setCurrentView('listSelector');
 
   return (
     <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
@@ -1292,7 +1331,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[100px] lg:blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[80px] lg:blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
-      <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
+      <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${['map', 'gameModalOnly'].includes(currentView) ? 'hidden lg:flex' : 'flex'}`}>
         
         <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
@@ -1301,7 +1340,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         
         <nav className="flex-1 flex flex-row lg:flex-col gap-1 lg:gap-2 p-1.5 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch w-full">
           {navItems.map(item => (
-            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
+            <button key={item.id} onClick={() => { setPracticeCategory(null); setCurrentView(item.id); }} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
               <item.icon className={`w-5 h-5 lg:w-6 lg:h-6 shrink-0 ${item.color}`} />
               <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block text-[9px] lg:text-sm' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
@@ -1317,7 +1356,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
             <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
             <p className={`text-sm font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
           </div>
-          
           <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
             <p className="text-sm text-blue-400 font-black">Mr. Khoa</p>
@@ -1327,7 +1365,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
             </div>
             <p className="text-[9px] text-slate-500 font-semibold mt-1">Zalo / Viber</p>
           </div>
-
           <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
             <LogOut className="min-w-[24px] h-5" /> 
             <span className="ml-3 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">Log Out</span>
@@ -1375,7 +1412,6 @@ export default function App() {
       try { 
         const cleanData = JSON.parse(JSON.stringify(newUserData));
         const targetUid = cleanData.uid || auth?.currentUser?.uid; 
-        
         if (!targetUid) return;
         await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
       } 
