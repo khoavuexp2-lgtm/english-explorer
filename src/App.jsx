@@ -8,7 +8,7 @@ import {
   Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
   Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
   Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock, SkipForward,
-  Settings
+  Settings, Database, TrendingUp
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -102,9 +102,7 @@ const playAudio = (text) => {
     if (typeof text !== 'string') return;
     
     let speakText = text;
-    // Lọc bỏ ký tự gạch dưới để đọc thành chữ "blank"
     speakText = speakText.replace(/_+/g, 'blank');
-    // Ép phát âm từ live/lives thành động từ
     speakText = speakText.replace(/\blive\b/gi, 'livv');
     speakText = speakText.replace(/\blives\b/gi, 'livvz');
 
@@ -139,31 +137,51 @@ const syncUserWithDb = async (googleUser) => {
   try {
     const userRef = doc(db, "users", googleUser.uid);
     const userSnap = await getDoc(userRef);
+    const today = new Date().toDateString();
 
     if (userSnap.exists()) {
       const data = userSnap.data();
       const finalRole = isHardcodedAdmin ? "admin" : (data.role || "student");
-      if (isHardcodedAdmin && data.role !== "admin") await updateDoc(userRef, { role: "admin" });
+      
+      // Daily Streak Logic
+      let streak = data.streak || 0;
+      let lastLogin = data.lastLogin || "";
+      if (lastLogin !== today) {
+         const yesterday = new Date();
+         yesterday.setDate(yesterday.getDate() - 1);
+         if (lastLogin === yesterday.toDateString()) {
+             streak += 1;
+         } else {
+             streak = 1;
+         }
+         await updateDoc(userRef, { streak, lastLogin: today, role: finalRole });
+      } else if (isHardcodedAdmin && data.role !== "admin") {
+         await updateDoc(userRef, { role: "admin" });
+      }
 
-      return { uid: googleUser.uid, ...data, name: data.name || defaultName, avatar: data.avatar || defaultAvatar, role: finalRole, status: data.status || "active", inventory: data.inventory || defaultInventory, completedUnits: data.completedUnits || [], unitProgress: data.unitProgress || {} };
+      return { uid: googleUser.uid, ...data, name: data.name || defaultName, avatar: data.avatar || defaultAvatar, role: finalRole, status: data.status || "active", inventory: data.inventory || defaultInventory, completedUnits: data.completedUnits || [], unitProgress: data.unitProgress || {}, streak, lastLogin: today, badges: data.badges || [] };
     } else {
-      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
+      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [] };
       await setDoc(userRef, newUser);
       return newUser;
     }
   } catch (error) {
-    return { uid: googleUser.uid, name: defaultName, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
+    return { uid: googleUser.uid, name: defaultName, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
   }
 };
 
 const TopMetricsBar = ({ user }) => (
   <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-3 sm:p-4 flex justify-between items-center z-40 relative shadow-lg shrink-0">
     <div className="flex gap-2 sm:gap-3">
-      <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-white/5 shadow-inner">
+      <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-white/5 shadow-inner" title="Daily Streak">
+         <Flame className="w-4 h-4 sm:w-5 sm:h-5 text-orange-500 fill-orange-500" />
+         <span className="text-white font-black text-sm sm:text-base">{user?.streak || 0}</span>
+      </div>
+      <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-white/5 shadow-inner" title="Total Stars">
          <Star className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400 fill-yellow-400" />
          <span className="text-white font-black text-sm sm:text-base">{user?.inventory?.stars || 0}</span>
       </div>
-      <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-white/5 shadow-inner">
+      <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-white/5 shadow-inner" title="Hearts (Lives)">
          <Heart className="w-4 h-4 sm:w-5 sm:h-5 text-rose-500 fill-rose-500 animate-bounce-short" />
          <span className="text-white font-black text-sm sm:text-base">{user?.inventory?.lives ?? 5}</span>
       </div>
@@ -173,10 +191,80 @@ const TopMetricsBar = ({ user }) => (
         <h2 className="text-white font-black text-lg leading-tight">{user?.name || "Explorer"}</h2>
         <span className={`font-bold text-xs uppercase tracking-widest ${user?.role==='admin' ? 'text-rose-400' : 'text-blue-400'}`}>{user?.role || "STUDENT"}</span>
       </div>
-      <img src={user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer`} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
+      <div className="relative cursor-pointer group">
+        <img src={user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer`} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
+        {user?.badges?.length > 0 && <div className="absolute -bottom-1 -right-1 bg-yellow-500 text-yellow-900 text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center border-2 border-slate-900">{user.badges.length}</div>}
+      </div>
     </div>
   </div>
 );
+
+const LeaderboardView = ({ showToast }) => {
+  const [topUsers, setTopUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchLeaderboard = async () => {
+      try {
+        if (!db) return;
+        const querySnapshot = await getDocs(collection(db, "users"));
+        const users = [];
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          if (data.role !== 'admin') { // Loại Admin khỏi bảng xếp hạng
+             users.push({ id: doc.id, name: data.name, avatar: data.avatar, stars: data.inventory?.stars || 0, streak: data.streak || 0 });
+          }
+        });
+        users.sort((a, b) => b.stars - a.stars);
+        setTopUsers(users.slice(0, 10)); // Top 10
+      } catch (e) {
+        console.error(e);
+        showToast("Cannot fetch leaderboard data.");
+      }
+      setLoading(false);
+    };
+    fetchLeaderboard();
+  }, []);
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
+      <div className="text-center mb-8">
+        <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4 animate-bounce" />
+        <h2 className="text-3xl sm:text-4xl font-black text-white drop-shadow-md">Global Leaderboard</h2>
+        <p className="text-slate-400 font-medium mt-2">Top 10 Explorers with the highest Stars</p>
+      </div>
+
+      <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-[2rem] overflow-hidden shadow-2xl p-2 sm:p-6">
+        {loading ? (
+           <div className="flex justify-center p-8"><Loader2 className="w-10 h-10 text-blue-500 animate-spin" /></div>
+        ) : topUsers.length === 0 ? (
+           <div className="text-center p-8 text-slate-400 font-bold">No explorers found yet!</div>
+        ) : (
+           <div className="flex flex-col gap-2 sm:gap-3">
+             {topUsers.map((u, i) => (
+               <div key={u.id} className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-white/10 transition-transform hover:-translate-y-1 ${i===0 ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/10' : i===1 ? 'bg-gradient-to-r from-slate-300/20 to-slate-400/10' : i===2 ? 'bg-gradient-to-r from-orange-400/20 to-orange-500/10' : 'bg-slate-800/50'}`}>
+                 <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-black text-sm sm:text-base shrink-0 ${i===0 ? 'bg-yellow-400 text-yellow-900 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : i===1 ? 'bg-slate-300 text-slate-800' : i===2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-700 text-slate-300'}`}>
+                    {i+1}
+                 </div>
+                 <img src={u.avatar} alt="avatar" className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-white/20 bg-slate-700"/>
+                 <div className="flex-1 min-w-0">
+                    <h3 className="text-white font-bold text-sm sm:text-lg truncate">{u.name}</h3>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-xs sm:text-sm text-slate-400 flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500"/> {u.streak} Days</span>
+                    </div>
+                 </div>
+                 <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-900/50 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-white/5">
+                    <Star className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400 fill-yellow-400" />
+                    <span className="text-white font-black text-sm sm:text-xl">{u.stars}</span>
+                 </div>
+               </div>
+             ))}
+           </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const UnderConstructionModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
@@ -211,12 +299,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef(null);
 
-  // Initialize and Pool Randomization
   useEffect(() => {
     if (station && currentUnitData && isOpen) {
        let fullList = currentUnitData[station.type] || [];
        if (!Array.isArray(fullList)) fullList = [fullList];
-       // Lấy ngẫu nhiên 5 câu từ kho dữ liệu
        const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, 5);
        setSessionQList(shuffled);
        
@@ -228,7 +314,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
   const qData = sessionQList[qIndex];
 
-  // Shuffle order words per question
   useEffect(() => {
     if (qData?.type === 'order' && qData.words) {
        setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
@@ -324,7 +409,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
       } else { setIsStationFinished(true); }
     } else { 
         setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); 
-        // Shuffle order words again when trying again
         if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
     }
   };
@@ -649,8 +733,8 @@ const PracticeHub = ({ user, updateUser, onTriggerMissingData }) => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <button onClick={handleClaimMockReward} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
               <Timer className="w-12 h-12 mb-4 text-indigo-200" />
-              <h3 className="text-3xl font-black mb-2">45-Min Mock Test</h3>
-              <p className="text-indigo-100 text-base font-medium">Simulate a full school exam with diverse question types.</p>
+              <h3 className="text-3xl font-black mb-2">45-Min Test</h3>
+              <p className="text-indigo-100 text-base font-medium">Review and End-of-Term comprehensive tests.</p>
             </button>
             <button onClick={handleClaimMockReward} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
               <Medal className="w-12 h-12 mb-4 text-amber-100" />
@@ -671,7 +755,7 @@ const ArenaView = ({ user, updateUser }) => {
   const [timer, setTimer] = useState(10);
   const [rewardClaimed, setRewardClaimed] = useState(false);
   
-  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium' });
+  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium', source: 'ai' });
 
   useEffect(() => {
     if (arenaState === 'hosting') {
@@ -718,6 +802,18 @@ const ArenaView = ({ user, updateUser }) => {
           
           <div className="flex flex-col gap-5 mb-8">
             <div>
+              <label className="text-slate-400 font-bold mb-2 block flex items-center gap-2"><Database className="w-4 h-4"/> Question Source</label>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <button onClick={() => setConfig({...config, source: 'ai'})} className={`flex-1 py-3 px-4 rounded-xl font-black transition-all ${config.source === 'ai' ? 'bg-blue-600 text-white shadow-lg border-2 border-blue-400' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
+                  Dynamic (AI Generated)
+                </button>
+                <button onClick={() => setConfig({...config, source: 'bank'})} className={`flex-1 py-3 px-4 rounded-xl font-black transition-all ${config.source === 'bank' ? 'bg-purple-600 text-white shadow-lg border-2 border-purple-400' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
+                  Static (Question Bank)
+                </button>
+              </div>
+            </div>
+
+            <div>
               <label className="text-slate-400 font-bold mb-2 block">Number of Questions</label>
               <input type="range" min="10" max="50" step="5" value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full accent-blue-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
               <div className="text-white font-black mt-2 text-right">{config.questions} Questions</div>
@@ -730,7 +826,7 @@ const ArenaView = ({ user, updateUser }) => {
             </div>
 
             <div>
-              <label className="text-slate-400 font-bold mb-2 block">AI Difficulty Level</label>
+              <label className="text-slate-400 font-bold mb-2 block">Difficulty Level</label>
               <div className="flex gap-2">
                 {['Easy', 'Medium', 'Hard'].map(lvl => (
                   <button key={lvl} onClick={() => setConfig({...config, difficulty: lvl})} className={`flex-1 py-3 rounded-xl font-black transition-all ${config.difficulty === lvl ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
@@ -743,8 +839,8 @@ const ArenaView = ({ user, updateUser }) => {
 
           <div className="flex gap-3">
              <button onClick={() => setArenaState('lobby')} className="px-6 py-4 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition-colors">Cancel</button>
-             <button onClick={handleGenerateRoom} className="flex-1 py-4 bg-blue-600 text-white font-black text-lg rounded-xl border-b-4 border-blue-800 active:translate-y-1 active:border-b-0 transition-all flex items-center justify-center gap-2">
-               <Bot className="w-5 h-5"/> GENERATE AI ROOM
+             <button onClick={handleGenerateRoom} className="flex-1 py-4 bg-emerald-600 text-white font-black text-lg rounded-xl border-b-4 border-emerald-800 active:translate-y-1 active:border-b-0 transition-all flex items-center justify-center gap-2">
+               <Rocket className="w-5 h-5"/> GENERATE ROOM
              </button>
           </div>
         </div>
@@ -759,10 +855,11 @@ const ArenaView = ({ user, updateUser }) => {
           <p className="text-slate-400 font-bold mb-2">Join at <span className="text-white">explorer.edu/play</span></p>
           <h2 className="text-6xl font-black text-white tracking-widest bg-slate-950 inline-block px-8 py-4 rounded-3xl border-4 border-blue-500 mb-8">{pin}</h2>
           
-          <div className="flex justify-center gap-4 mb-8 text-xs font-bold text-slate-400 uppercase tracking-wider">
+          <div className="flex justify-center gap-4 mb-8 text-xs font-bold text-slate-400 uppercase tracking-wider flex-wrap">
              <span className="bg-slate-800 px-3 py-1 rounded-full">{config.questions} Qs</span>
              <span className="bg-slate-800 px-3 py-1 rounded-full">{config.timeLimit} Mins</span>
-             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.difficulty} Level</span>
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.difficulty}</span>
+             <span className="bg-indigo-900/50 text-indigo-300 border border-indigo-500/30 px-3 py-1 rounded-full">{config.source === 'ai' ? 'AI Dynamic' : 'Static Bank'}</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
@@ -797,7 +894,7 @@ const ArenaView = ({ user, updateUser }) => {
         
         <div className="bg-white rounded-[2rem] p-8 text-center shadow-2xl flex-1 flex flex-col">
           <div className="flex justify-center mb-4"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
-          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">AI Generated Challenge ({config.difficulty})</p>
+          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">{config.source === 'ai' ? `AI Challenge (${config.difficulty})` : `Bank Challenge (${config.difficulty})`}</p>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-10">Waiting for Cloud Data...</h2>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-auto">
@@ -935,7 +1032,11 @@ const AdminPanel = ({ currentUser, showToast }) => {
       
       let collectionName = "units";
       let docId = `grade${grade}_unit${unit}`;
-      if (dataType === 'mockTests') { collectionName = "mockTests"; docId = `grade${grade}_test${unit}`; }
+      
+      // Updated Data Types for Push
+      if (dataType === 'practice') { collectionName = "practice"; docId = `grade${grade}_prac${unit}`; }
+      if (dataType === 'tests') { collectionName = "tests"; docId = `grade${grade}_test${unit}`; }
+      if (dataType === 'arena') { collectionName = "arena"; docId = `grade${grade}_arena${unit}`; }
       if (dataType === 'cambridge') { collectionName = "cambridge"; docId = `grade${grade}_cambridge${unit}`; }
 
       await setDoc(doc(db, collectionName, docId), parsedData);
@@ -965,9 +1066,11 @@ const AdminPanel = ({ currentUser, showToast }) => {
              <div className="w-full">
                 <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
                 <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
-                  <option value="lessons">Standard Lesson</option>
-                  <option value="mockTests">45-Min Mock Test</option>
-                  <option value="cambridge">Cambridge Advanced</option>
+                  <option value="lessons">1. Standard Lesson</option>
+                  <option value="practice">2. Practice (By Unit)</option>
+                  <option value="tests">3. 45-Min Test</option>
+                  <option value="arena">4. Arena Question Bank</option>
+                  <option value="cambridge">5. Cambridge Advanced</option>
                 </select>
              </div>
              <div className="w-full">
@@ -1138,7 +1241,8 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const navItems = [
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
-    { id: 'arena', label: "AI Arena", icon: Swords, color: 'text-orange-400' }
+    { id: 'arena', label: "AI Arena", icon: Swords, color: 'text-orange-400' },
+    { id: 'leaderboard', label: "Leaderboard", icon: Crown, color: 'text-yellow-400' }
   ];
   if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
 
@@ -1176,6 +1280,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       case 'admin': return <AdminPanel currentUser={user} showToast={showToast} />;
       case 'practice': return <PracticeHub user={user} updateUser={updateUser} onTriggerMissingData={() => setIsUnderConstruction(true)} />;
       case 'arena': return <ArenaView user={user} updateUser={updateUser} />;
+      case 'leaderboard': return <LeaderboardView showToast={showToast} />;
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
