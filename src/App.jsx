@@ -58,8 +58,6 @@ const globalStyles = `
   .animate-bounce-short { animation: bounce-short 1.5s ease-in-out infinite; }
   @keyframes timer-shrink { from { width: 100%; } to { width: 0%; } }
   .animate-timer { animation: timer-shrink linear forwards; }
-  @keyframes slide-in-right { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-  .animate-slide-in-right { animation: slide-in-right 0.3s ease-out forwards; }
 `;
 
 const MOTIVATIONAL_QUOTES = [
@@ -84,6 +82,7 @@ const MAP_THEMES = {
   forest: { bg: "from-[#14532d] to-[#064e3b]", vehicle: "🚙", pathColor: "rgba(255,255,255,0.3)" }
 };
 
+// Đã cập nhật đúng chuẩn Tiếng Anh 5 Global Success
 const GRADE_UNITS = [
   { id: 'u1', name: "Unit 1", title: "All about me!", status: 'active', theme: 'ocean' },
   { id: 'u2', name: "Unit 2", title: "Our homes", status: 'active', theme: 'forest' },
@@ -100,26 +99,17 @@ const GRADE_UNITS = [
 const playAudio = (text) => {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
+    if (typeof text !== 'string') return;
+    
     let speakText = text;
     
-    if (typeof speakText === 'string') {
-      const words = speakText.trim().split(/\s+/);
-      
-      // Context-aware pronunciation mapping for single isolated words
-      if (words.length === 1) {
-        const pronunciationDict = {
-          'live': 'liv',    
-          'lives': 'livz',  
-          'read': 'reed',   
-          'wind': 'wind'    
-        };
-        
-        const lowerWord = speakText.toLowerCase().replace(/[^a-z]/g, '');
-        if (pronunciationDict[lowerWord]) {
-           speakText = pronunciationDict[lowerWord];
-        }
-      } 
-    }
+    // 1. Xử lý lỗi đọc dấu điền khuyết: Biến "___" thành từ "blank" (chỗ trống)
+    speakText = speakText.replace(/_+/g, 'blank');
+
+    // 2. Ép máy luôn đọc từ "live" là động từ ở mọi ngữ cảnh, sửa lỗi AI của trình duyệt
+    speakText = speakText.replace(/\blive\b/gi, 'liv');
+    speakText = speakText.replace(/\blives\b/gi, 'livz');
+    speakText = speakText.replace(/\bread\b/gi, 'reed');
 
     const utterance = new SpeechSynthesisUtterance(speakText);
     utterance.lang = 'en-US';
@@ -132,7 +122,7 @@ const evaluateSpeech = (transcript, target) => {
   let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
   let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
 
-  // Normalize UK/US spelling to prevent false negatives
+  // Chuẩn hóa Anh - Mĩ vs Anh - Anh để tránh chấm sai oan uổng
   cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
   cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
 
@@ -154,7 +144,7 @@ const syncUserWithDb = async (googleUser) => {
     if (userSnap.exists()) {
       const data = userSnap.data();
       return {
-        uid: googleUser.uid, 
+        uid: googleUser.uid, // Đảm bảo không bao giờ mất UID
         ...data,
         name: data.name || defaultName,
         avatar: data.avatar || defaultAvatar,
@@ -190,7 +180,7 @@ const TopMetricsBar = ({ user }) => (
     <div className="flex items-center gap-2 sm:gap-3 text-right">
       <div className="hidden sm:block">
         <h2 className="text-white font-black text-lg leading-tight">{user?.name || "Explorer"}</h2>
-        <span className={`font-bold text-xs uppercase tracking-widest ${user?.role==='admin' || user?.role==='superadmin' ? 'text-rose-400' : 'text-blue-400'}`}>{user?.role || "STUDENT"}</span>
+        <span className={`font-bold text-xs uppercase tracking-widest ${user?.role==='admin' ? 'text-rose-400' : 'text-blue-400'}`}>{user?.role || "STUDENT"}</span>
       </div>
       <img src={user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer`} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
     </div>
@@ -219,13 +209,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   const [qIndex, setQIndex] = useState(0);
   const [selectedOpt, setSelectedOpt] = useState(null);
   const [orderedWords, setOrderedWords] = useState([]);
-  const [status, setStatus] = useState('playing'); // playing, correct, wrong, summary
+  const [status, setStatus] = useState('playing'); 
   const [feedbackMsg, setFeedbackMsg] = useState("");
   
-  // 80% Accuracy Strict Rule Tracking
-  const [correctCount, setCorrectCount] = useState(0);
-  const [isFirstTry, setIsFirstTry] = useState(true);
-
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef(null);
@@ -233,7 +219,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   useEffect(() => {
     setQIndex(0); setStatus('playing'); setFeedbackMsg("");
     setSelectedOpt(null); setOrderedWords([]); setTranscript("");
-    setCorrectCount(0); setIsFirstTry(true);
   }, [station, isOpen]);
 
   let qList = (station && currentUnitData) ? currentUnitData[station.type] : null;
@@ -274,49 +259,27 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   };
 
   const deductLife = () => {
-    if (user && updateUser) {
-       const currentLives = user.inventory?.lives ?? 5;
-       if (currentLives > 0) {
-           updateUser({...user, inventory: {...(user.inventory || {}), lives: currentLives - 1}});
-       }
+    if (user && updateUser && (user.inventory?.lives ?? 5) > 0) {
+       updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
     }
   }
 
   const handleVoiceCheck = (spokenText) => {
     const evaluation = evaluateSpeech(spokenText, qData.targetText);
     setFeedbackMsg(evaluation.msg);
-    if (evaluation.pass) {
-       if (isFirstTry) setCorrectCount(c => c + 1);
-       setStatus('correct');
-    }
-    else { 
-       setIsFirstTry(false);
-       setStatus('wrong'); 
-       deductLife(); 
-    }
+    if (evaluation.pass) setStatus('correct');
+    else { setStatus('wrong'); deductLife(); }
   };
 
   const handleSelectOption = (opt) => { setSelectedOpt(opt); playAudio(opt); };
 
   const handleCheck = () => {
     if (['multiple-choice', 'listen-fill', 'read'].includes(qData.type)) {
-      if (selectedOpt === qData.answer) { 
-          if (isFirstTry) setCorrectCount(c => c + 1);
-          setStatus('correct'); setFeedbackMsg("Excellent!"); 
-      }
-      else { 
-          setIsFirstTry(false);
-          setStatus('wrong'); setFeedbackMsg(qData.explain || "Incorrect."); deductLife(); 
-      }
+      if (selectedOpt === qData.answer) { setStatus('correct'); setFeedbackMsg("Excellent!"); }
+      else { setStatus('wrong'); setFeedbackMsg(qData.explain); deductLife(); }
     } else if (qData.type === 'order') {
-      if (orderedWords.join(" ") === qData.answer) { 
-          if (isFirstTry) setCorrectCount(c => c + 1);
-          setStatus('correct'); setFeedbackMsg("Perfect!"); 
-      }
-      else { 
-          setIsFirstTry(false);
-          setStatus('wrong'); setFeedbackMsg(qData.explain || "Incorrect."); deductLife(); 
-      }
+      if (orderedWords.join(" ") === qData.answer) { setStatus('correct'); setFeedbackMsg("Perfect!"); }
+      else { setStatus('wrong'); setFeedbackMsg(qData.explain); deductLife(); }
     }
   };
 
@@ -330,105 +293,28 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
       if (qIndex < qList.length - 1) {
         setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
         setSelectedOpt(null); setOrderedWords([]); setTranscript("");
-        setIsFirstTry(true);
-      } else { 
-        setStatus('summary'); 
-      }
-    } else { 
-      setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); 
-    }
+      } else { onWin(); }
+    } else { setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); }
   };
 
   const handleSkip = () => {
-    // Only deduct life if they skip without checking first. If status is wrong, they already lost a heart.
-    if (status === 'playing') deductLife(); 
-    setIsFirstTry(false); // Can't get credit for skipping
-    
+    deductLife(); // Trừ 1 tim khi skip
     if (qIndex < qList.length - 1) {
         setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
         setSelectedOpt(null); setOrderedWords([]); setTranscript("");
-        setIsFirstTry(true);
-    } else { 
-        setStatus('summary'); 
-    }
+    } else { onWin(); }
   }
 
-  // --- Strict Summary UI ---
-  if (status === 'summary') {
-    const accuracy = Math.round((correctCount / qList.length) * 100);
-    const isPassed = accuracy >= 80;
-
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-        <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl border-4 border-slate-200">
-          {isPassed ? <Trophy className="w-20 h-20 text-yellow-400 mx-auto mb-4 animate-bounce" /> : <AlertCircle className="w-20 h-20 text-rose-500 mx-auto mb-4 animate-shake" />}
-          <h3 className="text-3xl font-black text-slate-800 mb-2">{isPassed ? 'Station Cleared!' : 'Needs Work!'}</h3>
-          <p className="text-slate-500 font-medium mb-2">You answered {correctCount} out of {qList.length} correctly on your first try.</p>
-          
-          <div className="bg-slate-50 rounded-xl p-4 mb-6 border-2 border-slate-100">
-            <p className="text-sm font-bold text-slate-400 uppercase mb-1">ACCURACY</p>
-            <p className={`text-4xl font-black ${isPassed ? 'text-emerald-500' : 'text-rose-500'}`}>{accuracy}%</p>
-            <p className="text-xs font-bold text-slate-400 mt-1">Target to pass: 80%</p>
-          </div>
-
-          {isPassed ? (
-            <button onClick={onWin} className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white font-black rounded-xl text-lg flex items-center justify-center gap-2 border-b-4 border-emerald-700 active:translate-y-1 active:border-b-0 transition-all">
-              CLAIM REWARDS
-            </button>
-          ) : (
-            <div className="flex gap-2">
-              <button onClick={onClose} className="flex-1 py-4 bg-slate-200 text-slate-600 font-black rounded-xl hover:bg-slate-300 transition-colors">QUIT</button>
-              <button onClick={() => { setQIndex(0); setCorrectCount(0); setStatus('playing'); setIsFirstTry(true); }} className="flex-[2] py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 transition-all">
-                RETRY STATION
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // --- Out of Hearts Economy UI ---
-  const currentLives = user?.inventory?.lives ?? 5;
-  const currentStars = user?.inventory?.stars ?? 0;
-
-  if (currentLives <= 0) {
-    const hasEnoughStars = currentStars >= 30;
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
-        <div className="bg-white rounded-[2rem] p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
-          <Heart className="w-16 h-16 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
-          <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
-          <p className="text-slate-600 font-medium mb-6 text-sm sm:text-base">Refilling hearts costs 30 Stars. Play carefully!</p>
-          
-          <div className="flex flex-col gap-3">
-            {hasEnoughStars ? (
-              <button onClick={() => { 
-                  if(updateUser) updateUser({...user, inventory: {...(user.inventory || {}), lives: 5, stars: currentStars - 30}}); 
-                  setStatus('playing'); 
-              }} className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-black rounded-xl text-sm sm:text-base border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-2">
-                  REFILL HEARTS <span className="flex items-center text-xs bg-black/20 px-2 py-1 rounded-full">-30 <Star className="w-3 h-3 ml-1 fill-current"/></span>
-              </button>
-            ) : (
-              <button onClick={() => { 
-                  if(updateUser) updateUser({...user, inventory: {...(user.inventory || {}), lives: 5}}); 
-                  setStatus('playing'); 
-              }} className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-xl text-sm sm:text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-2">
-                  EMERGENCY REFILL <span className="flex items-center text-xs bg-white/20 px-2 py-1 rounded-full">FREE</span>
-              </button>
-            )}
-            <button onClick={onClose} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border-b-4 border-slate-900 active:border-b-0 active:translate-y-1 transition-all">
-                QUIT & PRACTICE MORE
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // --- Main Play UI ---
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+      {(user?.inventory?.lives ?? 5) <= 0 ? (
+        <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
+          <Heart className="w-16 h-16 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
+          <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
+          <p className="text-slate-600 font-medium mb-6 text-sm sm:text-base">Take a break or refill hearts to continue!</p>
+          <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-3 sm:py-4 bg-rose-500 text-white font-black rounded-xl text-sm sm:text-base">REFILL HEARTS</button>
+        </div>
+      ) : (
       <div className={`bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative max-h-[95vh] sm:max-h-[90vh] ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
         <div className="bg-slate-100 p-3 sm:p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
@@ -441,45 +327,47 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
           <button onClick={onClose} className="p-1.5 sm:p-2 bg-slate-200 rounded-full hover:bg-slate-300"><X className="w-4 h-4 sm:w-5 sm:h-5"/></button>
         </div>
 
-        <div className="p-3 sm:p-6 flex flex-col gap-3 sm:gap-5 overflow-y-auto flex-1 hide-scrollbar relative">
-          {qData.image && <img src={qData.image} alt="Visual" onError={(e) => e.target.style.display='none'} className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
+        <div className="p-3 sm:p-6 flex flex-col gap-3 sm:gap-5 overflow-y-auto flex-1 hide-scrollbar">
+          {qData.image && <img src={qData.image} alt="Visual" className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto">{qData.passage}</div>}
           
-          <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight mt-2">
-            <button onClick={() => playAudio(qData.audioText || qData.targetText || qData.question)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md transition-transform"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
+          <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
+            {(qData.audioText || qData.targetText) && (
+               <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
+            )}
             <span className="pt-0.5">{qData.question}</span>
           </h2>
           
           {qData.type === 'speak' && (
-            <div className="flex flex-col items-center gap-4 py-4 mt-auto">
-              <div className="text-xl sm:text-2xl font-black text-slate-800 text-center px-2">"{qData.targetText}"</div>
-              <button onClick={toggleListen} className={`w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring shadow-lg shadow-rose-500/50' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:scale-105'}`}>
+            <div className="flex flex-col items-center gap-4 py-2">
+              <div className="text-lg sm:text-2xl font-black text-slate-800 text-center px-2">"{qData.targetText}"</div>
+              <button onClick={toggleListen} className={`w-16 h-16 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:scale-105'}`}>
                 <Mic className={`w-8 h-8 sm:w-10 sm:h-10 ${isListening ? 'animate-bounce' : ''}`} />
               </button>
-              <div className="text-center h-6">{isListening ? <p className="text-rose-500 font-bold animate-pulse text-xs sm:text-sm">Listening carefully...</p> : <p className="text-slate-500 font-medium text-xs">{transcript ? `You said: "${transcript}"` : qData.hint}</p>}</div>
+              <div className="text-center">{isListening ? <p className="text-rose-500 font-bold animate-pulse text-xs sm:text-sm">Listening...</p> : <p className="text-slate-500 font-medium text-xs">{transcript ? `You said: "${transcript}"` : qData.hint}</p>}</div>
             </div>
           )}
 
           {['multiple-choice', 'listen-fill', 'read'].includes(qData.type) && (
-            <div className="flex flex-col gap-2 mt-auto pt-4">
+            <div className="flex flex-col gap-2">
               {qData.type === 'listen-fill' && (
-                 <div className="text-sm sm:text-base font-bold text-slate-700 text-center py-3 bg-slate-50 border-2 border-slate-100 rounded-xl mb-2">{qData.textBefore} <span className="inline-block min-w-[50px] sm:min-w-[80px] border-b-4 border-blue-400 mx-1 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}</div>
+                 <div className="text-sm sm:text-base font-bold text-slate-700 text-center py-2 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl">{qData.textBefore} <span className="inline-block min-w-[50px] sm:min-w-[80px] border-b-4 border-blue-400 mx-1 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}</div>
               )}
               <div className="grid grid-cols-1 gap-2">
                 {qData.options.map(opt => (
-                  <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'} className={`p-3 sm:p-4 rounded-xl border-b-[3px] sm:border-b-4 font-bold text-sm sm:text-base text-left transition-all ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1'}`}>{opt}</button>
+                  <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'} className={`p-2.5 sm:p-4 rounded-xl border-b-[3px] sm:border-b-4 font-bold text-sm sm:text-base text-left transition-all ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1'}`}>{opt}</button>
                 ))}
               </div>
             </div>
           )}
 
           {qData.type === 'order' && (
-            <div className="flex flex-col gap-3 mt-auto pt-4">
+            <div className="flex flex-col gap-3">
               <div className="min-h-[48px] sm:min-h-[60px] p-2 sm:p-4 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl flex flex-wrap gap-2 items-center">
-                {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-3 py-2 bg-blue-500 text-white text-sm font-bold rounded-lg cursor-pointer hover:scale-105 shadow-sm">{w}</span>)}
+                {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-2 py-1 sm:px-3 sm:py-2 bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-lg cursor-pointer hover:scale-105">{w}</span>)}
               </div>
               <div className="flex flex-wrap gap-2 justify-center">
-                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-3 py-2 bg-white border-2 border-slate-200 text-slate-700 text-sm font-bold rounded-lg cursor-pointer hover:-translate-y-1 shadow-sm">{w}</span>)}
+                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-2 py-1 sm:px-3 sm:py-2 bg-white border-2 border-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-lg cursor-pointer hover:-translate-y-1">{w}</span>)}
               </div>
             </div>
           )}
@@ -487,20 +375,22 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
         <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 shrink-0">
           {status === 'playing' ? (
-            qData.type !== 'speak' && <button onClick={handleCheck} className="w-full py-3 sm:py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 transition-all text-sm sm:text-base">CHECK ANSWER</button>
+            qData.type !== 'speak' && <button onClick={handleCheck} className="w-full py-2.5 sm:py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 text-sm sm:text-base">CHECK ANSWER</button>
           ) : (
-            <div className={`p-4 rounded-xl flex flex-col gap-3 animate-pop ${status === 'correct' ? 'bg-emerald-100 border border-emerald-300' : 'bg-rose-100 border border-rose-300'}`}>
-              <div className="flex items-start gap-3">
-                <div className={`p-2 rounded-full text-white shrink-0 shadow-sm ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>{status === 'correct' ? <Check className="w-5 h-5"/> : <AlertCircle className="w-5 h-5"/>}</div>
-                <div>
-                  <h3 className={`font-black text-lg ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? 'Excellent!' : 'Needs Work'}</h3>
-                  <p className={`text-xs sm:text-sm font-medium mt-0.5 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{feedbackMsg}</p>
+            <div className={`p-3 rounded-xl flex flex-col gap-3 animate-pop ${status === 'correct' ? 'bg-emerald-100 border border-emerald-300' : 'bg-rose-100 border border-rose-300'}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <div className={`p-1.5 rounded-full text-white shrink-0 ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>{status === 'correct' ? <Check className="w-4 h-4 sm:w-5 sm:h-5"/> : <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5"/>}</div>
+                  <div>
+                    <h3 className={`font-black text-sm sm:text-lg ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? 'Excellent!' : 'Needs Work'}</h3>
+                    <p className={`text-[10px] sm:text-xs font-medium mt-0.5 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{feedbackMsg}</p>
+                  </div>
                 </div>
               </div>
-              <div className="flex gap-2 mt-1">
-                <button onClick={handleContinue} className={`flex-1 py-3 text-white text-sm sm:text-base font-black rounded-xl shadow-md active:translate-y-1 transition-all ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700 hover:bg-emerald-400' : 'bg-rose-500 border-b-4 border-rose-700 hover:bg-rose-400'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
+              <div className="flex gap-2">
+                <button onClick={handleContinue} className={`flex-1 py-2.5 sm:py-3 text-white text-sm sm:text-base font-black rounded-xl shadow-md active:translate-y-1 ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700' : 'bg-rose-500 border-b-4 border-rose-700'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
                 {status === 'wrong' && (
-                  <button onClick={handleSkip} className="px-4 sm:px-6 py-3 bg-slate-300 text-slate-700 font-black rounded-xl active:translate-y-1 flex items-center justify-center gap-1 text-sm sm:text-base border-b-4 border-slate-400 hover:bg-slate-400 transition-colors" title="Skip Question">
+                  <button onClick={handleSkip} className="px-4 py-2.5 sm:py-3 bg-slate-300 text-slate-700 font-black rounded-xl active:translate-y-1 flex items-center justify-center gap-1 text-sm sm:text-base border-b-4 border-slate-400 hover:bg-slate-400 transition-colors" title="Skip this question (-1 Heart)">
                     SKIP <SkipForward className="w-4 h-4" />
                   </button>
                 )}
@@ -509,6 +399,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };
@@ -533,7 +424,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
 
   return (
     <div className="w-full h-full flex flex-col p-2 sm:p-4 animate-fade-in relative">
-      <button onClick={onBack} className="absolute top-6 left-6 sm:top-8 sm:left-8 z-50 p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white hover:bg-white/20 border border-white/20 shadow-xl transition-all"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+      <button onClick={onBack} className="absolute top-6 left-6 sm:top-8 sm:left-8 z-50 p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white hover:bg-white/20 border border-white/20 shadow-xl"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
       <div className={`relative w-full flex-1 rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden shadow-2xl border-[4px] sm:border-[6px] border-white/10 bg-gradient-to-tr ${theme.bg}`}>
         <div className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-xl px-4 py-1.5 sm:px-6 sm:py-2 rounded-2xl border border-white/10 shadow-2xl whitespace-nowrap">
           <span className="text-white font-black tracking-widest text-[10px] sm:text-sm uppercase">{grade.name} • {unit.name}</span>
@@ -553,7 +444,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
               className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
               <div className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl sm:text-4xl shadow-2xl border-2 sm:border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
                 {node.icon}
-                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white shadow-sm"><CheckCircle2 className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
+                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white"><CheckCircle2 className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
                 {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-5 h-5 sm:w-8 sm:h-8 text-white/50"/></div>}
               </div>
               <div className="px-2 py-1 sm:px-4 sm:py-1.5 rounded-lg sm:rounded-xl text-[8px] sm:text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
@@ -574,6 +465,11 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
                updateUser({...user, inventory: {...user.inventory, stars: newStars}});
             }
         } else {
+           if(!isUnitCompleted) {
+               // Only admin should use native alerts realistically, but for victory celebration we use custom modal or alert for now.
+               // We will keep standard alert for Victory since it doesn't break UX as much as error alerts.
+               alert("🎉 Incredible! You defeated the Boss and completed this Unit! (+50 Stars)");
+           }
            if (updateUser && user) {
                let finalStars = newStars + (isUnitCompleted ? 0 : 35); 
                let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
@@ -589,7 +485,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
 const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
   <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
     <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
-      <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors shadow-lg"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+      <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
       <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
     </div>
     <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
@@ -603,7 +499,7 @@ const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
           
-          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 shadow-inner ${isCompleted ? 'bg-emerald-600 text-white' : progress > 0 ? 'bg-orange-700 text-white' : 'bg-white/20 text-white'}`}>
+          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : progress > 0 ? 'bg-orange-700 text-white' : 'bg-white/20 text-white'}`}>
             {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
           </div>
           <div className="flex-1">
@@ -624,7 +520,7 @@ const GradesView = ({ onSelectGrade }) => (
       {GRADES.map(grade => (
         <button key={grade.id} onClick={() => onSelectGrade(grade)} 
           className={`relative flex-1 min-w-[120px] sm:min-w-[140px] max-w-[150px] sm:max-w-[180px] text-left p-4 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[6px] sm:border-b-[8px] transition-all bg-gradient-to-b ${grade.color} border-black/20 hover:-translate-y-2 hover:shadow-2xl active:translate-y-0 active:border-b-0`}>
-          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-white/20 text-white w-fit mb-2 sm:mb-4 shadow-sm"><grade.icon className="w-6 h-6 sm:w-8 sm:h-8" /></div>
+          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-white/20 text-white w-fit mb-2 sm:mb-4"><grade.icon className="w-6 h-6 sm:w-8 sm:h-8" /></div>
           <h3 className="font-black text-lg sm:text-2xl text-white">{grade.name}</h3>
           <p className="text-[10px] sm:text-xs font-bold text-white/70 mt-1">{grade.desc}</p>
         </button>
@@ -645,17 +541,17 @@ const PracticeHub = ({ user, onTriggerMissingData }) => {
         <div>
           <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Extra Exercises</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left transition-transform">
+            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <Headphones className="w-8 h-8 mb-3 text-teal-100" />
               <h4 className="text-xl font-black">Listening</h4>
               <p className="text-sm font-medium text-teal-100">By Unit</p>
             </button>
-            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left transition-transform">
+            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <Mic className="w-8 h-8 mb-3 text-cyan-100" />
               <h4 className="text-xl font-black">Speaking</h4>
               <p className="text-sm font-medium text-cyan-100">By Unit</p>
             </button>
-            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left transition-transform">
+            <button onClick={onTriggerMissingData} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
               <BookOpen className="w-8 h-8 mb-3 text-rose-100" />
               <h4 className="text-xl font-black">Reading</h4>
               <p className="text-sm font-medium text-rose-100">By Unit</p>
@@ -688,7 +584,12 @@ const ArenaView = ({ user }) => {
   const [pin, setPin] = useState('');
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
+  
   const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium' });
+  const [arenaQuestion, setArenaQuestion] = useState({
+    text: "Waiting for Cloud Data...",
+    options: ["Awaiting", "Database", "Connection", "..."]
+  });
 
   useEffect(() => {
     if (arenaState === 'hosting') {
@@ -720,7 +621,8 @@ const ArenaView = ({ user }) => {
 
   const handleStartBattle = () => {
     setArenaState('battle');
-    setTimer(10); // Fixed 10s for demo
+    setTimer(config.timeLimit * 60); 
+    setTimer(10); // Cố định 10s cho bản Preview
   };
 
   if (arenaState === 'setup') {
@@ -759,7 +661,7 @@ const ArenaView = ({ user }) => {
 
           <div className="flex gap-3">
              <button onClick={() => setArenaState('lobby')} className="px-6 py-4 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition-colors">Cancel</button>
-             <button onClick={handleGenerateRoom} className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white font-black text-lg rounded-xl border-b-4 border-blue-800 active:translate-y-1 active:border-b-0 transition-all flex items-center justify-center gap-2">
+             <button onClick={handleGenerateRoom} className="flex-1 py-4 bg-blue-600 text-white font-black text-lg rounded-xl border-b-4 border-blue-800 active:translate-y-1 active:border-b-0 transition-all flex items-center justify-center gap-2">
                <Bot className="w-5 h-5"/> GENERATE AI ROOM
              </button>
           </div>
@@ -770,33 +672,33 @@ const ArenaView = ({ user }) => {
 
   if (arenaState === 'hosting') {
     return (
-      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4 justify-center">
+      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
         <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-8 text-center shadow-2xl">
           <p className="text-slate-400 font-bold mb-2">Join at <span className="text-white">explorer.edu/play</span></p>
-          <h2 className="text-6xl font-black text-white tracking-widest bg-slate-950 inline-block px-8 py-4 rounded-3xl border-4 border-blue-500 mb-8 shadow-inner">{pin}</h2>
+          <h2 className="text-6xl font-black text-white tracking-widest bg-slate-950 inline-block px-8 py-4 rounded-3xl border-4 border-blue-500 mb-8">{pin}</h2>
           
           <div className="flex justify-center gap-4 mb-8 text-xs font-bold text-slate-400 uppercase tracking-wider">
-             <span className="bg-slate-800 px-3 py-1 rounded-full border border-slate-700">{config.questions} Qs</span>
-             <span className="bg-slate-800 px-3 py-1 rounded-full border border-slate-700">{config.timeLimit} Mins</span>
-             <span className="bg-slate-800 px-3 py-1 rounded-full border border-slate-700">{config.difficulty} Level</span>
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.questions} Qs</span>
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.timeLimit} Mins</span>
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.difficulty} Level</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
             {players.map((p, i) => (
-              <div key={i} className="bg-slate-800 p-4 rounded-2xl flex flex-col items-center animate-pop border border-white/5 shadow-md">
+              <div key={i} className="bg-slate-800 p-4 rounded-2xl flex flex-col items-center animate-pop border border-white/5">
                 <img src={p.avatar} alt={p.name} className="w-16 h-16 rounded-full bg-slate-700 mb-2 border-2 border-white/20"/>
-                <span className="text-white font-bold truncate w-full text-center">{p.name}</span>
-                {p.isHost && <span className="text-[10px] bg-blue-500 text-white px-2 py-0.5 rounded-full mt-1 font-black">HOST</span>}
+                <span className="text-white font-bold">{p.name}</span>
+                {p.isHost && <span className="text-[10px] bg-blue-500 text-white px-2 py-0.5 rounded-full mt-1">HOST</span>}
               </div>
             ))}
             {players.length < 5 && (
               <div className="bg-slate-800/50 border-2 border-dashed border-slate-700 p-4 rounded-2xl flex items-center justify-center animate-pulse">
-                <span className="text-slate-500 font-bold">Waiting for players...</span>
+                <span className="text-slate-500 font-bold">Waiting...</span>
               </div>
             )}
           </div>
           
-          <button onClick={handleStartBattle} disabled={players.length < 2} className="w-full sm:w-auto px-12 py-4 bg-emerald-500 hover:bg-emerald-400 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 disabled:opacity-50 transition-all shadow-lg">
+          <button onClick={handleStartBattle} disabled={players.length < 2} className="w-full sm:w-auto px-12 py-4 bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 disabled:opacity-50">
             START BATTLE
           </button>
         </div>
@@ -807,20 +709,20 @@ const ArenaView = ({ user }) => {
   if (arenaState === 'battle') {
     return (
       <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
-        <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10 shadow-inner shrink-0">
-          <div className="h-full bg-gradient-to-r from-blue-400 to-indigo-500 animate-timer" style={{ animationDuration: '10s' }}></div>
+        <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10">
+          <div className="h-full bg-blue-500 animate-timer" style={{ animationDuration: '10s' }}></div>
         </div>
         
-        <div className="bg-white rounded-[2rem] p-6 sm:p-8 text-center shadow-2xl flex-1 flex flex-col border-4 border-slate-100 overflow-y-auto">
-          <div className="flex justify-center mb-4 shrink-0"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
-          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-4 shrink-0">AI Generated Challenge ({config.difficulty})</p>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-10 leading-tight">Complete the sentence: "I ____ to school every day."</h2>
+        <div className="bg-white rounded-[2rem] p-8 text-center shadow-2xl flex-1 flex flex-col">
+          <div className="flex justify-center mb-4"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
+          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">AI Generated Challenge ({config.difficulty})</p>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-10">{arenaQuestion.text}</h2>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-auto">
-            {['go', 'goes', 'went', 'going'].map((opt, i) => {
-              const colors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
+            {arenaQuestion.options.map((opt, i) => {
+              const colors = ['bg-rose-500 border-rose-700', 'bg-blue-500 border-blue-700', 'bg-amber-500 border-amber-700', 'bg-emerald-500 border-emerald-700'];
               return (
-                <button key={opt} onClick={() => setArenaState('result')} className={`p-6 sm:p-8 rounded-2xl text-white font-black text-xl sm:text-2xl border-b-[8px] active:border-b-0 active:translate-y-2 transition-all shadow-lg ${colors[i]}`}>
+                <button key={opt} onClick={() => setArenaState('result')} className={`p-6 sm:p-8 rounded-2xl text-white font-black text-xl sm:text-2xl border-b-[8px] active:border-b-0 active:translate-y-2 transition-all ${colors[i%4]}`}>
                   {opt}
                 </button>
               );
@@ -835,26 +737,26 @@ const ArenaView = ({ user }) => {
     return (
       <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex items-center justify-center relative z-10 pb-24 lg:pb-4">
         <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-8 sm:p-12 text-center shadow-2xl w-full">
-          <Trophy className="w-20 h-20 sm:w-24 sm:h-24 text-yellow-400 mx-auto mb-6 animate-bounce drop-shadow-[0_0_15px_rgba(250,204,21,0.5)]" />
-          <h2 className="text-3xl sm:text-5xl font-black text-white mb-2 tracking-tight">Victory!</h2>
-          <p className="text-slate-400 text-base sm:text-lg mb-10 font-medium">You answered faster than 80% of the room.</p>
+          <Trophy className="w-20 h-20 sm:w-24 sm:h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
+          <h2 className="text-3xl sm:text-4xl font-black text-white mb-2">Victory!</h2>
+          <p className="text-slate-400 text-base sm:text-lg mb-8">You answered faster than 80% of the room.</p>
           
-          <div className="flex justify-center gap-2 sm:gap-4 mb-10 items-end">
+          <div className="flex justify-center gap-2 sm:gap-4 mb-8 items-end">
             <div className="flex flex-col items-center">
               <span className="text-white font-bold mb-2 text-xs sm:text-base">Sarah_Pro</span>
-              <div className="w-12 h-16 sm:w-16 sm:h-24 bg-slate-700 rounded-t-lg border-t-4 border-slate-400 flex justify-center items-start pt-2 font-black text-slate-300 shadow-inner">2</div>
+              <div className="w-12 h-16 sm:w-16 sm:h-24 bg-slate-700 rounded-t-lg border-t-4 border-slate-400 flex justify-center items-start pt-2 font-black text-slate-400">2</div>
             </div>
             <div className="flex flex-col items-center z-10 relative">
-              <span className="text-white font-black mb-2 text-sm sm:text-xl truncate max-w-[80px] sm:max-w-none">{user?.name}</span>
-              <div className="w-16 h-24 sm:w-20 sm:h-32 bg-gradient-to-b from-yellow-400 to-yellow-600 rounded-t-lg border-t-4 border-yellow-200 flex justify-center items-start pt-3 font-black text-yellow-900 text-2xl sm:text-3xl shadow-[0_0_30px_rgba(234,179,8,0.3)]">1</div>
+              <span className="text-white font-bold mb-2 text-sm sm:text-xl truncate max-w-[80px] sm:max-w-none">{user?.name}</span>
+              <div className="w-16 h-24 sm:w-20 sm:h-32 bg-yellow-500 rounded-t-lg border-t-4 border-yellow-300 flex justify-center items-start pt-2 font-black text-yellow-900 text-xl sm:text-2xl shadow-[0_0_30px_rgba(234,179,8,0.5)]">1</div>
             </div>
             <div className="flex flex-col items-center">
               <span className="text-white font-bold mb-2 text-xs sm:text-base">Alex_99</span>
-              <div className="w-12 h-12 sm:w-16 sm:h-20 bg-orange-700 rounded-t-lg border-t-4 border-orange-400 flex justify-center items-start pt-2 font-black text-orange-200 shadow-inner">3</div>
+              <div className="w-12 h-12 sm:w-16 sm:h-20 bg-orange-700 rounded-t-lg border-t-4 border-orange-500 flex justify-center items-start pt-2 font-black text-orange-400">3</div>
             </div>
           </div>
 
-          <button onClick={() => setArenaState('lobby')} className="w-full sm:w-auto px-10 py-4 bg-slate-800 hover:bg-slate-700 text-white font-black text-lg rounded-xl transition-all border border-white/10 shadow-lg active:scale-95">
+          <button onClick={() => setArenaState('lobby')} className="w-full sm:w-auto px-8 py-4 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-700 transition-all border border-white/10">
             RETURN TO LOBBY
           </button>
         </div>
@@ -868,14 +770,14 @@ const ArenaView = ({ user }) => {
         <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-orange-400 to-rose-500 rounded-2xl sm:rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/20">
           <Swords className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
         </div>
-        <h2 className="text-2xl sm:text-4xl font-black text-white mb-3 tracking-tight">AI Arena Lobby</h2>
-        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-8 leading-relaxed">Join a live multiplayer match or host your own epic battle generated by AI!</p>
+        <h2 className="text-2xl sm:text-4xl font-black text-white mb-3">AI Arena Lobby</h2>
+        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-8">Join a live multiplayer match or host your own epic battle generated by AI!</p>
         
-        <input type="text" placeholder="Game PIN" className="w-full bg-slate-950 text-white font-black text-center text-xl sm:text-2xl p-4 sm:p-5 rounded-xl sm:rounded-2xl mb-4 border-2 border-slate-700 outline-none focus:border-blue-500 transition-colors placeholder:text-slate-700 shadow-inner" />
-        <button onClick={() => setArenaState('hosting')} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-4 text-lg sm:text-xl rounded-xl sm:rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4 transition-all shadow-lg">
+        <input type="text" placeholder="Game PIN" className="w-full bg-slate-950 text-white font-black text-center text-xl sm:text-2xl p-3 sm:p-4 rounded-xl sm:rounded-2xl mb-4 border-2 border-slate-700 outline-none focus:border-blue-500 transition-colors" />
+        <button onClick={() => setArenaState('hosting')} className="w-full bg-blue-600 text-white font-black py-3 sm:py-4 text-lg sm:text-xl rounded-xl sm:rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4">
           JOIN MATCH
         </button>
-        <button onClick={() => setArenaState('setup')} className="w-full bg-slate-800 text-white font-black py-4 text-base sm:text-lg rounded-xl sm:rounded-2xl border-2 border-slate-700 hover:bg-slate-700 transition-colors shadow-sm">
+        <button onClick={() => setArenaState('setup')} className="w-full bg-slate-800 text-white font-black py-3 sm:py-4 text-base sm:text-lg rounded-xl sm:rounded-2xl border-2 border-slate-700 hover:bg-slate-700">
           HOST A MATCH
         </button>
       </div>
@@ -883,7 +785,7 @@ const ArenaView = ({ user }) => {
   );
 };
 
-const AdminPanel = ({ currentUser, setAdminToast }) => {
+const AdminPanel = ({ currentUser }) => {
   const [activeTab, setActiveTab] = useState('cms');
   const [dataType, setDataType] = useState('lessons'); 
   const [grade, setGrade] = useState('5');
@@ -907,7 +809,7 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
         setUsersList(users);
     } catch (e) {
         console.error(e);
-        setAdminToast("Error fetching users. Check Firestore rules.");
+        // Removed alert here, can log to console instead
     }
     setIsLoadingUsers(false);
   }
@@ -923,7 +825,7 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
     try {
         await updateDoc(doc(db, "users", userId), { role: newRole });
         fetchUsers();
-    } catch(e) { setAdminToast("Error updating user role"); }
+    } catch(e) { console.error("Error updating user role"); }
   };
 
   const handleToggleBlockUser = async (userId, currentStatus) => {
@@ -931,7 +833,7 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
     try {
         await updateDoc(doc(db, "users", userId), { status: newStatus });
         fetchUsers();
-    } catch(e) { setAdminToast("Error blocking/unblocking user"); }
+    } catch(e) { console.error("Error blocking/unblocking user"); }
   };
 
   const handlePushData = async () => {
@@ -950,7 +852,7 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
       setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
       if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Invalid JSON format: ${error.message}` });
-      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules.` });
+      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules to allow read/write.` });
       else setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
     } finally { setIsPushing(false); }
   };
@@ -959,7 +861,7 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10 pb-24 lg:pb-8">
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
         <div className="p-6 bg-slate-900 text-white border-b-4 border-slate-800 flex justify-between items-center">
-          <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-xl sm:text-2xl font-black tracking-tight">Admin Dashboard</h2></div>
+          <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-xl sm:text-2xl font-black">Admin Dashboard</h2></div>
         </div>
         <div className="flex flex-col sm:flex-row bg-slate-50 border-b border-slate-200">
            <button onClick={() => setActiveTab('cms')} className={`flex-1 py-3 sm:py-4 font-black text-sm sm:text-lg transition-colors ${activeTab === 'cms' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>☁️ PUSH DATA</button>
@@ -972,7 +874,7 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-blue-50 p-4 sm:p-5 rounded-xl border border-blue-200">
              <div className="w-full">
                 <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
-                <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none focus:border-blue-500">
+                <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
                   <option value="lessons">Standard Lesson</option>
                   <option value="mockTests">45-Min Mock Test</option>
                   <option value="cambridge">Cambridge Advanced</option>
@@ -980,13 +882,13 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
              </div>
              <div className="w-full">
                 <label className="block text-sm font-bold text-blue-900 mb-2">Grade</label>
-                <select value={grade} onChange={e=>setGrade(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none focus:border-blue-500">
+                <select value={grade} onChange={e=>setGrade(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
                   {[1,2,3,4,5].map(g => <option key={g} value={g}>Grade {g}</option>)}
                 </select>
              </div>
              <div className="w-full">
                 <label className="block text-sm font-bold text-blue-900 mb-2">Unit/Test ID</label>
-                <select value={unit} onChange={e=>setUnit(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none focus:border-blue-500">
+                <select value={unit} onChange={e=>setUnit(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
                   {[1,2,3,4,5,6,7,8,9,10].map(u => <option key={u} value={u}>ID {u}</option>)}
                 </select>
              </div>
@@ -1017,21 +919,21 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
       {activeTab === 'users' && (
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 animate-fade-in flex flex-col gap-4">
           <div className="flex justify-between items-center mb-4">
-             <h3 className="text-xl font-black text-slate-800 tracking-tight">Platform Users</h3>
-             <button onClick={fetchUsers} className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded-xl hover:bg-blue-200 transition-colors shadow-sm">
+             <h3 className="text-xl font-black text-slate-800">Platform Users</h3>
+             <button onClick={fetchUsers} className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded-xl hover:bg-blue-200 transition-colors">
                <RotateCw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
              </button>
           </div>
           
-          <div className="overflow-x-auto rounded-xl border border-slate-200">
+          <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-100 border-b-2 border-slate-200 text-slate-600 font-bold text-sm uppercase tracking-wider">
-                  <th className="p-4">User</th>
+                  <th className="p-4 rounded-tl-xl">User</th>
                   <th className="p-4">Email</th>
                   <th className="p-4">Role</th>
                   <th className="p-4">Status</th>
-                  <th className="p-4">Actions</th>
+                  <th className="p-4 rounded-tr-xl">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1043,27 +945,27 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
                     </td>
                     <td className="p-4 text-slate-500 font-medium text-sm">{u.email || 'N/A'}</td>
                     <td className="p-4">
-                       <span className={`px-3 py-1 rounded-full text-[10px] sm:text-xs font-black uppercase ${u.role === 'admin' ? 'bg-purple-100 text-purple-700 border border-purple-200' : 'bg-blue-100 text-blue-700 border border-blue-200'}`}>
+                       <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
                          {u.role}
                        </span>
                     </td>
                     <td className="p-4">
-                       <span className={`px-3 py-1 rounded-full text-[10px] sm:text-xs font-black uppercase ${u.status === 'blocked' ? 'bg-rose-100 text-rose-700 border border-rose-200' : 'bg-emerald-100 text-emerald-700 border border-emerald-200'}`}>
+                       <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.status === 'blocked' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
                          {u.status || 'active'}
                        </span>
                     </td>
                     <td className="p-4 flex gap-2">
                        {currentUser?.uid !== u.id && (
                          <>
-                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-white text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors border border-slate-200 shadow-sm" title={u.role==='admin'?"Revoke Admin":"Promote to Admin"}>
-                             <UserCog className="w-4 h-4 sm:w-5 sm:h-5"/>
+                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors" title={u.role==='admin'?"Revoke Admin":"Promote to Admin"}>
+                             <UserCog className="w-5 h-5"/>
                            </button>
-                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors border shadow-sm ${u.status === 'blocked' ? 'bg-emerald-50 text-emerald-600 border-emerald-200 hover:bg-emerald-500 hover:text-white' : 'bg-rose-50 text-rose-600 border-rose-200 hover:bg-rose-500 hover:text-white'}`} title={u.status==='blocked'?"Unblock":"Block User"}>
-                             {u.status === 'blocked' ? <Unlock className="w-4 h-4 sm:w-5 sm:h-5"/> : <Ban className="w-4 h-4 sm:w-5 sm:h-5"/>}
+                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`} title={u.status==='blocked'?"Unblock":"Block User"}>
+                             {u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}
                            </button>
                          </>
                        )}
-                       {currentUser?.uid === u.id && <span className="text-xs font-bold text-slate-400 italic bg-slate-100 px-2 py-1 rounded-md border border-slate-200">You</span>}
+                       {currentUser?.uid === u.id && <span className="text-xs font-bold text-slate-400 italic">You</span>}
                     </td>
                   </tr>
                 ))}
@@ -1079,27 +981,41 @@ const AdminPanel = ({ currentUser, setAdminToast }) => {
   );
 };
 
-const OnboardingView = ({ onLogin, errorMsg }) => {
+const OnboardingView = () => {
+  const [errorMsg, setErrorMsg] = useState('');
+  
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      if (auth) {
+        await signInWithPopup(auth, provider);
+      } else {
+        setErrorMsg("Firebase Auth is missing. Check your .env config.");
+      }
+    } catch (error) { 
+      console.error("Login failed", error); 
+      setErrorMsg(`Error: ${error.message}`); 
+    }
+  };
   return (
-    <div className="flex flex-col items-center justify-center h-screen w-screen bg-[#0f172a] animate-fade-in relative overflow-hidden px-4">
-      <div className="absolute inset-0 bg-gradient-to-tr from-blue-900/30 to-indigo-900/30"></div>
-      <div className="absolute top-[20%] left-[20%] w-[40%] h-[40%] bg-blue-500/10 rounded-full blur-[100px] animate-pulse-ring pointer-events-none"></div>
-      <div className="z-10 bg-slate-900/80 backdrop-blur-2xl p-8 sm:p-12 rounded-[2rem] sm:rounded-[3rem] border border-white/10 shadow-2xl flex flex-col items-center text-center max-w-md w-full relative">
-        <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-3xl sm:rounded-[2rem] flex items-center justify-center mb-6 sm:mb-8 shadow-lg shadow-blue-500/20"><Rocket className="w-10 h-10 sm:w-14 sm:h-14 text-white" /></div>
+    <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-900 animate-fade-in relative overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-tr from-blue-900/20 to-purple-900/20"></div>
+      <div className="z-10 bg-slate-950/60 backdrop-blur-2xl p-8 sm:p-12 rounded-[2rem] sm:rounded-[3rem] border border-white/10 shadow-2xl flex flex-col items-center text-center max-w-md w-[90%]">
+        <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-3xl sm:rounded-[2rem] flex items-center justify-center mb-6 sm:mb-8"><Rocket className="w-10 h-10 sm:w-14 sm:h-14 text-white" /></div>
         <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
-        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-8">Embark on a journey to master English.</p>
+        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-6 sm:mb-8">Embark on a journey to master English.</p>
         
-        {errorMsg && <div className="w-full p-4 mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-sm text-left flex items-start gap-2"><AlertCircle className="w-5 h-5 shrink-0"/>{errorMsg}</div>}
+        {errorMsg && <div className="w-full p-3 sm:p-4 mb-4 sm:mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-xs sm:text-sm text-left">{errorMsg}</div>}
         
-        <button onClick={onLogin} className="w-full bg-white text-slate-900 font-black py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-base sm:text-lg transition-all active:scale-95 hover:shadow-white/20">
-          <Fingerprint className="w-6 h-6" /> Login with Google
+        <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-3 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-base sm:text-lg transition-transform active:scale-95">
+          <Fingerprint className="w-5 h-5 sm:w-6 sm:h-6" /> Login with Google
         </button>
       </div>
     </div>
   );
 };
 
-const MainLayout = ({ user, handleLogout, updateUser, setAdminToast }) => {
+const MainLayout = ({ user, handleLogout, updateUser }) => {
   const [currentView, setCurrentView] = useState('grades'); 
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
@@ -1118,13 +1034,12 @@ const MainLayout = ({ user, handleLogout, updateUser, setAdminToast }) => {
 
   if (user?.status === 'blocked') {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-[#0f172a] text-white animate-fade-in px-4">
-         <div className="bg-slate-900/90 backdrop-blur-xl p-8 sm:p-12 rounded-[2rem] text-center border border-white/10 shadow-2xl max-w-md w-full relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-rose-500 to-red-600"></div>
-            <Ban className="w-20 h-20 text-rose-500 mx-auto mb-6 animate-bounce drop-shadow-[0_0_15px_rgba(244,63,94,0.5)]"/> 
-            <h1 className="text-3xl sm:text-4xl font-black mb-4 tracking-tight">Account Blocked</h1>
-            <p className="text-slate-400 font-medium mb-8 text-sm sm:text-base leading-relaxed">Your access to Global Explorer has been restricted by the administrator. Please contact support if you believe this is an error.</p>
-            <button onClick={handleLogout} className="w-full py-4 bg-rose-500 text-white font-black rounded-xl hover:bg-rose-600 transition-colors shadow-lg active:scale-95">LOGOUT NOW</button>
+      <div className="flex h-screen w-screen items-center justify-center bg-slate-900 text-white animate-fade-in px-4">
+         <div className="bg-slate-800 p-8 rounded-3xl text-center border-4 border-rose-500 shadow-2xl max-w-sm w-full">
+            <Ban className="w-20 h-20 text-rose-500 mx-auto mb-4 animate-bounce"/> 
+            <h1 className="text-3xl font-black mb-2">Account Blocked</h1>
+            <p className="text-slate-400 font-medium mb-6">Your access to Global Explorer has been restricted by the administrator.</p>
+            <button onClick={handleLogout} className="px-6 py-3 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-colors">Logout</button>
          </div>
       </div>
     );
@@ -1162,13 +1077,13 @@ const MainLayout = ({ user, handleLogout, updateUser, setAdminToast }) => {
   }
 
   const renderContent = () => {
-    if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-12 h-12 sm:w-16 sm:h-16 animate-spin text-blue-500 mb-6 drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]"/><h3 className="font-black text-xl sm:text-2xl tracking-tight">Loading Environment...</h3></div>;
+    if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-lg sm:text-xl">Loading Cloud Data...</h3></div>;
     
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
       case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={handleSelectUnitAndFetch} user={user} />;
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentUnitData} />;
-      case 'admin': return <AdminPanel currentUser={user} setAdminToast={setAdminToast} />;
+      case 'admin': return <AdminPanel currentUser={user} />;
       case 'practice': return <PracticeHub user={user} onTriggerMissingData={() => setIsUnderConstruction(true)} />;
       case 'arena': return <ArenaView user={user} />;
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
@@ -1179,55 +1094,56 @@ const MainLayout = ({ user, handleLogout, updateUser, setAdminToast }) => {
     <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
       
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/20 rounded-full blur-[100px] lg:blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-indigo-600/20 rounded-full blur-[80px] lg:blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[100px] lg:blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[80px] lg:blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
-      <aside className={`flex flex-row lg:flex-col bg-slate-950/90 lg:bg-slate-900/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-20 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 shadow-2xl ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
+      <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
         
-        <div className="p-4 hidden lg:flex items-center h-20 border-b border-white/5 shrink-0 overflow-hidden">
-          <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center shadow-lg"><Rocket className="w-6 h-6 text-white" /></div>
-          <div className="ml-4 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-xl font-black text-white tracking-widest">EXPLORER</h1></div>
+        <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
+          <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
+          <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
         
-        <nav className="flex-1 flex flex-row lg:flex-col gap-1 lg:gap-3 p-1.5 lg:p-4 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch w-full">
+        <nav className="flex-1 flex flex-row lg:flex-col gap-1 lg:gap-2 p-1.5 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch w-full">
           {navItems.map(item => (
-            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl lg:rounded-2xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10 shadow-[inset_0_2px_10px_rgba(255,255,255,0.05)]' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
+            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
               <item.icon className={`w-5 h-5 lg:w-6 lg:h-6 shrink-0 ${item.color}`} />
+              {/* FIXED SIDEBAR TEXT: Always block on lg, visibility handled by opacity */}
               <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block text-[9px] lg:text-sm' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
           ))}
-          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500/20 hover:text-rose-400 transition-all gap-1 w-16">
+          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16">
             <LogOut className="w-5 h-5 shrink-0" />
             <span>Logout</span>
           </button>
         </nav>
 
-        <div className="hidden lg:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden mb-4">
-          <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-5 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3 shadow-inner">
-            <div className={`p-3 rounded-2xl bg-white/5 shadow-sm ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
+        <div className="hidden lg:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
+          <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
+            <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
             <p className={`text-sm font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
           </div>
           
-          <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center bg-slate-900/50 p-3 rounded-2xl border border-white/5">
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Created by</p>
-            <p className="text-base text-blue-400 font-black tracking-tight">Mr. Khoa</p>
-            <div className="flex items-center gap-1.5 mt-2 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1.5 rounded-xl backdrop-blur-sm shadow-sm">
-                <Phone className="w-3.5 h-3.5 text-emerald-400" />
-                <p className="text-xs text-emerald-400 font-bold tracking-wide">0901.637.827</p>
+          <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
+            <p className="text-sm text-blue-400 font-black">Mr. Khoa</p>
+            <div className="flex items-center gap-1.5 mt-1 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-xl backdrop-blur-sm">
+                <Phone className="w-3 h-3 text-emerald-400" />
+                <p className="text-[10px] text-emerald-400 font-bold tracking-wide">0901637827</p>
             </div>
-            <p className="text-[10px] text-slate-500 font-semibold mt-1.5">Zalo / Viber Support</p>
+            <p className="text-[9px] text-slate-500 font-semibold mt-1">Zalo / Viber</p>
           </div>
 
-          <button onClick={handleLogout} className="flex items-center justify-center p-3 sm:p-4 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-2 shadow-sm">
+          <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
             <LogOut className="min-w-[24px] h-5" /> 
-            <span className="ml-3 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100 tracking-wide">Secure Logout</span>
+            <span className="ml-3 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">Log Out</span>
           </button>
         </div>
       </aside>
 
       <div className="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
         <TopMetricsBar user={user} />
-        <div className="flex-1 overflow-hidden relative bg-[#0f172a]">{renderContent()}</div>
+        <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       </div>
       
       <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
@@ -1238,11 +1154,9 @@ const MainLayout = ({ user, handleLogout, updateUser, setAdminToast }) => {
 export default function App() {
   const [user, setUser] = useState(null);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [loginError, setLoginError] = useState('');
-  const [adminToast, setAdminToast] = useState('');
 
   useEffect(() => {
-    if (!auth) { setIsAuthChecking(false); setLoginError("Firebase not connected. Check environment variables."); return; }
+    if (!auth) { setIsAuthChecking(false); return; }
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         const userProfile = await syncUserWithDb(firebaseUser);
@@ -1252,14 +1166,6 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
-
-  const handleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      if (auth) await signInWithPopup(auth, provider);
-      else setLoginError("Firebase Auth is missing.");
-    } catch (error) { setLoginError(`Login failed: ${error.message}`); }
-  };
 
   const handleLogout = async () => { if (auth) await signOut(auth); setUser(null); };
 
@@ -1271,41 +1177,23 @@ export default function App() {
         const targetUid = cleanData.uid || auth?.currentUser?.uid; 
         
         if (!targetUid) {
-           console.error("Critical: No UID found to save progress.");
+           console.error("Lỗi: Không tìm thấy ID người dùng để lưu tiến trình.");
            return;
         }
+
         await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
       } 
       catch(e) { 
         console.error("Firestore save failed:", e); 
+        // Chỉ hiện Toast Notification an toàn cho Admin
         if (newUserData.role === 'admin' || newUserData.role === 'superadmin') {
-           setAdminToast(`Save Error: ${e.message}`);
+           console.warn(`[Admin Alert] Firebase Error: ${e.message}`);
         }
       }
     }
   };
 
-  useEffect(() => {
-    if (adminToast) {
-      const timer = setTimeout(() => setAdminToast(''), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [adminToast]);
-
-  if (isAuthChecking) return <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center px-4"><div className="flex flex-col items-center gap-4 text-center"><Compass className="w-10 h-10 sm:w-14 sm:h-14 text-blue-500 animate-spin drop-shadow-[0_0_15px_rgba(59,130,246,0.5)]" /><p className="text-white font-black animate-pulse text-sm sm:text-lg tracking-widest uppercase">Connecting to Cloud...</p></div></div>;
-  if (!user) return <OnboardingView onLogin={handleLogin} errorMsg={loginError} />;
-  
-  return (
-    <>
-      <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} setAdminToast={setAdminToast} />
-      {/* Global Toast for Admin Errors */}
-      {adminToast && (
-        <div className="fixed top-24 right-4 sm:top-8 sm:right-8 z-[200] bg-rose-500 text-white font-bold p-4 rounded-xl shadow-2xl flex items-center gap-3 animate-slide-in-right max-w-sm border-2 border-rose-400">
-          <AlertCircle className="w-6 h-6 shrink-0"/>
-          <p className="text-sm">{adminToast}</p>
-          <button onClick={() => setAdminToast('')} className="ml-auto p-1 hover:bg-rose-600 rounded-lg"><X className="w-4 h-4"/></button>
-        </div>
-      )}
-    </>
-  );
+  if (isAuthChecking) return <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center px-4"><div className="flex flex-col items-center gap-4 text-center"><Compass className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500 animate-spin" /><p className="text-white font-black animate-pulse text-sm sm:text-base">Checking credentials...</p></div></div>;
+  if (!user) return <OnboardingView />;
+  return <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} />;
 }
