@@ -133,31 +133,42 @@ const syncUserWithDb = async (googleUser) => {
   const defaultName = googleUser.displayName || "Explorer";
   const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
 
+  // KHAI BÁO EMAIL ADMIN GỐC CỦA BẠN (Hardcoded Admins)
+  const adminEmails = ["khoavuexp2@gmail.com", "khoavuexp@gmail.com"];
+  const isHardcodedAdmin = adminEmails.includes(googleUser.email);
+
   try {
     const userRef = doc(db, "users", googleUser.uid);
     const userSnap = await getDoc(userRef);
 
     if (userSnap.exists()) {
       const data = userSnap.data();
+      const finalRole = isHardcodedAdmin ? "admin" : (data.role || "student");
+      
+      // Nếu là email của bạn nhưng Database chưa cập nhật, ép nó cập nhật thành Admin
+      if (isHardcodedAdmin && data.role !== "admin") {
+         await updateDoc(userRef, { role: "admin" });
+      }
+
       return {
         uid: googleUser.uid,
         ...data,
         name: data.name || defaultName,
         avatar: data.avatar || defaultAvatar,
-        role: data.role || "student",
+        role: finalRole,
         status: data.status || "active",
         inventory: data.inventory || defaultInventory,
         completedUnits: data.completedUnits || [],
         unitProgress: data.unitProgress || {}
       };
     } else {
-      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
+      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
       await setDoc(userRef, newUser);
       return newUser;
     }
   } catch (error) {
     console.error("Firestore sync error:", error);
-    return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
+    return { uid: googleUser.uid, name: defaultName, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
   }
 };
 
@@ -1090,9 +1101,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
-  
-  // Developer Backdoor mechanism
-  const [logoClicks, setLogoClicks] = useState(0);
 
   useEffect(() => {
     const meta = document.createElement('meta');
@@ -1101,15 +1109,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     document.head.appendChild(meta);
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
   }, []);
-
-  const handleLogoClick = () => {
-    setLogoClicks(c => c + 1);
-    if (logoClicks >= 4 && user.role !== 'admin') {
-       updateUser({...user, role: 'admin'});
-       showToast("Developer Mode Unlocked: You are now an Admin!");
-       setLogoClicks(0);
-    }
-  };
 
   if (user?.status === 'blocked') {
     return (
@@ -1182,8 +1181,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       
       <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
         
-        {/* Developer Backdoor hidden in Logo Click */}
-        <div onClick={handleLogoClick} className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden cursor-pointer select-none">
+        <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden select-none">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
