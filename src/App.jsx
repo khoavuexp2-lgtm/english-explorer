@@ -153,6 +153,7 @@ const syncUserWithDb = async (googleUser) => {
     if (userSnap.exists()) {
       const data = userSnap.data();
       return {
+        uid: googleUser.uid, // Đảm bảo không bao giờ mất UID
         ...data,
         name: data.name || defaultName,
         avatar: data.avatar || defaultAvatar,
@@ -1182,7 +1183,14 @@ export default function App() {
       try { 
         // Làm sạch dữ liệu: Xóa các giá trị undefined (Firebase rất ghét undefined)
         const cleanData = JSON.parse(JSON.stringify(newUserData));
-        await setDoc(doc(db, "users", cleanData.uid), cleanData, { merge: true }); 
+        const targetUid = cleanData.uid || auth?.currentUser?.uid; // Fallback an toàn tuyệt đối
+        
+        if (!targetUid) {
+           console.error("Lỗi: Không tìm thấy ID người dùng để lưu tiến trình.");
+           return;
+        }
+
+        await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
       } 
       catch(e) { 
         console.error("Firestore save failed:", e); 
