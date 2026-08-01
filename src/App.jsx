@@ -7,12 +7,12 @@ import {
   AlertCircle, Check, Crown, ShieldAlert, BookOpen, Library,
   Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
   Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
-  Bot, Cpu, Clock, LayoutGrid
+  Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc } from "firebase/firestore";
 
 let firebaseConfig = {};
 try {
@@ -67,7 +67,6 @@ const MOTIVATIONAL_QUOTES = [
   { text: "English is your superpower!", icon: Zap, color: "text-purple-400" }
 ];
 
-// ALL GRADES UNLOCKED AS REQUESTED
 const GRADES = [
   { id: 'g1', name: "Grade 1", desc: "Phonics & Words", locked: false, color: "from-emerald-400 to-teal-500", icon: Zap },
   { id: 'g2', name: "Grade 2", desc: "Basic Phrases", locked: false, color: "from-blue-400 to-cyan-500", icon: Shield },
@@ -86,12 +85,41 @@ const GRADE_UNITS = [
   { id: 'u1', name: "Unit 1", title: "What's your address?", status: 'active', theme: 'ocean', progress: 0 },
   { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'active', theme: 'forest', progress: 0 },
   { id: 'u3', name: "Unit 3", title: "Where did you go on holiday?", status: 'active', theme: 'space', progress: 0 },
+  { id: 'u4', name: "Unit 4", title: "Our free-time activities", status: 'active', theme: 'ocean', progress: 0 },
+  { id: 'u5', name: "Unit 5", title: "My future job", status: 'active', theme: 'space', progress: 0 },
+  { id: 'u6', name: "Unit 6", title: "Our school rooms", status: 'active', theme: 'forest', progress: 0 },
+  { id: 'u7', name: "Unit 7", title: "Our favourite school activities", status: 'active', theme: 'ocean', progress: 0 },
+  { id: 'u8', name: "Unit 8", title: "In our classroom", status: 'active', theme: 'space', progress: 0 },
+  { id: 'u9', name: "Unit 9", title: "Our outdoor activities", status: 'active', theme: 'forest', progress: 0 },
+  { id: 'u10', name: "Unit 10", title: "Our school trip", status: 'active', theme: 'ocean', progress: 0 },
 ];
 
 const playAudio = (text) => {
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text);
+    let speakText = text;
+    
+    if (typeof speakText === 'string') {
+      const words = speakText.trim().split(/\s+/);
+      
+      // Nhận diện ngữ cảnh: Nếu là 1 từ đơn lẻ, ép đọc theo chuẩn Tiểu Học
+      if (words.length === 1) {
+        const pronunciationDict = {
+          'live': 'liv',    // Ép đọc động từ /lɪv/
+          'lives': 'livz',  // Ép đọc động từ số ít /lɪvz/
+          'read': 'reed',   // Ép đọc hiện tại /ri:d/
+          'wind': 'wind'    // Gió 
+        };
+        
+        const lowerWord = speakText.toLowerCase().replace(/[^a-z]/g, '');
+        if (pronunciationDict[lowerWord]) {
+           speakText = pronunciationDict[lowerWord];
+        }
+      } 
+      // Nếu là câu dài, giữ nguyên để AI tự phân tích ngữ pháp
+    }
+
+    const utterance = new SpeechSynthesisUtterance(speakText);
     utterance.lang = 'en-US';
     utterance.rate = 0.9;
     window.speechSynthesis.speak(utterance);
@@ -123,6 +151,7 @@ const syncUserWithDb = async (googleUser) => {
         name: data.name || defaultName,
         avatar: data.avatar || defaultAvatar,
         role: data.role || "student",
+        status: data.status || "active",
         inventory: data.inventory || defaultInventory,
         completedUnits: data.completedUnits || []
       };
@@ -133,7 +162,7 @@ const syncUserWithDb = async (googleUser) => {
     }
   } catch (error) {
     console.error("Firestore sync error:", error);
-    return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, inventory: defaultInventory, completedUnits: [] };
+    return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [] };
   }
 };
 
@@ -152,14 +181,13 @@ const TopMetricsBar = ({ user }) => (
     <div className="flex items-center gap-3 text-right">
       <div className="hidden sm:block">
         <h2 className="text-white font-black text-lg leading-tight">{user?.name || "Explorer"}</h2>
-        <span className="text-blue-400 font-bold text-xs uppercase tracking-widest">{user?.role || "STUDENT"}</span>
+        <span className={`font-bold text-xs uppercase tracking-widest ${user?.role==='admin' ? 'text-rose-400' : 'text-blue-400'}`}>{user?.role || "STUDENT"}</span>
       </div>
       <img src={user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer`} className="w-12 h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
     </div>
   </div>
 );
 
-// CENTRALIZED FALLBACK MODAL FOR MISSING DATA
 const UnderConstructionModal = ({ isOpen, onClose }) => {
   if (!isOpen) return null;
   return (
@@ -225,7 +253,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
   if (!isOpen || !station) return null;
 
-  // Failsafe: if data missing inside the station
   if (!qData) {
     return <UnderConstructionModal isOpen={true} onClose={onClose} />;
   }
@@ -275,92 +302,88 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   };
 
   return (
-    // Thêm p-2 để popup không chạm dính mép điện thoại
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 lg:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       {(user?.inventory?.lives ?? 5) <= 0 ? (
-        <div className="bg-white rounded-3xl lg:rounded-[2rem] p-6 lg:p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
-          <Heart className="w-16 h-16 lg:w-20 lg:h-20 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
-          <h3 className="text-2xl lg:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
-          <p className="text-slate-600 font-medium mb-6 lg:mb-8 text-sm lg:text-base">Take a break or refill hearts to continue!</p>
-          <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-3 lg:py-4 bg-rose-500 text-white font-black rounded-xl text-sm lg:text-base">REFILL HEARTS (DEMO)</button>
+        <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
+          <Heart className="w-16 h-16 text-rose-500 fill-rose-500 mx-auto mb-4 animate-bounce" />
+          <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
+          <p className="text-slate-600 font-medium mb-6 text-sm sm:text-base">Take a break or refill hearts to continue!</p>
+          <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-3 sm:py-4 bg-rose-500 text-white font-black rounded-xl text-sm sm:text-base">REFILL HEARTS</button>
         </div>
       ) : (
-      // Giới hạn max-height để luôn cuộn mượt bên trong popup, không trào ra ngoài
-      <div className={`bg-white rounded-3xl lg:rounded-[2rem] w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative max-h-[90vh] lg:max-h-none ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
-        <div className="bg-slate-100 p-3 lg:p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
+      <div className={`bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative max-h-[90vh] sm:max-h-none ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
+        <div className="bg-slate-100 p-3 sm:p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
-            <span className="text-xl lg:text-2xl">{station.icon}</span>
+            <span className="text-xl sm:text-2xl">{station.icon}</span>
             <div className="flex flex-col">
-              <h3 className="font-black text-slate-800 text-base lg:text-lg uppercase leading-none">{station.label}</h3>
-              {qList && qList.length > 1 && <span className="text-[10px] font-black text-blue-600 uppercase">Question {qIndex + 1} of {qList.length}</span>}
+              <h3 className="font-black text-slate-800 text-sm sm:text-lg uppercase leading-none">{station.label}</h3>
+              {qList && qList.length > 1 && <span className="text-[10px] sm:text-xs font-black text-blue-600 uppercase">Question {qIndex + 1} of {qList.length}</span>}
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 lg:p-2 bg-slate-200 rounded-full hover:bg-slate-300"><X className="w-4 h-4 lg:w-5 lg:h-5"/></button>
+          <button onClick={onClose} className="p-1.5 sm:p-2 bg-slate-200 rounded-full hover:bg-slate-300"><X className="w-4 h-4 sm:w-5 sm:h-5"/></button>
         </div>
 
-        {/* Khung nội dung chính: tự cuộn nếu vượt quá màn hình */}
-        <div className="p-4 lg:p-6 flex flex-col gap-4 lg:gap-5 overflow-y-auto flex-1 hide-scrollbar">
-          {/* Ảnh thu nhỏ h-32 trên mobile, h-48 trên PC */}
-          {qData.image && <img src={qData.image} alt="Visual" className="w-full h-32 lg:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
-          {qData.passage && <div className="p-3 lg:p-4 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs lg:text-sm shadow-inner max-h-32 overflow-y-auto">{qData.passage}</div>}
+        <div className="p-3 sm:p-6 flex flex-col gap-3 sm:gap-5 overflow-y-auto flex-1 hide-scrollbar">
+          {qData.image && <img src={qData.image} alt="Visual" className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
+          {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto">{qData.passage}</div>}
           
-          <h2 className="text-lg lg:text-xl font-black text-slate-800 flex items-start gap-2 lg:gap-3 leading-tight">
+          <h2 className="text-sm sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
             {(qData.type === 'listen-fill' || qData.type === 'speak') && (
-               <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-2 lg:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-5 h-5 lg:w-6 lg:h-6" /></button>
+               <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
             )}
-            <span className="pt-0.5 lg:pt-1">{qData.question}</span>
+            <span className="pt-0.5">{qData.question}</span>
           </h2>
           
           {qData.type === 'speak' && (
-            <div className="flex flex-col items-center gap-4 lg:gap-6 py-2 lg:py-4">
-              <div className="text-xl lg:text-2xl font-black text-slate-800 text-center px-2 lg:px-4">"{qData.targetText}"</div>
-              <button onClick={toggleListen} className={`w-20 h-20 lg:w-24 lg:h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:scale-105'}`}>
-                <Mic className={`w-8 h-8 lg:w-10 lg:h-10 ${isListening ? 'animate-bounce' : ''}`} />
+            <div className="flex flex-col items-center gap-4 py-2">
+              <div className="text-lg sm:text-2xl font-black text-slate-800 text-center px-2">"{qData.targetText}"</div>
+              <button onClick={toggleListen} className={`w-16 h-16 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:scale-105'}`}>
+                <Mic className={`w-8 h-8 sm:w-10 sm:h-10 ${isListening ? 'animate-bounce' : ''}`} />
               </button>
-              <div className="text-center">{isListening ? <p className="text-rose-500 font-bold animate-pulse text-sm">Listening...</p> : <p className="text-slate-500 font-medium text-xs lg:text-sm">{transcript ? `You said: "${transcript}"` : qData.hint}</p>}</div>
+              <div className="text-center">{isListening ? <p className="text-rose-500 font-bold animate-pulse text-xs sm:text-sm">Listening...</p> : <p className="text-slate-500 font-medium text-xs">{transcript ? `You said: "${transcript}"` : qData.hint}</p>}</div>
             </div>
           )}
 
           {['multiple-choice', 'listen-fill', 'read'].includes(qData.type) && (
-            <div className="flex flex-col gap-2 lg:gap-3">
+            <div className="flex flex-col gap-2">
               {qData.type === 'listen-fill' && (
-                 <div className="text-sm lg:text-base font-bold text-slate-700 text-center py-3 lg:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl">{qData.textBefore} <span className="inline-block min-w-[60px] lg:min-w-[80px] border-b-4 border-blue-400 mx-1 lg:mx-2 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}</div>
+                 <div className="text-sm sm:text-base font-bold text-slate-700 text-center py-2 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl">{qData.textBefore} <span className="inline-block min-w-[50px] sm:min-w-[80px] border-b-4 border-blue-400 mx-1 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}</div>
               )}
-              <div className="grid grid-cols-1 gap-2 lg:gap-3">
+              <div className="grid grid-cols-1 gap-2">
                 {qData.options.map(opt => (
-                  <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'} className={`p-3 lg:p-4 rounded-xl border-b-[3px] lg:border-b-4 font-bold text-sm lg:text-base text-left transition-all ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1'}`}>{opt}</button>
+                  <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'} className={`p-2.5 sm:p-4 rounded-xl border-b-[3px] sm:border-b-4 font-bold text-sm sm:text-base text-left transition-all ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1'}`}>{opt}</button>
                 ))}
               </div>
             </div>
           )}
 
           {qData.type === 'order' && (
-            <div className="flex flex-col gap-3 lg:gap-4">
-              <div className="min-h-[50px] lg:min-h-[60px] p-3 lg:p-4 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl flex flex-wrap gap-2 items-center">
-                {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-3 py-1.5 lg:px-4 lg:py-2 bg-blue-500 text-white text-sm lg:text-base font-bold rounded-lg cursor-pointer hover:scale-105">{w}</span>)}
+            <div className="flex flex-col gap-3">
+              <div className="min-h-[48px] sm:min-h-[60px] p-2 sm:p-4 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl flex flex-wrap gap-2 items-center">
+                {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-2 py-1 sm:px-3 sm:py-2 bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-lg cursor-pointer hover:scale-105">{w}</span>)}
               </div>
               <div className="flex flex-wrap gap-2 justify-center">
-                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-3 py-1.5 lg:px-4 lg:py-2 bg-white border-2 border-slate-200 text-slate-700 text-sm lg:text-base font-bold rounded-lg cursor-pointer hover:-translate-y-1">{w}</span>)}
+                {qData.words.filter(w => !orderedWords.includes(w)).map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-2 py-1 sm:px-3 sm:py-2 bg-white border-2 border-slate-200 text-slate-700 text-xs sm:text-sm font-bold rounded-lg cursor-pointer hover:-translate-y-1">{w}</span>)}
               </div>
             </div>
           )}
         </div>
 
-        <div className="p-3 lg:p-4 bg-slate-50 border-t border-slate-200 shrink-0">
+        <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 shrink-0">
           {status === 'playing' ? (
-            qData.type !== 'speak' && <button onClick={handleCheck} className="w-full py-3 lg:py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 text-sm lg:text-base">CHECK ANSWER</button>
+            qData.type !== 'speak' && <button onClick={handleCheck} className="w-full py-2.5 sm:py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 text-sm sm:text-base">CHECK ANSWER</button>
           ) : (
-            <div className={`p-3 lg:p-4 rounded-xl flex flex-col gap-3 lg:gap-4 animate-pop ${status === 'correct' ? 'bg-emerald-100 border border-emerald-300' : 'bg-rose-100 border border-rose-300'}`}>
-              <div className="flex items-start justify-between gap-2 lg:gap-3">
-                <div className="flex items-start gap-2 lg:gap-3">
-                  <div className={`p-1.5 lg:p-2 rounded-full text-white shrink-0 ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>{status === 'correct' ? <Check className="w-5 h-5 lg:w-6 lg:h-6"/> : <AlertCircle className="w-5 h-5 lg:w-6 lg:h-6"/>}</div>
+            <div className={`p-3 rounded-xl flex flex-col gap-3 animate-pop ${status === 'correct' ? 'bg-emerald-100 border border-emerald-300' : 'bg-rose-100 border border-rose-300'}`}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <div className={`p-1.5 rounded-full text-white shrink-0 ${status === 'correct' ? 'bg-emerald-500' : 'bg-rose-500'}`}>{status === 'correct' ? <Check className="w-4 h-4 sm:w-5 sm:h-5"/> : <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5"/>}</div>
                   <div>
-                    <h3 className={`font-black text-lg lg:text-xl ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? 'Excellent!' : 'Needs Work'}</h3>
-                    <p className={`text-xs lg:text-sm font-medium mt-0.5 lg:mt-1 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{feedbackMsg}</p>
+                    <h3 className={`font-black text-sm sm:text-lg ${status === 'correct' ? 'text-emerald-700' : 'text-rose-700'}`}>{status === 'correct' ? 'Excellent!' : 'Needs Work'}</h3>
+                    <p className={`text-[10px] sm:text-xs font-medium mt-0.5 ${status === 'correct' ? 'text-emerald-600' : 'text-rose-600'}`}>{feedbackMsg}</p>
                   </div>
                 </div>
               </div>
-              <button onClick={handleContinue} className={`w-full py-2.5 lg:py-3 text-white text-sm lg:text-base font-black rounded-xl shadow-md active:translate-y-1 ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700' : 'bg-rose-500 border-b-4 border-rose-700'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
+              <button onClick={handleContinue} className={`w-full py-2.5 sm:py-3 text-white text-sm sm:text-base font-black rounded-xl shadow-md active:translate-y-1 ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700' : 'bg-rose-500 border-b-4 border-rose-700'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
             </div>
           )}
         </div>
@@ -372,7 +395,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
 const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
   const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
-  const [currentStationIdx, setCurrentStationIdx] = useState(0); // Progress managed locally or by DB later
+  const [currentStationIdx, setCurrentStationIdx] = useState(0); 
   const [activeGame, setActiveGame] = useState(null);
 
   const getMapNodes = () => {
@@ -385,17 +408,17 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
   const pathD = nodes.reduce((acc, node, i) => i === 0 ? `M ${node.x} ${node.y}` : `${acc} L ${node.x} ${node.y}`, "");
 
   return (
-    <div className="w-full h-full flex flex-col p-4 animate-fade-in relative">
-      <button onClick={onBack} className="absolute top-8 left-8 z-50 p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white hover:bg-white/20 border border-white/20 shadow-xl"><ChevronLeft className="w-6 h-6" /></button>
-      <div className={`relative w-full flex-1 rounded-[2.5rem] overflow-hidden shadow-2xl border-[6px] border-white/10 bg-gradient-to-tr ${theme.bg}`}>
-        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-xl px-6 py-2 rounded-2xl border border-white/10 shadow-2xl whitespace-nowrap">
-          <span className="text-white font-black tracking-widest text-sm uppercase">{grade.name} • {unit.name}</span>
+    <div className="w-full h-full flex flex-col p-2 sm:p-4 animate-fade-in relative">
+      <button onClick={onBack} className="absolute top-6 left-6 sm:top-8 sm:left-8 z-50 p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white hover:bg-white/20 border border-white/20 shadow-xl"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+      <div className={`relative w-full flex-1 rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden shadow-2xl border-[4px] sm:border-[6px] border-white/10 bg-gradient-to-tr ${theme.bg}`}>
+        <div className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-xl px-4 py-1.5 sm:px-6 sm:py-2 rounded-2xl border border-white/10 shadow-2xl whitespace-nowrap">
+          <span className="text-white font-black tracking-widest text-[10px] sm:text-sm uppercase">{grade.name} • {unit.name}</span>
         </div>
         <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" preserveAspectRatio="none" viewBox="0 0 100 100">
            <path d={pathD} fill="transparent" stroke={theme.pathColor} strokeWidth="2.5" strokeDasharray="4 6" strokeLinecap="round" />
         </svg>
         <div className="absolute z-30 transition-all duration-1000 -translate-x-1/2 -translate-y-1/2 drop-shadow-2xl pointer-events-none" style={{ left: `${nodes[currentStationIdx].x}%`, top: `${nodes[currentStationIdx].y}%`, marginTop: '-35px' }}>
-          <div className="text-6xl animate-float">{theme.vehicle}</div>
+          <div className="text-4xl sm:text-6xl animate-float">{theme.vehicle}</div>
         </div>
         {nodes.map((node, index) => {
           const isPassed = index < currentStationIdx;
@@ -403,13 +426,13 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
           const isLocked = index > currentStationIdx;
           return (
             <button key={node.id} onClick={() => index <= currentStationIdx && setActiveGame(node)}
-              className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
-              <div className={`w-20 h-20 rounded-full flex items-center justify-center text-4xl shadow-2xl border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
+              className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
+              <div className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl sm:text-4xl shadow-2xl border-2 sm:border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
                 {node.icon}
-                {isPassed && <div className="absolute -bottom-2 -right-2 bg-emerald-500 rounded-full p-1 border-2 border-white"><CheckCircle2 className="w-5 h-5 text-white" /></div>}
-                {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-8 h-8 text-white/50"/></div>}
+                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white"><CheckCircle2 className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
+                {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-5 h-5 sm:w-8 sm:h-8 text-white/50"/></div>}
               </div>
-              <div className="px-4 py-1.5 rounded-xl text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
+              <div className="px-2 py-1 sm:px-4 sm:py-1.5 rounded-lg sm:rounded-xl text-[8px] sm:text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
             </button>
           );
         })}
@@ -436,26 +459,26 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
 };
 
 const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
-  <div className="w-full max-w-4xl mx-auto py-8 px-4 animate-fade-in h-full flex flex-col z-10 relative">
-    <div className="flex items-center gap-4 mb-8 shrink-0">
-      <button onClick={onBack} className="p-3 bg-white/10 rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-6 h-6" /></button>
-      <div><h2 className="text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
+  <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
+    <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
+      <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
     </div>
-    <div className="flex-1 overflow-y-auto flex flex-col gap-4 pb-20 hide-scrollbar">
+    <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
       {GRADE_UNITS.map(unit => {
         const isCompleted = user?.completedUnits?.includes(unit.id);
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
-          className={`relative flex items-center p-5 rounded-[2rem] border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
+          className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
           ${isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
           
-          <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'}`}>
-            {isCompleted ? <CheckCircle2 className="w-7 h-7" /> : <Play className="w-7 h-7 ml-1" />}
+          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'}`}>
+            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
           </div>
           <div className="flex-1">
-            <h3 className="text-xl font-black text-white">{unit.name}: {unit.title}</h3>
-            {isCompleted && <p className="text-sm font-bold text-emerald-100 mt-1 flex items-center gap-1"><Star className="w-4 h-4 fill-emerald-100"/> Mastered</p>}
+            <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
+            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
           </div>
         </button>
       )})}
@@ -464,15 +487,15 @@ const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
 );
 
 const GradesView = ({ onSelectGrade }) => (
-  <div className="w-full h-full flex flex-col items-center justify-center p-4 animate-fade-in relative z-10">
-    <div className="mb-8 text-center"><h2 className="text-4xl font-black text-white drop-shadow-lg">Select Your Grade</h2></div>
-    <div className="flex flex-wrap justify-center items-center gap-4 max-w-5xl w-full">
+  <div className="w-full h-full flex flex-col items-center justify-center p-4 animate-fade-in relative z-10 pb-24 lg:pb-4">
+    <div className="mb-6 sm:mb-8 text-center"><h2 className="text-2xl sm:text-4xl font-black text-white drop-shadow-lg">Select Your Grade</h2></div>
+    <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-4 max-w-5xl w-full">
       {GRADES.map(grade => (
         <button key={grade.id} onClick={() => onSelectGrade(grade)} 
-          className={`relative flex-1 min-w-[140px] max-w-[180px] text-left p-5 rounded-[2rem] border-b-[8px] transition-all bg-gradient-to-b ${grade.color} border-black/20 hover:-translate-y-2 hover:shadow-2xl active:translate-y-0 active:border-b-0`}>
-          <div className="p-3 rounded-2xl bg-white/20 text-white w-fit mb-4"><grade.icon className="w-8 h-8" /></div>
-          <h3 className="font-black text-2xl text-white">{grade.name}</h3>
-          <p className="text-xs font-bold text-white/70 mt-1">{grade.desc}</p>
+          className={`relative flex-1 min-w-[120px] sm:min-w-[140px] max-w-[150px] sm:max-w-[180px] text-left p-4 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[6px] sm:border-b-[8px] transition-all bg-gradient-to-b ${grade.color} border-black/20 hover:-translate-y-2 hover:shadow-2xl active:translate-y-0 active:border-b-0`}>
+          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-white/20 text-white w-fit mb-2 sm:mb-4"><grade.icon className="w-6 h-6 sm:w-8 sm:h-8" /></div>
+          <h3 className="font-black text-lg sm:text-2xl text-white">{grade.name}</h3>
+          <p className="text-[10px] sm:text-xs font-bold text-white/70 mt-1">{grade.desc}</p>
         </button>
       ))}
     </div>
@@ -481,14 +504,13 @@ const GradesView = ({ onSelectGrade }) => (
 
 const PracticeHub = ({ user, onTriggerMissingData }) => {
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10">
+    <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
       <div className="mb-8">
         <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">Practice Hub</h2>
         <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
       </div>
       
       <div className="flex flex-col gap-8">
-        {/* Extra Exercises Section */}
         <div>
           <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Extra Exercises</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -510,7 +532,6 @@ const PracticeHub = ({ user, onTriggerMissingData }) => {
           </div>
         </div>
 
-        {/* Exams Section */}
         <div>
           <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-indigo-400"/> Full Exams</h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -532,12 +553,11 @@ const PracticeHub = ({ user, onTriggerMissingData }) => {
 };
 
 const ArenaView = ({ user }) => {
-  const [arenaState, setArenaState] = useState('lobby'); // lobby, hosting, battle, result
+  const [arenaState, setArenaState] = useState('lobby'); 
   const [pin, setPin] = useState('');
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
 
-  // Simulate players joining if hosting
   useEffect(() => {
     if (arenaState === 'hosting') {
       const interval = setInterval(() => {
@@ -551,7 +571,6 @@ const ArenaView = ({ user }) => {
     }
   }, [arenaState]);
 
-  // Simulate Battle Timer
   useEffect(() => {
     if (arenaState === 'battle' && timer > 0) {
       const t = setTimeout(() => setTimer(timer - 1), 1000);
@@ -574,7 +593,7 @@ const ArenaView = ({ user }) => {
 
   if (arenaState === 'hosting') {
     return (
-      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10">
+      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
         <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-8 text-center shadow-2xl">
           <p className="text-slate-400 font-bold mb-2">Join at <span className="text-white">explorer.edu/play</span></p>
           <h2 className="text-6xl font-black text-white tracking-widest bg-slate-950 inline-block px-8 py-4 rounded-3xl border-4 border-blue-500 mb-8">{pin}</h2>
@@ -604,7 +623,7 @@ const ArenaView = ({ user }) => {
 
   if (arenaState === 'battle') {
     return (
-      <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10">
+      <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
         <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10">
           <div className="h-full bg-blue-500 animate-timer" style={{ animationDuration: '10s' }}></div>
         </div>
@@ -612,13 +631,13 @@ const ArenaView = ({ user }) => {
         <div className="bg-white rounded-[2rem] p-8 text-center shadow-2xl flex-1 flex flex-col">
           <div className="flex justify-center mb-4"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
           <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">AI Generated Challenge</p>
-          <h2 className="text-3xl font-black text-slate-800 mb-10">Complete the sentence: "I ____ to school every day."</h2>
+          <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-10">Complete the sentence: "I ____ to school every day."</h2>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-auto">
             {['go', 'goes', 'went', 'going'].map((opt, i) => {
               const colors = ['bg-rose-500 border-rose-700', 'bg-blue-500 border-blue-700', 'bg-amber-500 border-amber-700', 'bg-emerald-500 border-emerald-700'];
               return (
-                <button key={opt} onClick={() => setArenaState('result')} className={`p-8 rounded-2xl text-white font-black text-2xl border-b-[8px] active:border-b-0 active:translate-y-2 transition-all ${colors[i]}`}>
+                <button key={opt} onClick={() => setArenaState('result')} className={`p-6 sm:p-8 rounded-2xl text-white font-black text-xl sm:text-2xl border-b-[8px] active:border-b-0 active:translate-y-2 transition-all ${colors[i]}`}>
                   {opt}
                 </button>
               );
@@ -631,28 +650,28 @@ const ArenaView = ({ user }) => {
 
   if (arenaState === 'result') {
     return (
-      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex items-center justify-center relative z-10">
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-12 text-center shadow-2xl w-full">
-          <Trophy className="w-24 h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
-          <h2 className="text-4xl font-black text-white mb-2">Victory!</h2>
-          <p className="text-slate-400 text-lg mb-8">You answered faster than 80% of the room.</p>
+      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex items-center justify-center relative z-10 pb-24 lg:pb-4">
+        <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-8 sm:p-12 text-center shadow-2xl w-full">
+          <Trophy className="w-20 h-20 sm:w-24 sm:h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
+          <h2 className="text-3xl sm:text-4xl font-black text-white mb-2">Victory!</h2>
+          <p className="text-slate-400 text-base sm:text-lg mb-8">You answered faster than 80% of the room.</p>
           
-          <div className="flex justify-center gap-4 mb-8 items-end">
+          <div className="flex justify-center gap-2 sm:gap-4 mb-8 items-end">
             <div className="flex flex-col items-center">
-              <span className="text-white font-bold mb-2">Sarah_Pro</span>
-              <div className="w-16 h-24 bg-slate-700 rounded-t-lg border-t-4 border-slate-400 flex justify-center items-start pt-2 font-black text-slate-400">2</div>
+              <span className="text-white font-bold mb-2 text-xs sm:text-base">Sarah_Pro</span>
+              <div className="w-12 h-16 sm:w-16 sm:h-24 bg-slate-700 rounded-t-lg border-t-4 border-slate-400 flex justify-center items-start pt-2 font-black text-slate-400">2</div>
             </div>
             <div className="flex flex-col items-center z-10 relative">
-              <span className="text-white font-bold mb-2 text-xl">{user?.name}</span>
-              <div className="w-20 h-32 bg-yellow-500 rounded-t-lg border-t-4 border-yellow-300 flex justify-center items-start pt-2 font-black text-yellow-900 text-2xl shadow-[0_0_30px_rgba(234,179,8,0.5)]">1</div>
+              <span className="text-white font-bold mb-2 text-sm sm:text-xl truncate max-w-[80px] sm:max-w-none">{user?.name}</span>
+              <div className="w-16 h-24 sm:w-20 sm:h-32 bg-yellow-500 rounded-t-lg border-t-4 border-yellow-300 flex justify-center items-start pt-2 font-black text-yellow-900 text-xl sm:text-2xl shadow-[0_0_30px_rgba(234,179,8,0.5)]">1</div>
             </div>
             <div className="flex flex-col items-center">
-              <span className="text-white font-bold mb-2">Alex_99</span>
-              <div className="w-16 h-20 bg-orange-700 rounded-t-lg border-t-4 border-orange-500 flex justify-center items-start pt-2 font-black text-orange-400">3</div>
+              <span className="text-white font-bold mb-2 text-xs sm:text-base">Alex_99</span>
+              <div className="w-12 h-12 sm:w-16 sm:h-20 bg-orange-700 rounded-t-lg border-t-4 border-orange-500 flex justify-center items-start pt-2 font-black text-orange-400">3</div>
             </div>
           </div>
 
-          <button onClick={() => setArenaState('lobby')} className="px-8 py-4 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-700 transition-all border border-white/10">
+          <button onClick={() => setArenaState('lobby')} className="w-full sm:w-auto px-8 py-4 bg-slate-800 text-white font-black rounded-xl hover:bg-slate-700 transition-all border border-white/10">
             RETURN TO LOBBY
           </button>
         </div>
@@ -661,19 +680,19 @@ const ArenaView = ({ user }) => {
   }
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10">
-      <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 p-10 rounded-[3rem] w-full max-w-lg shadow-2xl text-center">
-        <div className="w-24 h-24 bg-gradient-to-tr from-orange-400 to-rose-500 rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/20">
-          <Swords className="w-12 h-12 text-white" />
+    <div className="p-4 md:p-8 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10 pb-24 lg:pb-8">
+      <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg shadow-2xl text-center">
+        <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-orange-400 to-rose-500 rounded-2xl sm:rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/20">
+          <Swords className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
         </div>
-        <h2 className="text-4xl font-black text-white mb-3">AI Arena Lobby</h2>
-        <p className="text-slate-400 font-medium text-lg mb-8">Join a live multiplayer match or host your own epic battle generated by AI!</p>
+        <h2 className="text-2xl sm:text-4xl font-black text-white mb-3">AI Arena Lobby</h2>
+        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-8">Join a live multiplayer match or host your own epic battle generated by AI!</p>
         
-        <input type="text" placeholder="Game PIN" className="w-full bg-slate-950 text-white font-black text-center text-2xl p-4 rounded-2xl mb-4 border-2 border-slate-700 outline-none focus:border-blue-500 transition-colors" />
-        <button onClick={() => setArenaState('hosting')} className="w-full bg-blue-600 text-white font-black py-4 text-xl rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4">
+        <input type="text" placeholder="Game PIN" className="w-full bg-slate-950 text-white font-black text-center text-xl sm:text-2xl p-3 sm:p-4 rounded-xl sm:rounded-2xl mb-4 border-2 border-slate-700 outline-none focus:border-blue-500 transition-colors" />
+        <button onClick={() => setArenaState('hosting')} className="w-full bg-blue-600 text-white font-black py-3 sm:py-4 text-lg sm:text-xl rounded-xl sm:rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4">
           JOIN MATCH
         </button>
-        <button onClick={handleHost} className="w-full bg-slate-800 text-white font-black py-4 text-lg rounded-2xl border-2 border-slate-700 hover:bg-slate-700">
+        <button onClick={handleHost} className="w-full bg-slate-800 text-white font-black py-3 sm:py-4 text-base sm:text-lg rounded-xl sm:rounded-2xl border-2 border-slate-700 hover:bg-slate-700">
           HOST A MATCH
         </button>
       </div>
@@ -690,6 +709,49 @@ const AdminPanel = ({ currentUser }) => {
   const [isPushing, setIsPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
   
+  // Tab User Management
+  const [usersList, setUsersList] = useState([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+
+  const fetchUsers = async () => {
+    setIsLoadingUsers(true);
+    try {
+        if (!db) throw new Error("Firebase DB not initialized");
+        const querySnapshot = await getDocs(collection(db, "users"));
+        const users = [];
+        querySnapshot.forEach((doc) => {
+            users.push({ id: doc.id, ...doc.data() });
+        });
+        setUsersList(users);
+    } catch (e) {
+        console.error(e);
+        alert("Error fetching users. Check Firestore rules.");
+    }
+    setIsLoadingUsers(false);
+  }
+
+  useEffect(() => {
+    if (activeTab === 'users') {
+      fetchUsers();
+    }
+  }, [activeTab]);
+
+  const handleUpdateUserRole = async (userId, currentRole) => {
+    const newRole = currentRole === 'admin' ? 'student' : 'admin';
+    try {
+        await updateDoc(doc(db, "users", userId), { role: newRole });
+        fetchUsers();
+    } catch(e) { alert("Error updating user role"); }
+  };
+
+  const handleToggleBlockUser = async (userId, currentStatus) => {
+    const newStatus = currentStatus === 'blocked' ? 'active' : 'blocked';
+    try {
+        await updateDoc(doc(db, "users", userId), { status: newStatus });
+        fetchUsers();
+    } catch(e) { alert("Error blocking/unblocking user"); }
+  };
+
   const handlePushData = async () => {
     setIsPushing(true); setPushMsg({ type: '', text: '' });
     try {
@@ -712,19 +774,20 @@ const AdminPanel = ({ currentUser }) => {
   };
 
   return (
-    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10">
+    <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10 pb-24 lg:pb-8">
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
         <div className="p-6 bg-slate-900 text-white border-b-4 border-slate-800 flex justify-between items-center">
-          <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-2xl font-black">Admin CMS</h2></div>
+          <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-xl sm:text-2xl font-black">Admin Dashboard</h2></div>
         </div>
-        <div className="flex bg-slate-50 border-b border-slate-200">
-           <button onClick={() => setActiveTab('cms')} className={`flex-1 py-4 font-black text-lg transition-colors ${activeTab === 'cms' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>☁️ PUSH DATA TO CLOUD</button>
+        <div className="flex flex-col sm:flex-row bg-slate-50 border-b border-slate-200">
+           <button onClick={() => setActiveTab('cms')} className={`flex-1 py-3 sm:py-4 font-black text-sm sm:text-lg transition-colors ${activeTab === 'cms' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>☁️ PUSH DATA</button>
+           <button onClick={() => setActiveTab('users')} className={`flex-1 py-3 sm:py-4 font-black text-sm sm:text-lg transition-colors ${activeTab === 'users' ? 'text-blue-600 bg-white border-b-4 border-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}>👥 USERS</button>
         </div>
       </div>
       
       {activeTab === 'cms' && (
-        <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-6 flex flex-col gap-4 animate-fade-in">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-blue-50 p-5 rounded-xl border border-blue-200">
+        <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 flex flex-col gap-4 animate-fade-in">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-blue-50 p-4 sm:p-5 rounded-xl border border-blue-200">
              <div className="w-full">
                 <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
                 <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
@@ -746,14 +809,14 @@ const AdminPanel = ({ currentUser }) => {
                 </select>
              </div>
              <div className="w-full flex items-end">
-                <button onClick={handlePushData} disabled={isPushing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg">
+                <button onClick={handlePushData} disabled={isPushing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
                    {isPushing ? 'PUSHING...' : '🚀 PUSH DATA'}
                 </button>
              </div>
           </div>
           
           {pushMsg.text && (
-            <div className={`p-4 rounded-xl font-bold border-2 ${pushMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-rose-50 text-rose-700 border-rose-300'}`}>
+            <div className={`p-4 rounded-xl font-bold border-2 text-sm sm:text-base ${pushMsg.type === 'success' ? 'bg-emerald-50 text-emerald-700 border-emerald-300' : 'bg-rose-50 text-rose-700 border-rose-300'}`}>
               {pushMsg.text}
             </div>
           )}
@@ -763,8 +826,70 @@ const AdminPanel = ({ currentUser }) => {
                <label className="font-black text-slate-700 flex items-center gap-2"><BookOpen className="w-5 h-5"/> JSON Data Payload</label>
             </div>
             <textarea value={jsonInput} onChange={e => setJsonInput(e.target.value)}
-               className="w-full h-[400px] bg-slate-900 text-emerald-400 font-mono text-sm p-5 rounded-2xl outline-none border-4 border-slate-800 shadow-inner hide-scrollbar"
+               className="w-full h-[300px] sm:h-[400px] bg-slate-900 text-emerald-400 font-mono text-xs sm:text-sm p-4 sm:p-5 rounded-2xl outline-none border-4 border-slate-800 shadow-inner hide-scrollbar"
                spellCheck="false" placeholder='Paste your formatted JSON code here...' />
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'users' && (
+        <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 animate-fade-in flex flex-col gap-4">
+          <div className="flex justify-between items-center mb-4">
+             <h3 className="text-xl font-black text-slate-800">Platform Users</h3>
+             <button onClick={fetchUsers} className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded-xl hover:bg-blue-200 transition-colors">
+               <RotateCw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
+             </button>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-slate-100 border-b-2 border-slate-200 text-slate-600 font-bold text-sm uppercase tracking-wider">
+                  <th className="p-4 rounded-tl-xl">User</th>
+                  <th className="p-4">Email</th>
+                  <th className="p-4">Role</th>
+                  <th className="p-4">Status</th>
+                  <th className="p-4 rounded-tr-xl">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usersList.map((u) => (
+                  <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                    <td className="p-4 flex items-center gap-3">
+                       <img src={u.avatar} alt="avatar" className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm"/>
+                       <span className="font-bold text-slate-800">{u.name}</span>
+                    </td>
+                    <td className="p-4 text-slate-500 font-medium text-sm">{u.email || 'N/A'}</td>
+                    <td className="p-4">
+                       <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
+                         {u.role}
+                       </span>
+                    </td>
+                    <td className="p-4">
+                       <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.status === 'blocked' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                         {u.status || 'active'}
+                       </span>
+                    </td>
+                    <td className="p-4 flex gap-2">
+                       {currentUser?.uid !== u.id && (
+                         <>
+                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors" title={u.role==='admin'?"Revoke Admin":"Promote to Admin"}>
+                             <UserCog className="w-5 h-5"/>
+                           </button>
+                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`} title={u.status==='blocked'?"Unblock":"Block User"}>
+                             {u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}
+                           </button>
+                         </>
+                       )}
+                       {currentUser?.uid === u.id && <span className="text-xs font-bold text-slate-400 italic">You</span>}
+                    </td>
+                  </tr>
+                ))}
+                {usersList.length === 0 && !isLoadingUsers && (
+                  <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold">No users found.</td></tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -791,15 +916,15 @@ const OnboardingView = () => {
   return (
     <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-900 animate-fade-in relative overflow-hidden">
       <div className="absolute inset-0 bg-gradient-to-tr from-blue-900/20 to-purple-900/20"></div>
-      <div className="z-10 bg-slate-950/60 backdrop-blur-2xl p-12 rounded-[3rem] border border-white/10 shadow-2xl flex flex-col items-center text-center max-w-md w-[90%]">
-        <div className="w-28 h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-[2rem] flex items-center justify-center mb-8"><Rocket className="w-14 h-14 text-white" /></div>
-        <h1 className="text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
-        <p className="text-slate-400 font-medium text-lg mb-8">Embark on a journey to master English.</p>
+      <div className="z-10 bg-slate-950/60 backdrop-blur-2xl p-8 sm:p-12 rounded-[2rem] sm:rounded-[3rem] border border-white/10 shadow-2xl flex flex-col items-center text-center max-w-md w-[90%]">
+        <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-3xl sm:rounded-[2rem] flex items-center justify-center mb-6 sm:mb-8"><Rocket className="w-10 h-10 sm:w-14 sm:h-14 text-white" /></div>
+        <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
+        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-6 sm:mb-8">Embark on a journey to master English.</p>
         
-        {errorMsg && <div className="w-full p-4 mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-sm text-left">{errorMsg}</div>}
+        {errorMsg && <div className="w-full p-3 sm:p-4 mb-4 sm:mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-xs sm:text-sm text-left">{errorMsg}</div>}
         
-        <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-4 rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-lg transition-transform active:scale-95">
-          <Fingerprint className="w-6 h-6" /> Login with Google
+        <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-3 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-base sm:text-lg transition-transform active:scale-95">
+          <Fingerprint className="w-5 h-5 sm:w-6 sm:h-6" /> Login with Google
         </button>
       </div>
     </div>
@@ -815,7 +940,26 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
 
-  useEffect(() => { setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]); }, []);
+  useEffect(() => {
+    const meta = document.createElement('meta');
+    meta.name = "viewport";
+    meta.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+    document.head.appendChild(meta);
+    setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
+  }, []);
+
+  if (user?.status === 'blocked') {
+    return (
+      <div className="flex h-screen w-screen items-center justify-center bg-slate-900 text-white animate-fade-in px-4">
+         <div className="bg-slate-800 p-8 rounded-3xl text-center border-4 border-rose-500 shadow-2xl max-w-sm w-full">
+            <Ban className="w-20 h-20 text-rose-500 mx-auto mb-4 animate-bounce"/> 
+            <h1 className="text-3xl font-black mb-2">Account Blocked</h1>
+            <p className="text-slate-400 font-medium mb-6">Your access to Global Explorer has been restricted by the administrator.</p>
+            <button onClick={handleLogout} className="px-6 py-3 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-colors">Logout</button>
+         </div>
+      </div>
+    );
+  }
 
   const navItems = [
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
@@ -838,7 +982,6 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
         setCurrentUnitData(snap.data());
         setCurrentView('map');
       } else {
-        // Fallback gracefully without crashing
         setIsUnderConstruction(true);
       }
     } catch(err) {
@@ -850,7 +993,7 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   }
 
   const renderContent = () => {
-    if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-xl">Loading Cloud Data...</h3></div>;
+    if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-lg sm:text-xl">Loading Cloud Data...</h3></div>;
     
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
@@ -867,37 +1010,30 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
     <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
       
-      {/* Background Orbs (Glassmorphism Base) */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
-      <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[100px] lg:blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
+      <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[80px] lg:blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
-      {/* RESPONSIVE SIDEBAR: Tối ưu chống bấm nhầm trên Mobile */}
-      {/* Ẩn hoàn toàn thanh Sidebar trên Mobile khi ở chế độ "map" (đang học/chơi) để tránh bấm nhầm */}
-      <aside className={`flex flex-row lg:flex-col bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 relative w-full lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
+      <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
         
-        {/* Logo (Chỉ hiển thị ở Màn hình lớn) */}
         <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
         
-        {/* Navigation Items (Là thanh ngang ở đáy trên Mobile, và cột dọc trên PC) */}
-        <nav className="flex-1 flex flex-row lg:flex-col gap-2 p-2 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch">
+        <nav className="flex-1 flex flex-row lg:flex-col gap-1 lg:gap-2 p-1.5 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch w-full">
           {navItems.map(item => (
-            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-sm transition-all border border-transparent overflow-hidden ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
-              <item.icon className={`min-w-[24px] h-6 lg:h-6 ${item.color}`} />
-              <span className="ml-4 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100 hidden lg:block">{item.label}</span>
+            <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
+              <item.icon className={`w-5 h-5 lg:w-6 lg:h-6 shrink-0 ${item.color}`} />
+              <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block lg:hidden text-[9px]' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
           ))}
-          {/* Nút Đăng xuất trên Mobile */}
-          <button onClick={handleLogout} className="lg:hidden flex items-center justify-center p-2 rounded-xl font-black text-slate-500 hover:bg-rose-500 hover:text-white transition-all">
-            <LogOut className="w-6 h-6" />
+          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16">
+            <LogOut className="w-5 h-5 shrink-0" />
+            <span>Logout</span>
           </button>
         </nav>
 
-        {/* Desktop Extras: Quote, Author, Logout (Ẩn hoàn toàn trên Mobile để tiết kiệm không gian) */}
         <div className="hidden lg:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
-          {/* Daily Quote */}
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
             <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
             <p className={`text-sm font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
@@ -907,10 +1043,13 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
           <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
             <p className="text-sm text-blue-400 font-black">Mr. Khoa</p>
-            <p className="text-[10px] text-emerald-400 font-bold mt-1 bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 rounded-full">Zalo/Viber: 0901637827</p>
+            <div className="flex items-center gap-1.5 mt-1 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-xl backdrop-blur-sm">
+                <Phone className="w-3 h-3 text-emerald-400" />
+                <p className="text-[10px] text-emerald-400 font-bold tracking-wide">0901637827</p>
+            </div>
+            <p className="text-[9px] text-slate-500 font-semibold mt-1">Zalo / Viber</p>
           </div>
 
-          {/* Desktop Logout */}
           <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
             <LogOut className="min-w-[24px] h-5" /> 
             <span className="ml-3 transition-all duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100">Log Out</span>
@@ -918,13 +1057,11 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <div className="flex-1 flex flex-col h-full relative z-10 overflow-hidden">
         <TopMetricsBar user={user} />
         <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       </div>
       
-      {/* Global Modals */}
       <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
     </div>
   );
@@ -956,7 +1093,7 @@ export default function App() {
     }
   };
 
-  if (isAuthChecking) return <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center"><div className="flex flex-col items-center gap-4"><Compass className="w-12 h-12 text-blue-500 animate-spin" /><p className="text-white font-black animate-pulse">Checking credentials...</p></div></div>;
+  if (isAuthChecking) return <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center px-4"><div className="flex flex-col items-center gap-4 text-center"><Compass className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500 animate-spin" /><p className="text-white font-black animate-pulse text-sm sm:text-base">Checking credentials...</p></div></div>;
   if (!user) return <OnboardingView />;
   return <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} />;
 }
