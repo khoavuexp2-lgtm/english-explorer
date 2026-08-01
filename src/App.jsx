@@ -100,9 +100,10 @@ const playAudio = (text) => {
     window.speechSynthesis.cancel();
     if (typeof text !== 'string') return;
     
+    // Màng lọc âm thanh nâng cao
     let speakText = text;
-    speakText = speakText.replace(/_+/g, 'blank');
-    speakText = speakText.replace(/\blive\b/gi, 'livv');
+    speakText = speakText.replace(/_+/g, 'blank'); // ___ -> blank
+    speakText = speakText.replace(/\blive\b/gi, 'livv'); // Ép đọc thành động từ ngắn
     speakText = speakText.replace(/\blives\b/gi, 'livvz');
 
     const utterance = new SpeechSynthesisUtterance(speakText);
@@ -129,6 +130,7 @@ const syncUserWithDb = async (googleUser) => {
   const defaultName = googleUser.displayName || "Explorer";
   const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
 
+  // Kiểm tra Admin quyền gốc
   const adminEmails = ["khoavuexp2@gmail.com", "khoavuexp@gmail.com"];
   const isHardcodedAdmin = adminEmails.includes(googleUser.email);
 
@@ -285,6 +287,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [transcript, setTranscript] = useState("");
   const recognitionRef = useRef(null);
 
+  // Khởi tạo trạm, xáo trộn câu hỏi
   useEffect(() => {
     if (sessionData && isOpen) {
        let fullList = [];
@@ -297,7 +300,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
        }
        if (!Array.isArray(fullList)) fullList = [fullList];
        
-       // Handle large sets (e.g. 45-min tests) differently than standard 5-question nodes
        const isLongTest = fullList.length > 10;
        const limit = isLongTest ? fullList.length : Math.min(5, fullList.length);
        
@@ -311,6 +313,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const qData = sessionQList[qIndex];
 
+  // Xáo trộn từ vựng khi render câu Order
   useEffect(() => {
     if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
   }, [qData]);
@@ -635,15 +638,14 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
   );
 };
 
-const GenericListSelector = ({ title, grade, items, onBack, onSelect, user, icon: Icon, colorClass }) => (
+const GenericListSelector = ({ title, grade, items, onBack, onSelect, icon: Icon, colorClass }) => (
   <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
     <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
       <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
       <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} - {title}</h2></div>
     </div>
     <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
-      {items.map(item => {
-        return (
+      {items.map(item => (
         <button key={item.id} onClick={() => onSelect(item)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0 ${colorClass}`}>
           <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 bg-white/20 text-white">
@@ -651,6 +653,36 @@ const GenericListSelector = ({ title, grade, items, onBack, onSelect, user, icon
           </div>
           <div className="flex-1">
             <h3 className="text-sm sm:text-xl font-black text-white">{item.name}: {item.title}</h3>
+          </div>
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
+const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
+  <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
+    <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
+      <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
+    </div>
+    <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
+      {GRADE_UNITS.map(unit => {
+        const isCompleted = user?.completedUnits?.includes(unit.id);
+        const progress = user?.unitProgress?.[unit.id] || 0;
+        return (
+        <button key={unit.id} onClick={() => onSelectUnit(unit)} 
+          className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
+          ${isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
+            progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 hover:brightness-110 shadow-xl' :
+            'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
+          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : progress > 0 ? 'bg-orange-700 text-white' : 'bg-white/20 text-white'}`}>
+            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
+            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
+            {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
           </div>
         </button>
       )})}
@@ -674,60 +706,58 @@ const GradesView = ({ onSelectGrade }) => (
   </div>
 );
 
-const PracticeHub = ({ grade, user, updateUser, onSelectCategory }) => {
-  return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
-      <div className="mb-8">
-        <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">{grade.name} Practice Hub</h2>
-        <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
-      </div>
-      
-      <div className="flex flex-col gap-8">
-        <div>
-          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Skill Drills</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <button onClick={() => onSelectCategory('listening')} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
-              <Headphones className="w-8 h-8 mb-3 text-teal-100" />
-              <h4 className="text-xl font-black">Listening</h4>
-              <p className="text-sm font-medium text-teal-100">By Unit</p>
-            </button>
-            <button onClick={() => onSelectCategory('speaking')} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
-              <Mic className="w-8 h-8 mb-3 text-cyan-100" />
-              <h4 className="text-xl font-black">Speaking</h4>
-              <p className="text-sm font-medium text-cyan-100">By Unit</p>
-            </button>
-            <button onClick={() => onSelectCategory('reading')} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
-              <BookOpen className="w-8 h-8 mb-3 text-rose-100" />
-              <h4 className="text-xl font-black">Reading</h4>
-              <p className="text-sm font-medium text-rose-100">By Unit</p>
-            </button>
-            <button onClick={() => onSelectCategory('extra')} className="p-6 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl border-b-[6px] border-purple-800 text-white hover:-translate-y-1 shadow-lg text-left">
-              <Star className="w-8 h-8 mb-3 text-purple-100" />
-              <h4 className="text-xl font-black">Extra Exercises</h4>
-              <p className="text-sm font-medium text-purple-100">Arena Prep</p>
-            </button>
-          </div>
+const PracticeHub = ({ grade, onSelectCategory }) => (
+  <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
+    <div className="mb-8">
+      <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">{grade.name} Practice Hub</h2>
+      <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
+    </div>
+    
+    <div className="flex flex-col gap-8">
+      <div>
+        <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Skill Drills</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <button onClick={() => onSelectCategory('listening')} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <Headphones className="w-8 h-8 mb-3 text-teal-100" />
+            <h4 className="text-xl font-black">Listening</h4>
+            <p className="text-sm font-medium text-teal-100">By Unit</p>
+          </button>
+          <button onClick={() => onSelectCategory('speaking')} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <Mic className="w-8 h-8 mb-3 text-cyan-100" />
+            <h4 className="text-xl font-black">Speaking</h4>
+            <p className="text-sm font-medium text-cyan-100">By Unit</p>
+          </button>
+          <button onClick={() => onSelectCategory('reading')} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <BookOpen className="w-8 h-8 mb-3 text-rose-100" />
+            <h4 className="text-xl font-black">Reading</h4>
+            <p className="text-sm font-medium text-rose-100">By Unit</p>
+          </button>
+          <button onClick={() => onSelectCategory('extra')} className="p-6 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl border-b-[6px] border-purple-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <Star className="w-8 h-8 mb-3 text-purple-100" />
+            <h4 className="text-xl font-black">Extra Exercises</h4>
+            <p className="text-sm font-medium text-purple-100">Arena Prep</p>
+          </button>
         </div>
+      </div>
 
-        <div>
-          <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-amber-400"/> Full Exams</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <button onClick={() => onSelectCategory('tests')} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
-              <Timer className="w-12 h-12 mb-4 text-indigo-200" />
-              <h3 className="text-3xl font-black mb-2">45-Min Test</h3>
-              <p className="text-indigo-100 text-base font-medium">Review and End-of-Term comprehensive tests.</p>
-            </button>
-            <button onClick={() => onSelectCategory('cambridge')} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
-              <Medal className="w-12 h-12 mb-4 text-amber-100" />
-              <h3 className="text-2xl font-black mb-2">Cambridge A2</h3>
-              <p className="text-amber-50 text-sm font-medium">Flyers/KET level reading and vocabulary.</p>
-            </button>
-          </div>
+      <div>
+        <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-amber-400"/> Full Exams</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button onClick={() => onSelectCategory('tests')} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
+            <Timer className="w-12 h-12 mb-4 text-indigo-200" />
+            <h3 className="text-3xl font-black mb-2">45-Min Test</h3>
+            <p className="text-indigo-100 text-base font-medium">Review and End-of-Term comprehensive tests.</p>
+          </button>
+          <button onClick={() => onSelectCategory('cambridge')} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
+            <Medal className="w-12 h-12 mb-4 text-amber-100" />
+            <h3 className="text-2xl font-black mb-2">Cambridge A2</h3>
+            <p className="text-amber-50 text-sm font-medium">Flyers/KET level reading and vocabulary.</p>
+          </button>
         </div>
       </div>
     </div>
-  );
-};
+  </div>
+);
 
 const ArenaView = ({ user, updateUser }) => {
   const [arenaState, setArenaState] = useState('lobby'); 
@@ -735,7 +765,6 @@ const ArenaView = ({ user, updateUser }) => {
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
   const [rewardClaimed, setRewardClaimed] = useState(false);
-  
   const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium', source: 'ai', scope: 'u1' });
 
   useEffect(() => {
@@ -1193,11 +1222,8 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [currentView, setCurrentView] = useState('grades'); 
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
-  
-  // States for sub-menus in Practice Hub
   const [practiceCategory, setPracticeCategory] = useState(null); 
   const [currentSessionData, setCurrentSessionData] = useState(null);
-  
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
@@ -1231,7 +1257,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   ];
   if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
 
-  // Unified Data Fetcher
   const handleFetchAndPlay = async (collectionName, docIdPrefix, unitItem, targetType = null) => {
     setIsLoadingData(true);
     try {
@@ -1243,7 +1268,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       if(snap.exists()) {
         let data = snap.data();
         if (targetType) {
-            // For Practice (listen, speak, read) stored in one doc
             if (data[targetType]) {
                 setCurrentSessionData(data[targetType]);
                 setCurrentView('gameModalOnly');
@@ -1251,7 +1275,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
                 setIsUnderConstruction(true);
             }
         } else {
-            // For Units, Extra, Tests, Cambridge
             setCurrentSessionData(data);
             if (collectionName === 'units') {
                 setSelectedUnit(unitItem);
@@ -1282,12 +1305,14 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       
       case 'practice': 
           if (!selectedGrade) return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('practice'); }} />;
-          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => setPracticeCategory(cat)} />;
+          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => {
+             setPracticeCategory(cat);
+             setCurrentView('listSelector');
+          }} />;
       
       case 'arena': return <ArenaView user={user} updateUser={updateUser} />;
       case 'leaderboard': return <LeaderboardView showToast={showToast} />;
       
-      // Generic List Selector for Practice Categories
       case 'listSelector':
           let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
           if (practiceCategory === 'listening') { icon = Headphones; color = "bg-gradient-to-r from-teal-500 to-emerald-600 border-teal-800"; }
@@ -1298,7 +1323,10 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
           if (practiceCategory === 'cambridge') { icon = Medal; color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; }
 
           return <GenericListSelector title={practiceCategory.toUpperCase()} grade={selectedGrade} items={GRADE_UNITS} icon={icon} colorClass={color}
-              onBack={() => setPracticeCategory(null)} 
+              onBack={() => {
+                  setPracticeCategory(null);
+                  setCurrentView('practice');
+              }} 
               onSelect={(u) => {
                   if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory);
                   else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u);
@@ -1320,9 +1348,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
-
-  // If a category is selected in Practice Hub, override view
-  if (currentView === 'practice' && practiceCategory) setCurrentView('listSelector');
 
   return (
     <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
