@@ -274,8 +274,11 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   };
 
   const deductLife = () => {
-    if (user && updateUser && (user.inventory?.lives ?? 0) > 0) {
-       updateUser({...user, inventory: {...user.inventory, lives: user.inventory.lives - 1}});
+    if (user && updateUser) {
+       const currentLives = user.inventory?.lives ?? 5;
+       if (currentLives > 0) {
+           updateUser({...user, inventory: {...(user.inventory || {}), lives: currentLives - 1}});
+       }
     }
   }
 
@@ -386,8 +389,11 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   }
 
   // --- Out of Hearts Economy UI ---
-  if ((user?.inventory?.lives ?? 5) <= 0) {
-    const hasEnoughStars = (user?.inventory?.stars ?? 0) >= 30;
+  const currentLives = user?.inventory?.lives ?? 5;
+  const currentStars = user?.inventory?.stars ?? 0;
+
+  if (currentLives <= 0) {
+    const hasEnoughStars = currentStars >= 30;
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
         <div className="bg-white rounded-[2rem] p-6 sm:p-8 max-w-sm w-full text-center shadow-2xl border-4 border-rose-500">
@@ -395,23 +401,26 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
           <h3 className="text-2xl sm:text-3xl font-black text-slate-800 mb-2">Out of Hearts!</h3>
           <p className="text-slate-600 font-medium mb-6 text-sm sm:text-base">Refilling hearts costs 30 Stars. Play carefully!</p>
           
-          {hasEnoughStars ? (
-            <button onClick={() => { 
-                if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5, stars: user.inventory.stars - 30}}); 
-                setStatus('playing'); 
-            }} className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-black rounded-xl text-sm sm:text-base border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-2">
-                REFILL HEARTS <span className="flex items-center text-xs bg-black/20 px-2 py-1 rounded-full">-30 <Star className="w-3 h-3 ml-1 fill-current"/></span>
+          <div className="flex flex-col gap-3">
+            {hasEnoughStars ? (
+              <button onClick={() => { 
+                  if(updateUser) updateUser({...user, inventory: {...(user.inventory || {}), lives: 5, stars: currentStars - 30}}); 
+                  setStatus('playing'); 
+              }} className="w-full py-4 bg-rose-500 hover:bg-rose-600 text-white font-black rounded-xl text-sm sm:text-base border-b-4 border-rose-700 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-2">
+                  REFILL HEARTS <span className="flex items-center text-xs bg-black/20 px-2 py-1 rounded-full">-30 <Star className="w-3 h-3 ml-1 fill-current"/></span>
+              </button>
+            ) : (
+              <button onClick={() => { 
+                  if(updateUser) updateUser({...user, inventory: {...(user.inventory || {}), lives: 5}}); 
+                  setStatus('playing'); 
+              }} className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-xl text-sm sm:text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all flex items-center justify-center gap-2">
+                  EMERGENCY REFILL <span className="flex items-center text-xs bg-white/20 px-2 py-1 rounded-full">FREE</span>
+              </button>
+            )}
+            <button onClick={onClose} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border-b-4 border-slate-900 active:border-b-0 active:translate-y-1 transition-all">
+                QUIT & PRACTICE MORE
             </button>
-          ) : (
-            <div className="flex flex-col gap-3">
-              <button disabled className="w-full py-4 bg-slate-200 text-slate-400 font-black rounded-xl flex items-center justify-center gap-2 cursor-not-allowed border-2 border-slate-300">
-                  NOT ENOUGH STARS <span className="flex items-center text-slate-500 text-xs bg-slate-300/50 px-2 py-1 rounded-full font-bold">Need 30 <Star className="w-3 h-3 ml-1 fill-current"/></span>
-              </button>
-              <button onClick={onClose} className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-xl border-b-4 border-slate-900 active:border-b-0 active:translate-y-1 transition-all">
-                  QUIT & PRACTICE MORE
-              </button>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     );
