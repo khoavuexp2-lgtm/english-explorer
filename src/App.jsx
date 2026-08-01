@@ -160,7 +160,7 @@ const syncUserWithDb = async (googleUser) => {
         status: data.status || "active",
         inventory: data.inventory || defaultInventory,
         completedUnits: data.completedUnits || [],
-        unitProgress: data.unitProgress || {} // Thêm lưu tiến độ trạm
+        unitProgress: data.unitProgress || {}
       };
     } else {
       const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
@@ -340,7 +340,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            {/* Hiển thị nút loa cho bất kỳ câu hỏi nào có âm thanh, không chỉ listen-fill */}
             {(qData.audioText || qData.targetText) && (
                <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
             )}
@@ -415,8 +414,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
 const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
   const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
-  // Khởi tạo trạm hiện tại từ Firebase (nếu đã lưu), mặc định là 0
-  const savedProgress = user?.unitProgress?.[unit.id] || 0;
+  
+  // Xác định xem toàn bộ unit này đã được hoàn thành trước đó chưa
+  const isUnitCompleted = user?.completedUnits?.includes(unit.id);
+  // Nếu đã hoàn thành, khởi tạo vị trí map ở cuối. Nếu chưa, lấy theo tiến độ lưu trên database.
+  const savedProgress = isUnitCompleted ? 4 : (user?.unitProgress?.[unit.id] || 0);
+  
   const [currentStationIdx, setCurrentStationIdx] = useState(savedProgress); 
   const [activeGame, setActiveGame] = useState(null);
 
@@ -443,11 +446,12 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
           <div className="text-4xl sm:text-6xl animate-float">{theme.vehicle}</div>
         </div>
         {nodes.map((node, index) => {
-          const isPassed = index < currentStationIdx;
-          const isCurrent = index === currentStationIdx;
-          const isLocked = index > currentStationIdx;
+          // Logic khóa/mở trạm cực kỳ quan trọng
+          const isPassed = isUnitCompleted || index < currentStationIdx;
+          const isCurrent = !isUnitCompleted && index === currentStationIdx;
+          const isLocked = !isUnitCompleted && index > currentStationIdx;
           return (
-            <button key={node.id} onClick={() => index <= currentStationIdx && setActiveGame(node)}
+            <button key={node.id} onClick={() => !isLocked && setActiveGame(node)}
               className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
               <div className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl sm:text-4xl shadow-2xl border-2 sm:border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
                 {node.icon}
@@ -465,18 +469,21 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
         
         if (currentStationIdx < nodes.length - 1) {
             const nextIdx = currentStationIdx + 1;
-            setCurrentStationIdx(nextIdx);
-            if (updateUser && user) {
+            if(!isUnitCompleted) setCurrentStationIdx(nextIdx); // Chỉ tăng index nếu chưa hoàn thành cả Unit
+            if (updateUser && user && !isUnitCompleted) {
                // Lưu tiến độ trạm vào Firebase
                updateUser({...user, inventory: {...user.inventory, stars: newStars}, unitProgress: {...(user.unitProgress || {}), [unit.id]: nextIdx}});
+            } else if (updateUser && user) {
+               // Chơi lại nhận sao bình thường
+               updateUser({...user, inventory: {...user.inventory, stars: newStars}});
             }
         } else {
-           alert("🎉 Incredible! You defeated the Boss and completed this Unit! (+50 Stars)");
+           if(!isUnitCompleted) alert("🎉 Incredible! You defeated the Boss and completed this Unit! (+50 Stars)");
            if (updateUser && user) {
-               let finalStars = newStars + 35; // +50 total
+               let finalStars = newStars + (isUnitCompleted ? 0 : 35); // Thưởng to nếu qua lần đầu
                let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
-               // Boss defeated: có thể reset trạm về 0 cho lần chơi sau hoặc giữ ở Boss. Thiết lập giữ nguyên để báo hoàn thành.
-               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted});
+               // Update toàn bộ
+               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted, unitProgress: {...(user.unitProgress || {}), [unit.id]: nodes.length - 1}});
            }
            onBack();
         }
@@ -588,7 +595,7 @@ const ArenaView = ({ user }) => {
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
   
-  // Arena Settings
+  // Cấu hình linh hoạt phòng Arena do Host cài đặt
   const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium' });
 
   useEffect(() => {
@@ -621,8 +628,8 @@ const ArenaView = ({ user }) => {
 
   const handleStartBattle = () => {
     setArenaState('battle');
-    setTimer(config.timeLimit * 60); // convert mins to seconds for actual game
-    setTimer(10); // For demo purposes, keep it short
+    setTimer(config.timeLimit * 60); // Đổi phút thành giây (Dùng 10s cho demo rút gọn nếu muốn)
+    setTimer(10); // Cố định 10s cho bản Preview mượt mà
   };
 
   if (arenaState === 'setup') {
@@ -637,7 +644,7 @@ const ArenaView = ({ user }) => {
           <div className="flex flex-col gap-5 mb-8">
             <div>
               <label className="text-slate-400 font-bold mb-2 block">Number of Questions</label>
-              <input type="range" min="5" max="50" step="5" value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full accent-blue-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+              <input type="range" min="10" max="50" step="5" value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full accent-blue-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
               <div className="text-white font-black mt-2 text-right">{config.questions} Questions</div>
             </div>
             
@@ -1108,7 +1115,8 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
           {navItems.map(item => (
             <button key={item.id} onClick={() => setCurrentView(item.id)} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
               <item.icon className={`w-5 h-5 lg:w-6 lg:h-6 shrink-0 ${item.color}`} />
-              <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block lg:hidden text-[9px]' : 'hidden lg:block'}`}>{item.label}</span>
+              {/* FIXED SIDEBAR TEXT: Always block on lg, visibility handled by opacity */}
+              <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block text-[9px] lg:text-sm' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
           ))}
           <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16">
@@ -1171,8 +1179,13 @@ export default function App() {
   const updateUserAndDb = async (newUserData) => {
     setUser(newUserData);
     if (db && newUserData) {
-      try { await setDoc(doc(db, "users", newUserData.uid), newUserData, { merge: true }); } 
-      catch(e) { console.warn("Firestore save failed, but UI state updated.", e); }
+      try { 
+        await setDoc(doc(db, "users", newUserData.uid), newUserData, { merge: true }); 
+      } 
+      catch(e) { 
+        console.error("Firestore save failed:", e); 
+        alert("⚠️ Không thể lưu tiến trình lên Đám mây! Vui lòng vào Firebase Console -> Firestore Database -> Rules và cấu hình thành: allow read, write: if true;");
+      }
     }
   };
 
