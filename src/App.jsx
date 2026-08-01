@@ -104,8 +104,7 @@ const playAudio = (text) => {
     // 1. Convert underscores to "blank" so TTS doesn't say "underscore underscore"
     speakText = speakText.replace(/_+/g, 'blank');
 
-    // 2. Phonetic hack for "live/lives" (verb) to force short 'i' sound (/lɪv/)
-    // We spell it "livv" so the TTS engine evaluates it correctly instead of /laɪv/
+    // 2. Phonetic hack for "live/lives" (verb) to force short 'i' sound (/lɪv/) anywhere in the sentence
     speakText = speakText.replace(/\blive\b/gi, 'livv');
     speakText = speakText.replace(/\blives\b/gi, 'livvz');
 
@@ -120,7 +119,6 @@ const evaluateSpeech = (transcript, target) => {
   let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
   let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
 
-  // Normalize UK/US spellings
   cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
   cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
 
@@ -542,7 +540,6 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
                updateUser({...user, inventory: {...user.inventory, stars: newStars}});
             }
         } else {
-           // Nếu là Boss station
            if (updateUser && user) {
                let finalStars = newStars + (isUnitCompleted ? 0 : 35); 
                let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
@@ -690,7 +687,7 @@ const ArenaView = ({ user }) => {
 
   const handleStartBattle = () => {
     setArenaState('battle');
-    setTimer(10); // Fixed 10s for demo
+    setTimer(10); 
   };
 
   if (arenaState === 'setup') {
@@ -853,7 +850,7 @@ const ArenaView = ({ user }) => {
   );
 };
 
-const AdminPanel = ({ currentUser }) => {
+const AdminPanel = ({ currentUser, showToast }) => {
   const [activeTab, setActiveTab] = useState('cms');
   const [dataType, setDataType] = useState('lessons'); 
   const [grade, setGrade] = useState('5');
@@ -864,12 +861,6 @@ const AdminPanel = ({ currentUser }) => {
   
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  const [adminNotification, setAdminNotification] = useState("");
-
-  const showAdminToast = (msg) => {
-      setAdminNotification(msg);
-      setTimeout(() => setAdminNotification(""), 3000);
-  }
 
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
@@ -882,7 +873,8 @@ const AdminPanel = ({ currentUser }) => {
         });
         setUsersList(users);
     } catch (e) {
-        showAdminToast(`Fetch Error: ${e.message}`);
+        console.error(e);
+        showToast("Error fetching users. Check Firestore rules.");
     }
     setIsLoadingUsers(false);
   }
@@ -898,8 +890,8 @@ const AdminPanel = ({ currentUser }) => {
     try {
         await updateDoc(doc(db, "users", userId), { role: newRole });
         fetchUsers();
-        showAdminToast("User role updated successfully");
-    } catch(e) { showAdminToast(`Role Update Error: ${e.message}`); }
+        showToast("User role updated successfully");
+    } catch(e) { showToast("Error updating user role"); }
   };
 
   const handleToggleBlockUser = async (userId, currentStatus) => {
@@ -907,8 +899,8 @@ const AdminPanel = ({ currentUser }) => {
     try {
         await updateDoc(doc(db, "users", userId), { status: newStatus });
         fetchUsers();
-        showAdminToast("User status updated successfully");
-    } catch(e) { showAdminToast(`Block Error: ${e.message}`); }
+        showToast("User blocked/unblocked");
+    } catch(e) { showToast("Error blocking user"); }
   };
 
   const handlePushData = async () => {
@@ -927,19 +919,13 @@ const AdminPanel = ({ currentUser }) => {
       setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
       if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Invalid JSON format: ${error.message}` });
-      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules.` });
+      else if (error.code === 'permission-denied') setPushMsg({ type: 'error', text: `❌ Permission Denied! Update Firestore Rules to allow read/write.` });
       else setPushMsg({ type: 'error', text: `❌ Error: ${error.message}` });
     } finally { setIsPushing(false); }
   };
 
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10 pb-24 lg:pb-8">
-      {adminNotification && (
-          <div className="fixed top-4 right-4 bg-slate-800 text-emerald-400 px-6 py-3 rounded-xl shadow-2xl z-[200] font-bold border border-emerald-500 animate-slide-up">
-              {adminNotification}
-          </div>
-      )}
-
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
         <div className="p-6 bg-slate-900 text-white border-b-4 border-slate-800 flex justify-between items-center">
           <div className="flex items-center gap-3"><ShieldAlert className="w-8 h-8 text-rose-500"/><h2 className="text-xl sm:text-2xl font-black">Admin Dashboard</h2></div>
@@ -1096,7 +1082,7 @@ const OnboardingView = () => {
   );
 };
 
-const MainLayout = ({ user, handleLogout, updateUser }) => {
+const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [currentView, setCurrentView] = useState('grades'); 
   const [selectedGrade, setSelectedGrade] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState(null);
@@ -1104,6 +1090,9 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
+  
+  // Developer Backdoor mechanism
+  const [logoClicks, setLogoClicks] = useState(0);
 
   useEffect(() => {
     const meta = document.createElement('meta');
@@ -1112,6 +1101,15 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
     document.head.appendChild(meta);
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
   }, []);
+
+  const handleLogoClick = () => {
+    setLogoClicks(c => c + 1);
+    if (logoClicks >= 4 && user.role !== 'admin') {
+       updateUser({...user, role: 'admin'});
+       showToast("Developer Mode Unlocked: You are now an Admin!");
+       setLogoClicks(0);
+    }
+  };
 
   if (user?.status === 'blocked') {
     return (
@@ -1131,7 +1129,11 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
     { id: 'arena', label: "AI Arena", icon: Swords, color: 'text-orange-400' }
   ];
-  if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
+  
+  // Tab Admin tự động xuất hiện nếu tài khoản là admin
+  if (user?.role === 'admin' || user?.role === 'superadmin') {
+      navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
+  }
 
   const handleSelectUnitAndFetch = async (unit) => {
     setSelectedUnit(unit);
@@ -1164,7 +1166,7 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
       case 'units': return <UnitsView grade={selectedGrade} onBack={() => setCurrentView('grades')} onSelectUnit={handleSelectUnitAndFetch} user={user} />;
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentUnitData} />;
-      case 'admin': return <AdminPanel currentUser={user} />;
+      case 'admin': return <AdminPanel currentUser={user} showToast={showToast} />;
       case 'practice': return <PracticeHub user={user} onTriggerMissingData={() => setIsUnderConstruction(true)} />;
       case 'arena': return <ArenaView user={user} />;
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
@@ -1180,7 +1182,8 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
       
       <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${currentView === 'map' ? 'hidden lg:flex' : 'flex'}`}>
         
-        <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
+        {/* Developer Backdoor hidden in Logo Click */}
+        <div onClick={handleLogoClick} className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden cursor-pointer select-none">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
@@ -1280,11 +1283,11 @@ export default function App() {
   return (
     <>
       {globalToast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-slate-900 text-rose-400 px-6 py-3 rounded-xl shadow-2xl z-[200] font-bold border border-rose-500 animate-slide-up whitespace-nowrap">
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-slate-900 text-emerald-400 px-6 py-3 rounded-xl shadow-2xl z-[200] font-bold border border-emerald-500 animate-slide-up whitespace-nowrap">
               {globalToast}
           </div>
       )}
-      {!user ? <OnboardingView /> : <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} />}
+      {!user ? <OnboardingView /> : <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} showToast={showToast} />}
     </>
   );
 }
