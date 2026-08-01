@@ -1177,14 +1177,19 @@ export default function App() {
   const handleLogout = async () => { if (auth) await signOut(auth); setUser(null); };
 
   const updateUserAndDb = async (newUserData) => {
-    setUser(newUserData);
+    setUser(newUserData); // Cập nhật ngay trên màn hình để UI mượt mà
     if (db && newUserData) {
       try { 
-        await setDoc(doc(db, "users", newUserData.uid), newUserData, { merge: true }); 
+        // Làm sạch dữ liệu: Xóa các giá trị undefined (Firebase rất ghét undefined)
+        const cleanData = JSON.parse(JSON.stringify(newUserData));
+        await setDoc(doc(db, "users", cleanData.uid), cleanData, { merge: true }); 
       } 
       catch(e) { 
         console.error("Firestore save failed:", e); 
-        alert("⚠️ Không thể lưu tiến trình lên Đám mây! Vui lòng vào Firebase Console -> Firestore Database -> Rules và cấu hình thành: allow read, write: if true;");
+        // Chỉ hiện thông báo lỗi cho Admin để biết đường sửa
+        if (newUserData.role === 'admin' || newUserData.role === 'superadmin') {
+           alert(`[Chỉ Admin mới thấy] Lỗi Firebase: ${e.message}`);
+        }
       }
     }
   };
