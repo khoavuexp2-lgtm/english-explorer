@@ -7,7 +7,8 @@ import {
   AlertCircle, Check, Crown, ShieldAlert, BookOpen, Library,
   Dumbbell, Swords, Play, Timer, Medal, Headphones, PenTool, 
   Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
-  Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock
+  Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock, SkipForward,
+  Settings
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -16,6 +17,7 @@ import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc } fro
 
 let firebaseConfig = {};
 try {
+  // Thay thế bằng biến môi trường thật khi đưa lên Vercel
   firebaseConfig = {
     apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
     authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -82,16 +84,16 @@ const MAP_THEMES = {
 };
 
 const GRADE_UNITS = [
-  { id: 'u1', name: "Unit 1", title: "What's your address?", status: 'active', theme: 'ocean', progress: 0 },
-  { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'active', theme: 'forest', progress: 0 },
-  { id: 'u3', name: "Unit 3", title: "Where did you go on holiday?", status: 'active', theme: 'space', progress: 0 },
-  { id: 'u4', name: "Unit 4", title: "Our free-time activities", status: 'active', theme: 'ocean', progress: 0 },
-  { id: 'u5', name: "Unit 5", title: "My future job", status: 'active', theme: 'space', progress: 0 },
-  { id: 'u6', name: "Unit 6", title: "Our school rooms", status: 'active', theme: 'forest', progress: 0 },
-  { id: 'u7', name: "Unit 7", title: "Our favourite school activities", status: 'active', theme: 'ocean', progress: 0 },
-  { id: 'u8', name: "Unit 8", title: "In our classroom", status: 'active', theme: 'space', progress: 0 },
-  { id: 'u9', name: "Unit 9", title: "Our outdoor activities", status: 'active', theme: 'forest', progress: 0 },
-  { id: 'u10', name: "Unit 10", title: "Our school trip", status: 'active', theme: 'ocean', progress: 0 },
+  { id: 'u1', name: "Unit 1", title: "What's your address?", status: 'active', theme: 'ocean' },
+  { id: 'u2', name: "Unit 2", title: "I always get up early", status: 'active', theme: 'forest' },
+  { id: 'u3', name: "Unit 3", title: "Where did you go on holiday?", status: 'active', theme: 'space' },
+  { id: 'u4', name: "Unit 4", title: "Our free-time activities", status: 'active', theme: 'ocean' },
+  { id: 'u5', name: "Unit 5", title: "My future job", status: 'active', theme: 'space' },
+  { id: 'u6', name: "Unit 6", title: "Our school rooms", status: 'active', theme: 'forest' },
+  { id: 'u7', name: "Unit 7", title: "Our favourite school activities", status: 'active', theme: 'ocean' },
+  { id: 'u8', name: "Unit 8", title: "In our classroom", status: 'active', theme: 'space' },
+  { id: 'u9', name: "Unit 9", title: "Our outdoor activities", status: 'active', theme: 'forest' },
+  { id: 'u10', name: "Unit 10", title: "Our school trip", status: 'active', theme: 'ocean' },
 ];
 
 const playAudio = (text) => {
@@ -116,7 +118,6 @@ const playAudio = (text) => {
            speakText = pronunciationDict[lowerWord];
         }
       } 
-      // Nếu là câu dài, giữ nguyên để AI tự phân tích ngữ pháp
     }
 
     const utterance = new SpeechSynthesisUtterance(speakText);
@@ -127,8 +128,13 @@ const playAudio = (text) => {
 };
 
 const evaluateSpeech = (transcript, target) => {
-  const cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-  const cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+
+  // Chuẩn hóa Anh - Mĩ vs Anh - Anh để tránh chấm sai oan uổng
+  cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
+  cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
+
   if (cleanTranscript === cleanTarget) return { pass: true, msg: "Perfect pronunciation!" };
   if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) return { pass: false, msg: "You pronounced 'bag' instead of 'big'. Try a short /ɪ/ sound!" };
   return { pass: false, msg: `System heard: "${transcript}". Not quite right, try again!` };
@@ -153,37 +159,38 @@ const syncUserWithDb = async (googleUser) => {
         role: data.role || "student",
         status: data.status || "active",
         inventory: data.inventory || defaultInventory,
-        completedUnits: data.completedUnits || []
+        completedUnits: data.completedUnits || [],
+        unitProgress: data.unitProgress || {} // Thêm lưu tiến độ trạm
       };
     } else {
-      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [] };
+      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
       await setDoc(userRef, newUser);
       return newUser;
     }
   } catch (error) {
     console.error("Firestore sync error:", error);
-    return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [] };
+    return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {} };
   }
 };
 
 const TopMetricsBar = ({ user }) => (
-  <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-4 flex justify-between items-center z-40 relative shadow-lg shrink-0">
-    <div className="flex gap-3">
-      <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
-         <Star className="w-5 h-5 text-yellow-400 fill-yellow-400" />
-         <span className="text-white font-black">{user?.inventory?.stars || 0}</span>
+  <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-3 sm:p-4 flex justify-between items-center z-40 relative shadow-lg shrink-0">
+    <div className="flex gap-2 sm:gap-3">
+      <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-white/5 shadow-inner">
+         <Star className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400 fill-yellow-400" />
+         <span className="text-white font-black text-sm sm:text-base">{user?.inventory?.stars || 0}</span>
       </div>
-      <div className="flex items-center gap-2 bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 shadow-inner">
-         <Heart className="w-5 h-5 text-rose-500 fill-rose-500 animate-bounce-short" />
-         <span className="text-white font-black">{user?.inventory?.lives ?? 5}</span>
+      <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/80 px-3 py-1.5 sm:px-4 sm:py-2 rounded-2xl border border-white/5 shadow-inner">
+         <Heart className="w-4 h-4 sm:w-5 sm:h-5 text-rose-500 fill-rose-500 animate-bounce-short" />
+         <span className="text-white font-black text-sm sm:text-base">{user?.inventory?.lives ?? 5}</span>
       </div>
     </div>
-    <div className="flex items-center gap-3 text-right">
+    <div className="flex items-center gap-2 sm:gap-3 text-right">
       <div className="hidden sm:block">
         <h2 className="text-white font-black text-lg leading-tight">{user?.name || "Explorer"}</h2>
         <span className={`font-bold text-xs uppercase tracking-widest ${user?.role==='admin' ? 'text-rose-400' : 'text-blue-400'}`}>{user?.role || "STUDENT"}</span>
       </div>
-      <img src={user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer`} className="w-12 h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
+      <img src={user?.avatar || `https://api.dicebear.com/7.x/adventurer/svg?seed=Explorer`} className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-white/20 shadow-md bg-slate-800" alt="avatar" />
     </div>
   </div>
 );
@@ -252,10 +259,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
   }, [qData]);
 
   if (!isOpen || !station) return null;
-
-  if (!qData) {
-    return <UnderConstructionModal isOpen={true} onClose={onClose} />;
-  }
+  if (!qData) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
   const toggleListen = () => {
     if (isListening) { recognitionRef.current?.stop(); setIsListening(false); } 
@@ -301,6 +305,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
     } else { setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); }
   };
 
+  const handleSkip = () => {
+    deductLife(); // Trừ 1 tim khi skip
+    if (qIndex < qList.length - 1) {
+        setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
+        setSelectedOpt(null); setOrderedWords([]); setTranscript("");
+    } else { onWin(); }
+  }
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
       {(user?.inventory?.lives ?? 5) <= 0 ? (
@@ -311,7 +323,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
           <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5}}); setStatus('playing'); }} className="w-full py-3 sm:py-4 bg-rose-500 text-white font-black rounded-xl text-sm sm:text-base">REFILL HEARTS</button>
         </div>
       ) : (
-      <div className={`bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative max-h-[90vh] sm:max-h-none ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
+      <div className={`bg-white rounded-3xl w-full max-w-lg shadow-2xl flex flex-col overflow-hidden relative max-h-[95vh] sm:max-h-[90vh] ${status==='wrong'?'animate-shake border-4 border-rose-500':status==='correct'?'border-4 border-emerald-500':''}`}>
         <div className="bg-slate-100 p-3 sm:p-4 border-b border-slate-200 flex justify-between items-center shrink-0">
           <div className="flex items-center gap-2">
             <span className="text-xl sm:text-2xl">{station.icon}</span>
@@ -327,8 +339,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
           {qData.image && <img src={qData.image} alt="Visual" className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto">{qData.passage}</div>}
           
-          <h2 className="text-sm sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            {(qData.type === 'listen-fill' || qData.type === 'speak') && (
+          <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
+            {/* Hiển thị nút loa cho bất kỳ câu hỏi nào có âm thanh, không chỉ listen-fill */}
+            {(qData.audioText || qData.targetText) && (
                <button onClick={() => playAudio(qData.audioText || qData.targetText)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
             )}
             <span className="pt-0.5">{qData.question}</span>
@@ -383,7 +396,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
                   </div>
                 </div>
               </div>
-              <button onClick={handleContinue} className={`w-full py-2.5 sm:py-3 text-white text-sm sm:text-base font-black rounded-xl shadow-md active:translate-y-1 ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700' : 'bg-rose-500 border-b-4 border-rose-700'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
+              <div className="flex gap-2">
+                <button onClick={handleContinue} className={`flex-1 py-2.5 sm:py-3 text-white text-sm sm:text-base font-black rounded-xl shadow-md active:translate-y-1 ${status === 'correct' ? 'bg-emerald-500 border-b-4 border-emerald-700' : 'bg-rose-500 border-b-4 border-rose-700'}`}>{status === 'correct' ? 'CONTINUE' : 'TRY AGAIN'}</button>
+                {status === 'wrong' && (
+                  <button onClick={handleSkip} className="px-4 py-2.5 sm:py-3 bg-slate-300 text-slate-700 font-black rounded-xl active:translate-y-1 flex items-center justify-center gap-1 text-sm sm:text-base border-b-4 border-slate-400 hover:bg-slate-400 transition-colors" title="Skip this question (-1 Heart)">
+                    SKIP <SkipForward className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -395,7 +415,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, currentU
 
 const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
   const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
-  const [currentStationIdx, setCurrentStationIdx] = useState(0); 
+  // Khởi tạo trạm hiện tại từ Firebase (nếu đã lưu), mặc định là 0
+  const savedProgress = user?.unitProgress?.[unit.id] || 0;
+  const [currentStationIdx, setCurrentStationIdx] = useState(savedProgress); 
   const [activeGame, setActiveGame] = useState(null);
 
   const getMapNodes = () => {
@@ -439,17 +461,22 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
       </div>
       <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} user={user} updateUser={updateUser} currentUnitData={currentUnitData} onWin={() => {
         setActiveGame(null);
-        if (updateUser && user) {
-           let newStars = (user.inventory?.stars ?? 0) + 15;
-           updateUser({...user, inventory: {...user.inventory, stars: newStars}});
-        }
-        if (currentStationIdx < nodes.length - 1) setCurrentStationIdx(p => p + 1);
-        else {
+        let newStars = (user?.inventory?.stars ?? 0) + 15;
+        
+        if (currentStationIdx < nodes.length - 1) {
+            const nextIdx = currentStationIdx + 1;
+            setCurrentStationIdx(nextIdx);
+            if (updateUser && user) {
+               // Lưu tiến độ trạm vào Firebase
+               updateUser({...user, inventory: {...user.inventory, stars: newStars}, unitProgress: {...(user.unitProgress || {}), [unit.id]: nextIdx}});
+            }
+        } else {
            alert("🎉 Incredible! You defeated the Boss and completed this Unit! (+50 Stars)");
            if (updateUser && user) {
-               let newStars = (user.inventory?.stars ?? 0) + 50;
+               let finalStars = newStars + 35; // +50 total
                let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
-               updateUser({...user, inventory: {...user.inventory, stars: newStars}, completedUnits: newCompleted});
+               // Boss defeated: có thể reset trạm về 0 cho lần chơi sau hoặc giữ ở Boss. Thiết lập giữ nguyên để báo hoàn thành.
+               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted});
            }
            onBack();
         }
@@ -467,18 +494,21 @@ const UnitsView = ({ grade, onBack, onSelectUnit, user }) => (
     <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
       {GRADE_UNITS.map(unit => {
         const isCompleted = user?.completedUnits?.includes(unit.id);
+        const progress = user?.unitProgress?.[unit.id] || 0;
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
           ${isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
+            progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
           
-          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'}`}>
-            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
+          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : progress > 0 ? 'bg-orange-700 text-white' : 'bg-white/20 text-white'}`}>
+            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
           </div>
           <div className="flex-1">
             <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
             {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
+            {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
           </div>
         </button>
       )})}
@@ -553,10 +583,13 @@ const PracticeHub = ({ user, onTriggerMissingData }) => {
 };
 
 const ArenaView = ({ user }) => {
-  const [arenaState, setArenaState] = useState('lobby'); 
+  const [arenaState, setArenaState] = useState('lobby'); // lobby, setup, hosting, battle, result
   const [pin, setPin] = useState('');
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
+  
+  // Arena Settings
+  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium' });
 
   useEffect(() => {
     if (arenaState === 'hosting') {
@@ -580,7 +613,7 @@ const ArenaView = ({ user }) => {
     }
   }, [arenaState, timer]);
 
-  const handleHost = () => {
+  const handleGenerateRoom = () => {
     setPin(Math.floor(10000 + Math.random() * 90000).toString());
     setPlayers([{ name: user?.name || "Host", avatar: user?.avatar, isHost: true }]);
     setArenaState('hosting');
@@ -588,8 +621,54 @@ const ArenaView = ({ user }) => {
 
   const handleStartBattle = () => {
     setArenaState('battle');
-    setTimer(10);
+    setTimer(config.timeLimit * 60); // convert mins to seconds for actual game
+    setTimer(10); // For demo purposes, keep it short
   };
+
+  if (arenaState === 'setup') {
+    return (
+      <div className="p-4 max-w-2xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10 pb-24 lg:pb-4">
+        <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 sm:p-8 w-full shadow-2xl">
+          <div className="flex items-center gap-3 mb-6 border-b border-slate-700 pb-4">
+            <Settings className="w-8 h-8 text-blue-400" />
+            <h2 className="text-2xl font-black text-white">Room Settings</h2>
+          </div>
+          
+          <div className="flex flex-col gap-5 mb-8">
+            <div>
+              <label className="text-slate-400 font-bold mb-2 block">Number of Questions</label>
+              <input type="range" min="5" max="50" step="5" value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full accent-blue-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+              <div className="text-white font-black mt-2 text-right">{config.questions} Questions</div>
+            </div>
+            
+            <div>
+              <label className="text-slate-400 font-bold mb-2 block">Time Limit (Minutes)</label>
+              <input type="range" min="1" max="10" step="1" value={config.timeLimit} onChange={(e) => setConfig({...config, timeLimit: e.target.value})} className="w-full accent-emerald-500 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+              <div className="text-white font-black mt-2 text-right">{config.timeLimit} Minutes</div>
+            </div>
+
+            <div>
+              <label className="text-slate-400 font-bold mb-2 block">AI Difficulty Level</label>
+              <div className="flex gap-2">
+                {['Easy', 'Medium', 'Hard'].map(lvl => (
+                  <button key={lvl} onClick={() => setConfig({...config, difficulty: lvl})} className={`flex-1 py-3 rounded-xl font-black transition-all ${config.difficulty === lvl ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
+                    {lvl}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+             <button onClick={() => setArenaState('lobby')} className="px-6 py-4 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition-colors">Cancel</button>
+             <button onClick={handleGenerateRoom} className="flex-1 py-4 bg-blue-600 text-white font-black text-lg rounded-xl border-b-4 border-blue-800 active:translate-y-1 active:border-b-0 transition-all flex items-center justify-center gap-2">
+               <Bot className="w-5 h-5"/> GENERATE AI ROOM
+             </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (arenaState === 'hosting') {
     return (
@@ -598,6 +677,12 @@ const ArenaView = ({ user }) => {
           <p className="text-slate-400 font-bold mb-2">Join at <span className="text-white">explorer.edu/play</span></p>
           <h2 className="text-6xl font-black text-white tracking-widest bg-slate-950 inline-block px-8 py-4 rounded-3xl border-4 border-blue-500 mb-8">{pin}</h2>
           
+          <div className="flex justify-center gap-4 mb-8 text-xs font-bold text-slate-400 uppercase tracking-wider">
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.questions} Qs</span>
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.timeLimit} Mins</span>
+             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.difficulty} Level</span>
+          </div>
+
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
             {players.map((p, i) => (
               <div key={i} className="bg-slate-800 p-4 rounded-2xl flex flex-col items-center animate-pop border border-white/5">
@@ -614,7 +699,7 @@ const ArenaView = ({ user }) => {
           </div>
           
           <button onClick={handleStartBattle} disabled={players.length < 2} className="w-full sm:w-auto px-12 py-4 bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 disabled:opacity-50">
-            START AI BATTLE
+            START BATTLE
           </button>
         </div>
       </div>
@@ -630,7 +715,7 @@ const ArenaView = ({ user }) => {
         
         <div className="bg-white rounded-[2rem] p-8 text-center shadow-2xl flex-1 flex flex-col">
           <div className="flex justify-center mb-4"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
-          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">AI Generated Challenge</p>
+          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">AI Generated Challenge ({config.difficulty})</p>
           <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-10">Complete the sentence: "I ____ to school every day."</h2>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-auto">
@@ -692,7 +777,7 @@ const ArenaView = ({ user }) => {
         <button onClick={() => setArenaState('hosting')} className="w-full bg-blue-600 text-white font-black py-3 sm:py-4 text-lg sm:text-xl rounded-xl sm:rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4">
           JOIN MATCH
         </button>
-        <button onClick={handleHost} className="w-full bg-slate-800 text-white font-black py-3 sm:py-4 text-base sm:text-lg rounded-xl sm:rounded-2xl border-2 border-slate-700 hover:bg-slate-700">
+        <button onClick={() => setArenaState('setup')} className="w-full bg-slate-800 text-white font-black py-3 sm:py-4 text-base sm:text-lg rounded-xl sm:rounded-2xl border-2 border-slate-700 hover:bg-slate-700">
           HOST A MATCH
         </button>
       </div>
@@ -709,7 +794,6 @@ const AdminPanel = ({ currentUser }) => {
   const [isPushing, setIsPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
   
-  // Tab User Management
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
@@ -1039,7 +1123,6 @@ const MainLayout = ({ user, handleLogout, updateUser }) => {
             <p className={`text-sm font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
           </div>
           
-          {/* Author Tag */}
           <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
             <p className="text-sm text-blue-400 font-black">Mr. Khoa</p>
