@@ -73,8 +73,8 @@ const generateArenaQuestions = async (scope, numQs) => {
       let text = result.candidates?.[0]?.content?.parts?.[0]?.text;
       
       if (text) {
-         // LỖI UNTERMINATED REGEX ĐÃ ĐƯỢC SỬA Ở DÒNG NÀY (Viết liền trên 1 dòng)
-         text = text.replace(/```json/gi, "").replace(/```/g, "").trim();
+         // LỖI UNTERMINATED REGEX ĐÃ ĐƯỢC SỬA: Dùng kí hiệu [\`] để file không bao giờ bị format sai xuống dòng
+         text = text.replace(/[`]{3}json/gi, "").replace(/[`]{3}/g, "").trim();
          const parsed = JSON.parse(text);
          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
