@@ -40,10 +40,9 @@ try {
   console.warn("Firebase config error:", error);
 }
 
-// BỘ NÃO AI GEMINI 2.5 CHO ARENA ĐÃ ĐƯỢC CHUẨN HOÁ & CHỐNG CRASH
+// BỘ NÃO AI GEMINI 2.5 CHO ARENA ĐÃ ĐƯỢC CHUẨN HOÁ
 const generateArenaQuestions = async (scope, numQs) => {
   let apiKey = ""; 
-  // Tự động nhận diện API Key trên môi trường Vercel (nếu có)
   try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
 
   const prompt = `Generate exactly ${numQs} multiple-choice English questions for 5th-grade students in Vietnam (10 years old). The topic is: ${scope}. Make sure it is educational and fun.`;
@@ -74,8 +73,8 @@ const generateArenaQuestions = async (scope, numQs) => {
       let text = result.candidates?.[0]?.content?.parts?.[0]?.text;
       
       if (text) {
-         // Dọn dẹp tàn dư Markdown (nếu có) từ kết quả AI trước khi parse
-         text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+         // LỖI UNTERMINATED REGEX ĐÃ ĐƯỢC SỬA Ở DÒNG NÀY (Viết liền trên 1 dòng)
+         text = text.replace(/```json/gi, "").replace(/```/g, "").trim();
          const parsed = JSON.parse(text);
          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
@@ -950,6 +949,7 @@ const ArenaView = ({ user, updateUser }) => {
   const [currentQ, setCurrentQ] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
   const [playerScore, setPlayerScore] = useState(0);
+  const [answerState, setAnswerState] = useState(null);
 
   useEffect(() => {
     if (arenaState === 'hosting') {
@@ -965,13 +965,13 @@ const ArenaView = ({ user, updateUser }) => {
   }, [arenaState]);
 
   useEffect(() => {
-    if (arenaState === 'battle' && timer > 0) {
+    if (arenaState === 'battle' && timer > 0 && !answerState) {
       const t = setTimeout(() => setTimer(timer - 1), 1000);
       return () => clearTimeout(t);
-    } else if (arenaState === 'battle' && timer === 0) {
+    } else if (arenaState === 'battle' && timer === 0 && !answerState) {
       handleAnswer(null); 
     }
-  }, [arenaState, timer]);
+  }, [arenaState, timer, answerState]);
 
   const handleGenerateRoom = () => {
     setPin(Math.floor(10000 + Math.random() * 90000).toString());
@@ -1005,22 +1005,33 @@ const ArenaView = ({ user, updateUser }) => {
     setArenaQuestions(questions);
     setCurrentQ(0);
     setPlayerScore(0);
+    setAnswerState(null);
     setIsGenerating(false);
     setArenaState('battle');
     setTimer(10); 
   };
 
   const handleAnswer = (opt) => {
-    if (opt && opt === arenaQuestions[currentQ]?.answer) {
+    if (answerState) return;
+    
+    const isCorrect = opt && opt === arenaQuestions[currentQ]?.answer;
+    setAnswerState({ selected: opt, isCorrect });
+    
+    if (isCorrect) {
         setPlayerScore(prev => prev + 10);
     }
-    if (currentQ < arenaQuestions.length - 1) {
-        setCurrentQ(prev => prev + 1);
-        setTimer(10);
-    } else {
-        setArenaState('result');
-        setRewardClaimed(false);
-    }
+    
+    setTimeout(() => {
+        if (currentQ < arenaQuestions.length - 1) {
+            setCurrentQ(prev => prev + 1);
+            setTimer(10);
+            setAnswerState(null);
+        } else {
+            setArenaState('result');
+            setRewardClaimed(false);
+            setAnswerState(null);
+        }
+    }, 500);
   };
 
   if (arenaState === 'setup') {
@@ -1136,9 +1147,17 @@ const ArenaView = ({ user, updateUser }) => {
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-auto">
             {q?.options?.map((opt, i) => {
-              const colors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
+              const defaultColors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
+              let btnClass = defaultColors[i%4];
+              
+              if (answerState) {
+                  if (opt === q.answer) btnClass = 'bg-emerald-500 border-emerald-700 animate-pulse'; 
+                  else if (opt === answerState.selected) btnClass = 'bg-rose-500 border-rose-700 opacity-50'; 
+                  else btnClass = 'bg-slate-300 border-slate-400 opacity-50'; 
+              }
+
               return (
-                <button key={i} onClick={() => handleAnswer(opt)} className={`p-4 sm:p-6 rounded-2xl text-white font-black text-sm sm:text-xl border-b-[6px] active:border-b-0 active:translate-y-2 transition-all ${colors[i%4]}`}>
+                <button key={i} onClick={() => handleAnswer(opt)} disabled={!!answerState} className={`p-4 sm:p-6 rounded-2xl text-white font-black text-sm sm:text-xl border-b-[6px] active:border-b-0 active:translate-y-2 transition-all ${btnClass}`}>
                   {opt}
                 </button>
               );
