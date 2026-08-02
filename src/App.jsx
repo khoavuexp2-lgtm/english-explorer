@@ -45,7 +45,7 @@ const generateArenaQuestions = async (scope, numQs) => {
   let apiKey = ""; 
   try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
 
-  const prompt = `Generate exactly ${numQs} multiple-choice English questions for 5th-grade students in Vietnam (10 years old). The topic is: ${scope}. Make sure it is educational and fun.`;
+  const prompt = "Generate exactly " + numQs + " multiple-choice English questions for 5th-grade students in Vietnam (10 years old). The topic is: " + scope + ". Make sure it is educational and fun.";
   
   const payload = {
     contents: [{ parts: [{ text: prompt }] }],
@@ -61,20 +61,21 @@ const generateArenaQuestions = async (scope, numQs) => {
   
   for (let attempt = 0; attempt <= 5; attempt++) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=" + apiKey, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
       
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) throw new Error("HTTP error! status: " + response.status);
       
       const result = await response.json();
       let text = result.candidates?.[0]?.content?.parts?.[0]?.text;
       
       if (text) {
-         // LỖI UNTERMINATED REGEX ĐÃ ĐƯỢC SỬA: Dùng kí hiệu [\`] để file không bao giờ bị format sai xuống dòng
-         text = text.replace(/[`]{3}json/gi, "").replace(/[`]{3}/g, "").trim();
+         // GIẢI PHÁP CHỐNG LỖI AST CỦA VERCEL 100%: Dùng mã ASCII để tạo ký tự thay vì viết trực tiếp
+         const marker = String.fromCharCode(96, 96, 96);
+         text = text.replace(new RegExp(marker + "json", "gi"), "").replace(new RegExp(marker, "g"), "").trim();
          const parsed = JSON.parse(text);
          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
