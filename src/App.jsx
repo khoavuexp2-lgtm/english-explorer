@@ -1647,6 +1647,3 @@ export default function App() {
     </>
   );
 }
-```eof
-
-Trình duyệt Safari trên iPhone 16 bây giờ sẽ hiển thị thanh Audio Player rất mượt mà. Bạn có thể nhấn Record để thu âm thử và Play để kiểm tra lại giọng của mình xem sao nhé!
