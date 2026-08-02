@@ -105,7 +105,7 @@ const evaluateSpeech = (transcript, target) => {
 
   if (cleanTranscript === cleanTarget) return { pass: true, msg: "Perfect pronunciation!" };
   if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) return { pass: false, msg: "You pronounced 'bag' instead of 'big'." };
-  return { pass: false, msg: `System heard: "${transcript}". Not quite right, try again!` };
+  return { pass: false, msg: `Try again! Remember to speak clearly.` };
 };
 
 const syncUserWithDb = async (googleUser) => {
@@ -268,7 +268,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isStationFinished, setIsStationFinished] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
+  const [audioUrl, setAudioUrl] = useState(null);
   const recognitionRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
 
   useEffect(() => {
     if (sessionData && isOpen) {
@@ -288,7 +291,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
        const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, limit);
        setSessionQList(shuffled);
        setQIndex(0); setStatus('playing'); setFeedbackMsg("");
-       setSelectedOpt(null); setOrderedWords([]); setTranscript("");
+       setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setAudioUrl(null);
        setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
     }
   }, [station, sessionData, isOpen, retryTrigger]);
@@ -311,12 +314,37 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
         recognitionRef.current.lang = 'en-US';
         recognitionRef.current.continuous = false;
         recognitionRef.current.interimResults = false;
+        
         recognitionRef.current.onresult = (event) => {
           const spokenText = event.results[0][0].transcript;
-          setTranscript(spokenText); handleVoiceCheck(spokenText); setIsListening(false);
+          setTranscript(spokenText); 
+          handleVoiceCheck(spokenText); 
+          setIsListening(false);
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+          }
         };
+
         recognitionRef.current.onerror = (event) => {
-          setFeedbackMsg("Mic Error: " + event.error); setIsListening(false); setStatus('wrong'); setIsFirstTry(false);
+          setIsListening(false);
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+          }
+          if (event.error === 'no-speech') {
+             setFeedbackMsg("Didn't hear anything. Try again!");
+             setStatus('playing');
+          } else {
+             setFeedbackMsg("Mic Error: " + event.error);
+             setStatus('wrong');
+             if (isFirstTry) { setIsFirstTry(false); deductLife(); }
+          }
+        };
+
+        recognitionRef.current.onend = () => {
+          setIsListening(false);
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+          }
         };
       }
     }
@@ -325,9 +353,48 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
-  const toggleListen = () => {
-    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); } 
-    else { setTranscript(""); setStatus('playing'); recognitionRef.current?.start(); setIsListening(true); }
+  const toggleListen = async () => {
+    if (isListening) { 
+        recognitionRef.current?.stop(); 
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+            mediaRecorderRef.current.stop();
+        }
+        setIsListening(false); 
+    } else { 
+        setTranscript(""); 
+        setStatus('playing'); 
+        setFeedbackMsg("");
+        
+        if (audioUrl) {
+            URL.revokeObjectURL(audioUrl);
+            setAudioUrl(null);
+        }
+        audioChunksRef.current = [];
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            const mediaRecorder = new MediaRecorder(stream);
+            mediaRecorderRef.current = mediaRecorder;
+
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) audioChunksRef.current.push(e.data);
+            };
+
+            mediaRecorder.onstop = () => {
+                const audioBlob = new Blob(audioChunksRef.current); 
+                const url = URL.createObjectURL(audioBlob);
+                setAudioUrl(url);
+                stream.getTracks().forEach(track => track.stop()); // Stop the mic access icon in the browser
+            };
+
+            mediaRecorder.start();
+            recognitionRef.current?.start(); 
+            setIsListening(true); 
+        } catch (err) {
+            console.error("Microphone access denied or error:", err);
+            setFeedbackMsg("Please allow microphone access to record.");
+        }
+    }
   };
 
   const deductLife = () => {
@@ -377,6 +444,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   };
 
   const handleContinue = () => {
+    if (audioUrl) {
+       URL.revokeObjectURL(audioUrl);
+       setAudioUrl(null);
+    }
     if (status === 'correct') {
       if (qIndex < sessionQList.length - 1) {
         setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
@@ -390,6 +461,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleSkip = () => {
     if (isFirstTry) deductLife();
+    if (audioUrl) {
+       URL.revokeObjectURL(audioUrl);
+       setAudioUrl(null);
+    }
     if (qIndex < sessionQList.length - 1) {
         setQIndex(p => p + 1); setStatus('playing'); setFeedbackMsg("");
         setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setIsFirstTry(true);
@@ -475,7 +550,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
         <div className="p-3 sm:p-6 flex flex-col gap-3 sm:gap-5 overflow-y-auto flex-1 hide-scrollbar">
           {qData.image && <img src={qData.image} alt="Visual" onError={(e) => e.target.style.display='none'} className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
-          {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto">{qData.passage}</div>}
+          {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
             <button onClick={() => playAudio(qData.audioText || qData.targetText || qData.question)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
@@ -485,10 +560,32 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
           {qData.type === 'speak' && (
             <div className="flex flex-col items-center gap-4 py-2">
               <div className="text-lg sm:text-2xl font-black text-slate-800 text-center px-2">"{qData.targetText}"</div>
-              <button onClick={toggleListen} className={`w-16 h-16 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-slate-100 text-slate-600 border-4 border-slate-200 hover:scale-105'}`}>
+              <button onClick={toggleListen} className={`w-16 h-16 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-blue-50 text-blue-600 border-4 border-blue-200 hover:scale-105'}`}>
                 <Mic className={`w-8 h-8 sm:w-10 sm:h-10 ${isListening ? 'animate-bounce' : ''}`} />
               </button>
-              <div className="text-center">{isListening ? <p className="text-rose-500 font-bold animate-pulse text-xs sm:text-sm">Listening...</p> : <p className="text-slate-500 font-medium text-xs">{transcript ? `You said: "${transcript}"` : qData.hint}</p>}</div>
+              <div className="text-center w-full px-4">
+                 {isListening ? (
+                    <p className="text-rose-500 font-bold animate-pulse text-sm">Listening... Speak now!</p>
+                 ) : (
+                    transcript ? (
+                      <div className="bg-slate-100 p-3 sm:p-4 rounded-xl border border-slate-200 shadow-inner flex flex-col gap-2">
+                         <div>
+                            <p className="text-xs text-slate-500 mb-1 font-bold uppercase tracking-wider">You said:</p>
+                            <p className="text-slate-800 font-black text-lg">"{transcript}"</p>
+                         </div>
+                         {audioUrl && (
+                            <div className="mt-2 border-t border-slate-200 pt-3">
+                               <p className="text-[10px] text-slate-500 font-bold mb-2 uppercase tracking-wider">Your Voice:</p>
+                               <audio controls src={audioUrl} className="w-full h-8 outline-none rounded-lg" />
+                            </div>
+                         )}
+                      </div>
+                    ) : (
+                      <p className="text-slate-500 font-medium text-sm">{qData.hint}</p>
+                    )
+                 )}
+                 {status === 'playing' && feedbackMsg && <p className="text-rose-500 font-bold text-sm mt-2">{feedbackMsg}</p>}
+              </div>
             </div>
           )}
 
@@ -519,7 +616,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
         <div className="p-3 sm:p-4 bg-slate-50 border-t border-slate-200 shrink-0">
           {status === 'playing' ? (
-            qData.type !== 'speak' && <button onClick={handleCheck} className="w-full py-2.5 sm:py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 text-sm sm:text-base">CHECK ANSWER</button>
+            <div className="flex gap-2">
+              <button onClick={handleSkip} className="px-4 py-3 sm:py-4 bg-slate-200 text-slate-500 hover:text-slate-700 font-black rounded-xl active:translate-y-1 hover:bg-slate-300 transition-colors flex items-center justify-center border-b-4 border-slate-300 active:border-b-0 shrink-0" title="Skip Question">
+                <SkipForward className="w-5 h-5 sm:w-6 sm:h-6" />
+              </button>
+              {qData.type !== 'speak' && (
+                <button onClick={handleCheck} className="flex-1 py-3 sm:py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 text-sm sm:text-base">
+                  CHECK ANSWER
+                </button>
+              )}
+            </div>
           ) : (
             <div className={`p-3 rounded-xl flex flex-col gap-3 animate-pop ${status === 'correct' ? 'bg-emerald-100 border border-emerald-300' : 'bg-rose-100 border border-rose-300'}`}>
               <div className="flex items-start justify-between gap-2">
@@ -1225,10 +1331,22 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
 
   useEffect(() => {
-    const meta = document.createElement('meta');
-    meta.name = "viewport";
-    meta.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
-    document.head.appendChild(meta);
+    document.documentElement.lang = "en";
+    document.documentElement.setAttribute('translate', 'no');
+    
+    if (!document.querySelector('meta[name="google"]')) {
+       const meta = document.createElement('meta');
+       meta.name = 'google';
+       meta.content = 'notranslate';
+       document.head.appendChild(meta);
+    }
+    document.body.classList.add('notranslate');
+
+    const metaViewport = document.createElement('meta');
+    metaViewport.name = "viewport";
+    metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+    document.head.appendChild(metaViewport);
+
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
   }, []);
 
@@ -1349,7 +1467,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
           if (practiceCategory === 'cambridge') { 
               icon = Medal; 
               color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; 
-              itemsList = syllabusConfig.units; // Hoặc tạo 1 array riêng cho cambridge nếu cần
+              itemsList = syllabusConfig.units;
           }
 
           return <GenericListSelector title={practiceCategory.toUpperCase()} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color}
