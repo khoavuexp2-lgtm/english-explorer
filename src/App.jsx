@@ -100,11 +100,37 @@ const playAudio = (text) => {
 const evaluateSpeech = (transcript, target) => {
   let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
   let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  
   cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
   cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
 
+  // CHUẨN HÓA SỐ VÀ TỪ VIẾT TẮT ĐẶC TRỊ SAFARI IOS
+  const normalizationDict = {
+    '15': 'fifteen',
+    '16': 'sixteen',
+    '38': 'thirty eight',
+    '81': 'eighty one',
+    '93': 'ninety three',
+    '116': 'one hundred and sixteen',
+    '33': 'thirty three',
+    '97': 'ninety seven',
+    '67': 'sixty seven',
+    '79': 'seventy nine',
+    '23': 'twenty three',
+    'st': 'street',
+    'rd': 'road',
+    'ave': 'avenue'
+  };
+
+  const transcriptWords = cleanTranscript.split(' ').map(word => normalizationDict[word] || word);
+  cleanTranscript = transcriptWords.join(' ');
+
+  cleanTranscript = cleanTranscript.replace(/\s+/g, ' ').trim();
+  cleanTarget = cleanTarget.replace(/\s+/g, ' ').trim();
+
   if (cleanTranscript === cleanTarget) return { pass: true, msg: "Perfect pronunciation!" };
   if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) return { pass: false, msg: "You pronounced 'bag' instead of 'big'." };
+  
   return { pass: false, msg: `Try again! Remember to speak clearly.` };
 };
 
@@ -373,7 +399,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream);
+            
+            // XÁC ĐỊNH MIME TYPE CHUẨN ĐỂ SAFARI CÓ THỂ PHÁT LẠI ĐƯỢC
+            let options = {};
+            if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                options = { mimeType: 'audio/mp4' };
+            } else if (MediaRecorder.isTypeSupported('audio/webm')) {
+                options = { mimeType: 'audio/webm' };
+            }
+
+            const mediaRecorder = new MediaRecorder(stream, options);
             mediaRecorderRef.current = mediaRecorder;
 
             mediaRecorder.ondataavailable = (e) => {
@@ -381,10 +416,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
             };
 
             mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunksRef.current); 
+                // ĐẶC TRỊ SAFARI IOS: Ép kiểu MIME Type vào Blob để thanh Audio đọc được
+                const mimeType = mediaRecorder.mimeType || 'audio/mp4';
+                const audioBlob = new Blob(audioChunksRef.current, { type: mimeType }); 
                 const url = URL.createObjectURL(audioBlob);
                 setAudioUrl(url);
-                stream.getTracks().forEach(track => track.stop()); // Stop the mic access icon in the browser
+                stream.getTracks().forEach(track => track.stop());
             };
 
             mediaRecorder.start();
@@ -576,7 +613,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                          {audioUrl && (
                             <div className="mt-2 border-t border-slate-200 pt-3">
                                <p className="text-[10px] text-slate-500 font-bold mb-2 uppercase tracking-wider">Your Voice:</p>
-                               <audio controls src={audioUrl} className="w-full h-8 outline-none rounded-lg" />
+                               <audio controls src={audioUrl} className="w-full h-10 outline-none rounded-lg" />
                             </div>
                          )}
                       </div>
@@ -1610,3 +1647,6 @@ export default function App() {
     </>
   );
 }
+```eof
+
+Trình duyệt Safari trên iPhone 16 bây giờ sẽ hiển thị thanh Audio Player rất mượt mà. Bạn có thể nhấn Record để thu âm thử và Play để kiểm tra lại giọng của mình xem sao nhé!
