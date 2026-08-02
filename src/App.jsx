@@ -40,9 +40,12 @@ try {
   console.warn("Firebase config error:", error);
 }
 
-// BỘ NÃO AI GEMINI 2.5 CHO ARENA ĐÃ ĐƯỢC CHUẨN HOÁ
+// BỘ NÃO AI GEMINI 2.5 CHO ARENA ĐÃ ĐƯỢC CHUẨN HOÁ & CHỐNG CRASH
 const generateArenaQuestions = async (scope, numQs) => {
-  const apiKey = ""; 
+  let apiKey = ""; 
+  // Tự động nhận diện API Key trên môi trường Vercel (nếu có)
+  try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
+
   const prompt = `Generate exactly ${numQs} multiple-choice English questions for 5th-grade students in Vietnam (10 years old). The topic is: ${scope}. Make sure it is educational and fun.`;
   
   const payload = {
@@ -68,9 +71,11 @@ const generateArenaQuestions = async (scope, numQs) => {
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       
       const result = await response.json();
-      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      let text = result.candidates?.[0]?.content?.parts?.[0]?.text;
       
       if (text) {
+         // Dọn dẹp tàn dư Markdown (nếu có) từ kết quả AI trước khi parse
+         text = text.replace(/```json/gi, '').replace(/```/g, '').trim();
          const parsed = JSON.parse(text);
          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
       }
@@ -79,7 +84,7 @@ const generateArenaQuestions = async (scope, numQs) => {
       if (attempt === 5) {
          console.error("AI Generation failed after 5 retries.", e);
          return [
-           { question: "System Error. Could not connect to AI. Please exit and try Static Bank.", options: ["A", "B", "C", "D"], answer: "A" }
+           { question: "System Error. Could not connect to AI. Please check your API Key on Vercel.", options: ["A", "B", "C", "D"], answer: "A" }
          ];
       }
       await new Promise(resolve => setTimeout(resolve, delays[attempt]));
@@ -1679,61 +1684,5 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       
       <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
     </div>
-  );
-};
-
-export default function App() {
-  const [user, setUser] = useState(null);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [globalToast, setGlobalToast] = useState("");
-
-  const showToast = (msg) => {
-      setGlobalToast(msg);
-      setTimeout(() => setGlobalToast(""), 4000);
-  };
-
-  useEffect(() => {
-    if (!auth) { setIsAuthChecking(false); return; }
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        const userProfile = await syncUserWithDb(firebaseUser);
-        setUser(userProfile);
-      } else { setUser(null); }
-      setIsAuthChecking(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const handleLogout = async () => { if (auth) await signOut(auth); setUser(null); };
-
-  const updateUserAndDb = async (newUserData) => {
-    setUser(newUserData); 
-    if (db && newUserData) {
-      try { 
-        const cleanData = JSON.parse(JSON.stringify(newUserData));
-        const targetUid = cleanData.uid || auth?.currentUser?.uid; 
-        if (!targetUid) return;
-        await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
-      } 
-      catch(e) { 
-        console.error("Firestore save failed:", e); 
-        if (newUserData.role === 'admin' || newUserData.role === 'superadmin') {
-           showToast(`[Admin Error] Firebase: ${e.message}`);
-        }
-      }
-    }
-  };
-
-  if (isAuthChecking) return <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center px-4"><div className="flex flex-col items-center gap-4 text-center"><Compass className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500 animate-spin" /><p className="text-white font-black animate-pulse text-sm sm:text-base">Checking credentials...</p></div></div>;
-  
-  return (
-    <>
-      {globalToast && (
-          <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-slate-900 text-emerald-400 px-6 py-3 rounded-xl shadow-2xl z-[200] font-bold border border-emerald-500 animate-slide-up whitespace-nowrap">
-              {globalToast}
-          </div>
-      )}
-      {!user ? <OnboardingView /> : <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} showToast={showToast} />}
-    </>
   );
 }
