@@ -40,6 +40,44 @@ try {
   console.warn("Firebase config error:", error);
 }
 
+let geminiApiKey = "";
+try {
+  geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
+} catch (e) {
+  geminiApiKey = ""; 
+}
+
+const generateArenaQuestions = async (scope, numQs) => {
+  if (!geminiApiKey) {
+     return [
+        { question: "Local Mode: Where do you live?", options: ["In a flat", "In a notebook", "In a ruler", "In a pen"], answer: "In a flat" },
+        { question: "Local Mode: What is your address?", options: ["It is a flat", "It is 45 King Street", "Yes, I do", "No, I don't"], answer: "It is 45 King Street" },
+        { question: "Local Mode: Do you live in a tower?", options: ["Yes, I do.", "Yes, I am.", "No, I am not.", "I live in a tower."], answer: "Yes, I do." }
+     ];
+  }
+  
+  const prompt = `You are an English teacher. Generate exactly ${numQs} multiple-choice questions for 5th-grade students (10 years old). Topic scope: ${scope}. Return ONLY a raw JSON array. NO markdown formatting, NO backticks, NO extra text.
+  Format strictly as: [{"question": "...", "options": ["opt1", "opt2", "opt3", "opt4"], "answer": "opt1"}]`;
+  
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+    });
+    const data = await response.json();
+    let text = data.candidates[0].content.parts[0].text;
+    text = text.replace(/
+```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("AI Generation error:", e);
+    return [
+        { question: "AI Error: Could not connect to Gemini. Try again!", options: ["A", "B", "C", "D"], answer: "A" }
+    ];
+  }
+};
+
 const globalStyles = `
   .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   .hide-scrollbar::-webkit-scrollbar { display: none; }
@@ -104,7 +142,6 @@ const evaluateSpeech = (transcript, target) => {
   cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
   cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
 
-  // CHUẨN HÓA SỐ VÀ TỪ VIẾT TẮT ĐẶC TRỊ SAFARI IOS
   const normalizationDict = {
     '15': 'fifteen',
     '16': 'sixteen',
@@ -400,7 +437,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
-            // XÁC ĐỊNH MIME TYPE CHUẨN ĐỂ SAFARI CÓ THỂ PHÁT LẠI ĐƯỢC
             let options = {};
             if (MediaRecorder.isTypeSupported('audio/mp4')) {
                 options = { mimeType: 'audio/mp4' };
@@ -416,7 +452,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
             };
 
             mediaRecorder.onstop = () => {
-                // ĐẶC TRỊ SAFARI IOS: Ép kiểu MIME Type vào Blob để thanh Audio đọc được
                 const mimeType = mediaRecorder.mimeType || 'audio/mp4';
                 const audioBlob = new Blob(audioChunksRef.current, { type: mimeType }); 
                 const url = URL.createObjectURL(audioBlob);
@@ -897,6 +932,10 @@ const ArenaView = ({ user, updateUser }) => {
   const [timer, setTimer] = useState(10);
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium', source: 'ai', scope: 'u1' });
+  const [arenaQuestions, setArenaQuestions] = useState([]);
+  const [currentQ, setCurrentQ] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [playerScore, setPlayerScore] = useState(0);
 
   useEffect(() => {
     if (arenaState === 'hosting') {
@@ -916,8 +955,7 @@ const ArenaView = ({ user, updateUser }) => {
       const t = setTimeout(() => setTimer(timer - 1), 1000);
       return () => clearTimeout(t);
     } else if (arenaState === 'battle' && timer === 0) {
-      setArenaState('result');
-      setRewardClaimed(false);
+      handleAnswer(null); // Time out
     }
   }, [arenaState, timer]);
 
@@ -927,9 +965,46 @@ const ArenaView = ({ user, updateUser }) => {
     setArenaState('hosting');
   };
 
-  const handleStartBattle = () => {
+  const handleStartBattle = async () => {
+    setIsGenerating(true);
+    let questions = [];
+    
+    if (config.source === 'ai') {
+        questions = await generateArenaQuestions(config.scope, Math.min(config.questions, 15));
+    } else {
+        try {
+            let targetUnit = config.scope.replace('u', '');
+            if(targetUnit === 'all' || targetUnit === 'mixed') targetUnit = '1';
+            const snap = await getDoc(doc(db, "extra", `grade5_extra${targetUnit}`));
+            if (snap.exists() && snap.data().questions) {
+                questions = snap.data().questions.sort(()=>Math.random()-0.5).slice(0, config.questions);
+            }
+        } catch(e) { console.error("Bank fetch error:", e); }
+    }
+    
+    if (!questions || questions.length === 0) {
+        questions = [{ question: "System Error. What is 1+1?", options: ["1", "2", "3", "4"], answer: "2" }];
+    }
+    
+    setArenaQuestions(questions);
+    setCurrentQ(0);
+    setPlayerScore(0);
+    setIsGenerating(false);
     setArenaState('battle');
     setTimer(10); 
+  };
+
+  const handleAnswer = (opt) => {
+    if (opt && opt === arenaQuestions[currentQ]?.answer) {
+        setPlayerScore(prev => prev + 10);
+    }
+    if (currentQ < arenaQuestions.length - 1) {
+        setCurrentQ(prev => prev + 1);
+        setTimer(10);
+    } else {
+        setArenaState('result');
+        setRewardClaimed(false);
+    }
   };
 
   if (arenaState === 'setup') {
@@ -945,10 +1020,9 @@ const ArenaView = ({ user, updateUser }) => {
             <div>
               <label className="text-slate-400 font-bold mb-2 block flex items-center gap-2"><Filter className="w-4 h-4"/> Knowledge Scope</label>
               <select value={config.scope} onChange={(e) => setConfig({...config, scope: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
-                  <option value="u1">Unit 1 Only</option>
-                  <option value="u1-u5">Units 1 - 5 (Mid-Term)</option>
-                  <option value="all">All Grade Units</option>
-                  <option value="mixed">Mixed Grades (3, 4, 5)</option>
+                  <option value="Unit 1">Unit 1 Only</option>
+                  <option value="Unit 2">Unit 2 Only</option>
+                  <option value="Units 1 to 5">Units 1 - 5 (Mid-Term)</option>
               </select>
             </div>
 
@@ -968,7 +1042,7 @@ const ArenaView = ({ user, updateUser }) => {
                 <div>
                   <label className="text-slate-400 font-bold mb-2 block">Number of Questions</label>
                   <select value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
-                      {[10, 20, 30, 40, 50].map(n => <option key={n} value={n}>{n} Qs</option>)}
+                      {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n} Qs</option>)}
                   </select>
                 </div>
                 <div>
@@ -1019,8 +1093,8 @@ const ArenaView = ({ user, updateUser }) => {
             )}
           </div>
           
-          <button onClick={handleStartBattle} disabled={players.length < 2} className="w-full sm:w-auto px-12 py-4 bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 disabled:opacity-50">
-            START BATTLE
+          <button onClick={handleStartBattle} disabled={players.length < 2 || isGenerating} className="w-full sm:w-auto px-12 py-4 bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 disabled:opacity-50 transition-all flex justify-center items-center gap-3 mx-auto">
+            {isGenerating ? <><Loader2 className="w-6 h-6 animate-spin"/> CRAFTING BATTLEFIELD...</> : 'START BATTLE'}
           </button>
         </div>
       </div>
@@ -1028,22 +1102,27 @@ const ArenaView = ({ user, updateUser }) => {
   }
 
   if (arenaState === 'battle') {
+    const q = arenaQuestions[currentQ];
     return (
       <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
+        <div className="flex justify-between text-white font-bold mb-2">
+            <span>Q: {currentQ + 1} / {arenaQuestions.length}</span>
+            <span className="text-yellow-400">Score: {playerScore}</span>
+        </div>
         <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10">
-          <div className="h-full bg-blue-500 animate-timer" style={{ animationDuration: '10s' }}></div>
+          <div className="h-full bg-blue-500 transition-all ease-linear" style={{ width: `${(timer/10)*100}%` }}></div>
         </div>
         
-        <div className="bg-white rounded-[2rem] p-8 text-center shadow-2xl flex-1 flex flex-col">
-          <div className="flex justify-center mb-4"><Bot className="w-12 h-12 text-purple-500 animate-pulse" /></div>
-          <p className="text-purple-600 font-bold text-sm uppercase tracking-widest mb-6">{config.source === 'ai' ? `AI Challenge` : `Bank Challenge`} - {config.scope}</p>
-          <h2 className="text-2xl sm:text-3xl font-black text-slate-800 mb-10">Waiting for Cloud Data...</h2>
+        <div className="bg-white rounded-[2rem] p-6 sm:p-10 text-center shadow-2xl flex-1 flex flex-col animate-slide-up">
+          <div className="flex justify-center mb-4"><Bot className="w-10 h-10 text-purple-500 animate-pulse" /></div>
+          <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">{config.source === 'ai' ? `AI Challenge` : `Bank Challenge`} - {config.scope}</p>
+          <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12">{q?.question || "Loading..."}</h2>
           
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-auto">
-            {['...', '...', '...', '...'].map((opt, i) => {
-              const colors = ['bg-rose-500 border-rose-700', 'bg-blue-500 border-blue-700', 'bg-amber-500 border-amber-700', 'bg-emerald-500 border-emerald-700'];
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-auto">
+            {q?.options?.map((opt, i) => {
+              const colors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
               return (
-                <button key={i} onClick={() => setArenaState('result')} className={`p-6 sm:p-8 rounded-2xl text-white font-black text-xl sm:text-2xl border-b-[8px] active:border-b-0 active:translate-y-2 transition-all ${colors[i]}`}>
+                <button key={i} onClick={() => handleAnswer(opt)} className={`p-4 sm:p-6 rounded-2xl text-white font-black text-sm sm:text-xl border-b-[6px] active:border-b-0 active:translate-y-2 transition-all ${colors[i%4]}`}>
                   {opt}
                 </button>
               );
@@ -1059,8 +1138,8 @@ const ArenaView = ({ user, updateUser }) => {
       <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex items-center justify-center relative z-10 pb-24 lg:pb-4">
         <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-8 sm:p-12 text-center shadow-2xl w-full">
           <Trophy className="w-20 h-20 sm:w-24 h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
-          <h2 className="text-3xl sm:text-4xl font-black text-white mb-2">Victory!</h2>
-          <p className="text-emerald-400 font-bold text-lg sm:text-xl mb-8">+50 Stars Earned</p>
+          <h2 className="text-3xl sm:text-4xl font-black text-white mb-2">Battle Finished!</h2>
+          <p className="text-emerald-400 font-bold text-lg sm:text-xl mb-8">Score: {playerScore} / {config.questions * 10} (+{Math.floor(playerScore/2)} Stars Earned)</p>
           
           <div className="flex justify-center gap-2 sm:gap-4 mb-8 items-end">
             <div className="flex flex-col items-center">
@@ -1079,7 +1158,7 @@ const ArenaView = ({ user, updateUser }) => {
 
           <button onClick={() => {
              if (!rewardClaimed && updateUser && user) {
-                updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + 50}});
+                updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + Math.floor(playerScore/2)}});
                 setRewardClaimed(true);
              }
              setArenaState('lobby');
