@@ -40,41 +40,50 @@ try {
   console.warn("Firebase config error:", error);
 }
 
-let geminiApiKey = "";
-try {
-  geminiApiKey = import.meta.env.VITE_GEMINI_API_KEY || "";
-} catch (e) {
-  geminiApiKey = ""; 
-}
-
+// BỘ NÃO AI GEMINI 2.5 CHO ARENA ĐÃ ĐƯỢC CHUẨN HOÁ
 const generateArenaQuestions = async (scope, numQs) => {
-  if (!geminiApiKey) {
-     return [
-        { question: "Local Mode: Where do you live?", options: ["In a flat", "In a notebook", "In a ruler", "In a pen"], answer: "In a flat" },
-        { question: "Local Mode: What is your address?", options: ["It is a flat", "It is 45 King Street", "Yes, I do", "No, I don't"], answer: "It is 45 King Street" },
-        { question: "Local Mode: Do you live in a tower?", options: ["Yes, I do.", "Yes, I am.", "No, I am not.", "I live in a tower."], answer: "Yes, I do." }
-     ];
-  }
+  const apiKey = ""; 
+  const prompt = `Generate exactly ${numQs} multiple-choice English questions for 5th-grade students in Vietnam (10 years old). The topic is: ${scope}. Make sure it is educational and fun.`;
   
-  const prompt = `You are an English teacher. Generate exactly ${numQs} multiple-choice questions for 5th-grade students (10 years old). Topic scope: ${scope}. Return ONLY a raw JSON array. NO markdown formatting, NO backticks, NO extra text.
-  Format strictly as: [{"question": "...", "options": ["opt1", "opt2", "opt3", "opt4"], "answer": "opt1"}]`;
+  const payload = {
+    contents: [{ parts: [{ text: prompt }] }],
+    systemInstruction: { 
+      parts: [{ text: "You are an expert English teacher. You MUST return ONLY a JSON array. Each object must have exactly these keys: 'question' (string), 'options' (array of 4 string choices), and 'answer' (string, must exactly match one of the options)." }] 
+    },
+    generationConfig: { 
+      responseMimeType: "application/json" 
+    }
+  };
+
+  const delays = [1000, 2000, 4000, 8000, 16000];
   
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
-    });
-    const data = await response.json();
-    let text = data.candidates[0].content.parts[0].text;
-    text = text.replace(/
-```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(text);
-  } catch (e) {
-    console.error("AI Generation error:", e);
-    return [
-        { question: "AI Error: Could not connect to Gemini. Try again!", options: ["A", "B", "C", "D"], answer: "A" }
-    ];
+  for (let attempt = 0; attempt <= 5; attempt++) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      
+      const result = await response.json();
+      const text = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      if (text) {
+         const parsed = JSON.parse(text);
+         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+      throw new Error("Invalid format returned by AI.");
+    } catch (e) {
+      if (attempt === 5) {
+         console.error("AI Generation failed after 5 retries.", e);
+         return [
+           { question: "System Error. Could not connect to AI. Please exit and try Static Bank.", options: ["A", "B", "C", "D"], answer: "A" }
+         ];
+      }
+      await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+    }
   }
 };
 
@@ -931,7 +940,7 @@ const ArenaView = ({ user, updateUser }) => {
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
   const [rewardClaimed, setRewardClaimed] = useState(false);
-  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium', source: 'ai', scope: 'u1' });
+  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium', source: 'ai', scope: 'Unit 1' });
   const [arenaQuestions, setArenaQuestions] = useState([]);
   const [currentQ, setCurrentQ] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -955,7 +964,7 @@ const ArenaView = ({ user, updateUser }) => {
       const t = setTimeout(() => setTimer(timer - 1), 1000);
       return () => clearTimeout(t);
     } else if (arenaState === 'battle' && timer === 0) {
-      handleAnswer(null); // Time out
+      handleAnswer(null); 
     }
   }, [arenaState, timer]);
 
@@ -973,8 +982,10 @@ const ArenaView = ({ user, updateUser }) => {
         questions = await generateArenaQuestions(config.scope, Math.min(config.questions, 15));
     } else {
         try {
-            let targetUnit = config.scope.replace('u', '');
-            if(targetUnit === 'all' || targetUnit === 'mixed') targetUnit = '1';
+            let targetUnit = '1';
+            if (config.scope.includes('2')) targetUnit = '2';
+            else if (config.scope.includes('5')) targetUnit = 'r1'; 
+            
             const snap = await getDoc(doc(db, "extra", `grade5_extra${targetUnit}`));
             if (snap.exists() && snap.data().questions) {
                 questions = snap.data().questions.sort(()=>Math.random()-0.5).slice(0, config.questions);
