@@ -41,7 +41,6 @@ const audioCache = new Map();
 const globalAudioPlayer = new Audio();
 let isAudioUnlocked = false;
 
-// Mở khóa Audio trên thiết bị Apple
 const unlockAudioEngine = () => {
     if (isAudioUnlocked) return;
     globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
@@ -61,7 +60,6 @@ if (typeof document !== 'undefined') {
     document.addEventListener('click', unlockAudioEngine);
 }
 
-// BỘ TẠO MÃ HASH ĐỘC NHẤT
 const generateSafeId = (text) => {
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
@@ -88,7 +86,7 @@ const pcmToWav = (pcmData, sampleRate) => {
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
-// Giọng Robot mặc định (Phát trực tiếp trình duyệt, KHÔNG BAO GIỜ lưu lên database)
+// Giọng Robot (Fallback)
 const playSystemAudio = (text) => { 
   if ('speechSynthesis' in window) {
     if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
@@ -100,16 +98,14 @@ const playSystemAudio = (text) => {
   }
 };
 
-// HÀM TẢI AUDIO CÓ CHẾ ĐỘ "TỰ CHỮA LÀNH" VÀ BACKOFF
-const fetchAndCacheAudio = async (text, voiceNameParam) => {
+// HÀM TẢI AUDIO TỪ FIREBASE DÀNH CHO HỌC SINH (TUYỆT ĐỐI KHÔNG GỌI API GEMINI)
+const fetchAndCacheAudio = async (text) => {
   if (!text) return null;
   const cleanText = text.trim();
   const safeId = generateSafeId(cleanText);
   
-  // 1. Kiểm tra trong RAM (Local Cache)
   if (audioCache.has(safeId)) return audioCache.get(safeId);
 
-  // 2. Tìm trên Firebase (Cloud Cache) - Ưu tiên cao nhất
   if (db) {
       try {
           const docSnap = await getDoc(doc(db, "audio_cache", safeId));
@@ -122,79 +118,30 @@ const fetchAndCacheAudio = async (text, voiceNameParam) => {
           }
       } catch (err) { console.warn("Firebase Cache read error:", err); }
   }
-
-  // 3. Cơ chế tự chữa lành (Tự động gọi Gemini nếu Admin quên Build Audio câu này)
-  let apiKey = ""; 
-  try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
-  if (!apiKey) return null;
-
-  const delays = [1000, 2000, 4000, 8000, 16000];
-  const voiceName = voiceNameParam || VOICES[Math.abs(safeId.length) % VOICES.length];
-  let promptText = cleanText;
-  if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${cleanText}`;
-
-  const payload = {
-    contents: [{ parts: [{ text: promptText }] }],
-    generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } },
-    model: "gemini-2.5-flash-preview-tts"
-  };
-
-  for (let attempt = 0; attempt <= 5; attempt++) {
-      try {
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-          });
-          
-          if (response.ok) {
-              const data = await response.json();
-              const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-              if (inlineData) {
-                  const wavBlob = pcmToWav(inlineData.data, 24000);
-                  const audioUrl = URL.createObjectURL(wavBlob);
-                  audioCache.set(safeId, audioUrl); // Lưu RAM
-                  
-                  // Lưu luôn lên Firebase để máy khác không phải gọi lại
-                  if (db) {
-                      setDoc(doc(db, "audio_cache", safeId), {
-                          text: cleanText, voice: voiceName, audioBase64: inlineData.data, createdAt: new Date().toISOString()
-                      }).catch(()=>{});
-                  }
-                  return audioUrl;
-              }
-          } else if (response.status !== 429) {
-              break; // Lỗi cứng (sai key, sai form), thoát vòng lặp retry
-          }
-      } catch (err) {}
-      // Nếu lỗi 429 (Quá tải), tự động chờ và thử lại
-      if (attempt < 5) await new Promise(r => setTimeout(r, delays[attempt]));
-  }
-
   return null;
 };
 
-// Hàm chạy ngầm tải trước dữ liệu vào RAM
-const preloadTTS = (text, voiceName) => { fetchAndCacheAudio(text, voiceName); };
+// Hàm preload cho học sinh (Chỉ check DB, không gọi AI)
+const preloadTTS = (text) => { fetchAndCacheAudio(text); };
 
-// HÀM PHÁT ÂM THANH CHÍNH
-const playPremiumAudio = async (text, voiceName) => {
+const playPremiumAudio = async (text) => {
   if (!text) return;
   const cleanText = text.trim();
 
-  // Mở khóa âm thanh thiết bị Apple
   if (globalAudioPlayer.src === "" || globalAudioPlayer.src === window.location.href) {
       globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
       globalAudioPlayer.play().then(() => globalAudioPlayer.pause()).catch(()=>{});
   }
 
   try {
-      const url = await fetchAndCacheAudio(cleanText, voiceName);
+      const url = await fetchAndCacheAudio(cleanText);
       if (url) {
           globalAudioPlayer.src = url;
           globalAudioPlayer.load();
           await globalAudioPlayer.play();
       } else {
-          // Báo log và tự động rơi về giọng Robot 
-          console.warn("API từ chối cấp Audio cho câu này, chuyển sang giọng Robot dự phòng.");
+          // Rơi về giọng Robot nếu Admin chưa Build Audio câu này
+          console.warn("Chưa có âm thanh trên Cloud, phát giọng hệ thống.");
           playSystemAudio(cleanText);
       }
   } catch (error) {
@@ -520,17 +467,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   // ==========================================
   useEffect(() => {
     if (qData) {
-        const v = VOICES[qIndex % VOICES.length];
         const mainText = qData.audioText || qData.targetText || qData.question;
-        if (mainText) preloadTTS(mainText, v);
-        if (qData.options) qData.options.forEach(opt => preloadTTS(opt, v));
-        if (qData.words) qData.words.forEach(w => preloadTTS(w, v));
+        if (mainText) preloadTTS(mainText);
+        if (qData.options) qData.options.forEach(opt => preloadTTS(opt));
+        if (qData.words) qData.words.forEach(w => preloadTTS(w));
     }
     if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
   }, [qData, qIndex]);
 
   useEffect(() => {
-    if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer, VOICES[qIndex % VOICES.length]);
+    if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer);
   }, [status, qData, qIndex]);
 
   useEffect(() => {
@@ -565,7 +511,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleMainAudioClick = () => {
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
-     if (textToSpeak) playPremiumAudio(textToSpeak, VOICES[qIndex % VOICES.length]);
+     if (textToSpeak) playPremiumAudio(textToSpeak);
   };
 
   const toggleListen = async () => {
@@ -615,7 +561,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt, VOICES[qIndex % VOICES.length]); };
+  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt); };
 
   const handleCheck = () => {
     let isCorrect = false;
@@ -633,7 +579,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleOrderWord = (w) => {
     if (orderedWords.includes(w)) setOrderedWords(orderedWords.filter(x => x !== w));
-    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w, VOICES[qIndex % VOICES.length]); }
+    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w); }
   };
 
   const handleContinue = () => {
@@ -1217,7 +1163,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-auto">
             {q?.options?.map((opt, i) => {
-              const defaultColors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-50 border-emerald-700 hover:bg-emerald-400'];
+              const defaultColors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
               let btnClass = defaultColors[i%4];
               if (answerState) {
                   if (opt === q.answer) btnClass = 'bg-emerald-500 border-emerald-700 animate-pulse'; 
@@ -1384,13 +1330,12 @@ const AdminPanel = ({ currentUser, showToast }) => {
     } finally { setIsPushing(false); }
   };
 
-  // Quét toàn bộ Text (Ngoại trừ phần Speak)
   const extractTextsFromJSON = (obj, textsSet = new Set()) => {
       if (!obj) return textsSet;
       if (Array.isArray(obj)) {
           obj.forEach(item => extractTextsFromJSON(item, textsSet));
       } else if (typeof obj === 'object') {
-          // TUYỆT ĐỐI BỎ QUA TOÀN BỘ DỮ LIỆU CỦA CÂU HỎI LOẠI "SPEAK"
+          // BỎ QUA CÂU "SPEAK"
           if (obj.type === 'speak') return textsSet;
 
           for (const key in obj) {
@@ -1446,52 +1391,48 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   model: "gemini-2.5-flash-preview-tts"
               };
 
-              let success = false;
-              let apiErrorMsg = "";
-              const delays = [1000, 2000, 4000, 8000, 16000];
-
-              for (let attempt = 0; attempt <= 5; attempt++) {
-                  try {
-                      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
-                          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-                      });
-                      
-                      if (response.ok) {
-                          const data = await response.json();
-                          const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-                          if (inlineData) {
-                              await setDoc(doc(db, "audio_cache", safeId), {
-                                  text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
-                              });
-                              success = true;
-                              successCount++;
-                              break;
-                          }
+              // GỌI API GEMINI VÀ XỬ LÝ LỖI (KHÔNG CÓ RETRY ĐỂ TRÁNH TREO)
+              try {
+                  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                  });
+                  
+                  if (!response.ok) { 
+                      console.error(`Lỗi Gemini API ở câu: ${currentText}`); 
+                      if (response.status === 429) {
+                          setPushMsg({ type: 'error', text: `❌ Quá tải 10 lượt/phút (Lỗi 429)! Đã lưu thành công ${successCount} audio. Vui lòng đợi 1 phút rồi bấm BUILD AUDIO lại.` });
+                          setIsGeneratingAudio(false);
+                          return;
                       } else {
                           const errData = await response.json();
-                          apiErrorMsg = errData.error?.message || `Lỗi HTTP ${response.status}`;
-                          if (response.status !== 429) {
-                              break; 
-                          }
+                          const msg = errData.error?.message || `Lỗi HTTP ${response.status}`;
+                          setPushMsg({ type: 'error', text: `❌ Dừng ở câu: "${currentText}". Lỗi: ${msg}` });
+                          setIsGeneratingAudio(false);
+                          return;
                       }
-                  } catch (err) {
-                      apiErrorMsg = err.message;
                   }
-                  if (attempt < 5 && !success) await new Promise(r => setTimeout(r, delays[attempt]));
-              }
 
-              if (success) {
-                  // Kỷ luật thép: Nghỉ 5 giây giữa các câu để né giới hạn 15 req/min
-                  setAudioProgress({ current: i + 1, total: textsArray.length, text: `Thành công! Nghỉ 5s để né giới hạn API...` });
-                  await new Promise(r => setTimeout(r, 5000)); 
-              } else {
-                  setPushMsg({ type: 'error', text: `❌ Dừng ở câu: "${currentText}". Lỗi chi tiết: ${apiErrorMsg}` });
+                  const data = await response.json();
+                  const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+                  
+                  if (inlineData) {
+                      await setDoc(doc(db, "audio_cache", safeId), {
+                          text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
+                      });
+                      successCount++;
+                      
+                      // KỶ LUẬT THÉP: Nghỉ 6.5s để đảm bảo < 10 lượt/phút
+                      setAudioProgress({ current: i + 1, total: textsArray.length, text: `Thành công! Nghỉ 6.5s để né giới hạn API...` });
+                      await new Promise(r => setTimeout(r, 6500)); 
+                  }
+              } catch (err) {
+                  setPushMsg({ type: 'error', text: `❌ Lỗi mạng khi đọc câu: "${currentText}". Lỗi: ${err.message}` });
                   setIsGeneratingAudio(false);
                   return;
               }
           }
           if (successCount > 0 || skipCount > 0) setPushMsg({ type: 'success', text: `✅ Hoàn tất: Tạo mới ${successCount}, Bỏ qua ${skipCount} (có sẵn trên Cloud).` });
-      } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` }); } 
+      } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi Hệ Thống: ${error.message}` }); } 
       finally { setIsGeneratingAudio(false); setAudioProgress({ current: 0, total: 0, text: '' }); }
   };
 
