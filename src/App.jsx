@@ -13,7 +13,8 @@ import {
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, query, where, addDoc } from "firebase/firestore";
+
 
 let firebaseConfig = {};
 try {
@@ -90,56 +91,92 @@ const playAudio = (text) => {
   }
 };
 
-// Hàm gọi API và lưu vào Cache
-const fetchAndCacheAudio = async (text, voiceName) => {
-  if (!text) return null;
+// Hàm gọi API, lưu Local RAM và lưu Cloud Firebase (Chống quá tải 100%)
+const fetchAndCacheAudio = (text, voiceName) => {
+  if (!text) return Promise.resolve(null);
   const cacheKey = `${voiceName}_${text}`;
   
-  if (audioCache.has(cacheKey)) return audioCache.get(cacheKey);
-  if (fetchingAudio.has(cacheKey)) return null;
-
-  let apiKey = ""; 
-  try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
-  if (!apiKey) return null;
-
-  fetchingAudio.add(cacheKey);
-  let promptText = text;
-  if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${text}`;
-
-  const payload = {
-    contents: [{ parts: [{ text: promptText }] }],
-    generationConfig: { 
-      responseModalities: ["AUDIO"], 
-      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } 
-    },
-    model: "gemini-2.5-flash-preview-tts"
-  };
-
-  try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    const data = await response.json();
-    const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-    
-    if (inlineData) {
-       let sampleRate = 24000;
-       const rateMatch = (inlineData.mimeType || "").match(/rate=(\d+)/);
-       if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
-       
-       const wavBlob = pcmToWav(inlineData.data, sampleRate);
-       const audioUrl = URL.createObjectURL(wavBlob);
-       audioCache.set(cacheKey, audioUrl); // Lưu vào RAM
-       fetchingAudio.delete(cacheKey);
-       return audioUrl;
-    }
-  } catch (e) {
-      console.error("Premium TTS failed", e);
+  // 1. Tầng 1: Kiểm tra RAM (Local Cache) - Nếu học sinh vừa bấm nghe câu này rồi thì lấy ra luôn cho nhanh
+  if (audioCache.has(cacheKey)) {
+      return audioCache.get(cacheKey);
   }
-  fetchingAudio.delete(cacheKey);
-  return null;
+
+  // Khởi tạo tiến trình tải âm thanh
+  const fetchPromise = (async () => {
+      // 2. Tầng 2: Kiểm tra trên Firebase (Cloud Cache) - Xem có ai đã từng nghe câu này chưa
+      if (db) {
+          try {
+              const audioRef = collection(db, "audio_cache");
+              const q = query(audioRef, where("text", "==", text), where("voice", "==", voiceName));
+              const querySnapshot = await getDocs(q);
+              
+              if (!querySnapshot.empty) {
+                  // ĐÃ TÌM THẤY TRÊN FIREBASE! Tải về biến thành Audio ngay (Không tốn lượt Gemini)
+                  const base64Data = querySnapshot.docs[0].data().audioBase64;
+                  const wavBlob = pcmToWav(base64Data, 24000);
+                  return URL.createObjectURL(wavBlob);
+              }
+          } catch (err) {
+              console.warn("Không thể kiểm tra Firebase Cache, chuyển sang gọi Gemini...", err);
+          }
+      }
+
+      // 3. Tầng 3: Chưa ai từng nghe câu này -> Bắt buộc gọi AI Gemini để tạo mới
+      let apiKey = ""; 
+      try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
+      if (!apiKey) return null;
+
+      let promptText = text;
+      if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${text}`;
+
+      const payload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: { 
+          responseModalities: ["AUDIO"], 
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } 
+        },
+        model: "gemini-2.5-flash-preview-tts"
+      };
+
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await response.json();
+        const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+        
+        if (inlineData) {
+           let sampleRate = 24000;
+           const rateMatch = (inlineData.mimeType || "").match(/rate=(\d+)/);
+           if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
+           
+           // LƯU LÊN FIREBASE ĐỂ DÙNG CHUNG CHO TẤT CẢ HỌC SINH SAU NÀY
+           if (db) {
+               try {
+                   await addDoc(collection(db, "audio_cache"), {
+                       text: text,
+                       voice: voiceName,
+                       audioBase64: inlineData.data,
+                       createdAt: new Date().toISOString()
+                   });
+               } catch (dbErr) { console.error("Lỗi khi lưu Audio lên Firebase:", dbErr); }
+           }
+
+           const wavBlob = pcmToWav(inlineData.data, sampleRate);
+           return URL.createObjectURL(wavBlob);
+        } else {
+           console.warn("Đã dùng hết lượt Gemini Free. Vui lòng đợi 1 phút.", data);
+        }
+      } catch (e) {
+          console.error("Premium TTS failed", e);
+      }
+      return null; 
+  })();
+
+  audioCache.set(cacheKey, fetchPromise);
+  return fetchPromise;
 };
 
 // Hàm Preload (Chạy ngầm)
@@ -1283,7 +1320,7 @@ if (arenaState === 'battle') {
              )}
              <span className="pt-1">{q?.question || "Loading..."}</span>
           </h2>
-          
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-auto">
             {q?.options?.map((opt, i) => {
               const defaultColors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
