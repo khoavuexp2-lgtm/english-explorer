@@ -36,11 +36,11 @@ try {
   }
 } catch (error) { console.warn("Firebase config error:", error); }
 
-const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"]; 
 const audioCache = new Map(); 
 const globalAudioPlayer = new Audio();
 let isAudioUnlocked = false;
 
+// Mở khóa Audio trên thiết bị Apple
 const unlockAudioEngine = () => {
     if (isAudioUnlocked) return;
     globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
@@ -60,6 +60,7 @@ if (typeof document !== 'undefined') {
     document.addEventListener('click', unlockAudioEngine);
 }
 
+// BỘ TẠO MÃ HASH ĐỘC NHẤT
 const generateSafeId = (text) => {
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
@@ -70,23 +71,7 @@ const generateSafeId = (text) => {
   return `${cleanStr}_${Math.abs(hash)}`;
 };
 
-const pcmToWav = (pcmData, sampleRate) => {
-  const binaryStr = atob(pcmData);
-  const bytes = new Uint8Array(binaryStr.length);
-  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-  const buffer = new ArrayBuffer(44 + bytes.length);
-  const view = new DataView(buffer);
-  const writeString = (offset, string) => { for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i)); };
-  writeString(0, 'RIFF'); view.setUint32(4, 36 + bytes.length, true);
-  writeString(8, 'WAVE'); writeString(12, 'fmt '); view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true); view.setUint16(34, 16, true);
-  writeString(36, 'data'); view.setUint32(40, bytes.length, true);
-  new Uint8Array(buffer, 44).set(bytes);
-  return new Blob([buffer], { type: 'audio/wav' });
-};
-
-// Giọng Robot (Fallback)
+// Giọng Robot mặc định (Phát trực tiếp trình duyệt, KHÔNG BAO GIỜ lưu lên database)
 const playSystemAudio = (text) => { 
   if ('speechSynthesis' in window) {
     if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
@@ -98,7 +83,7 @@ const playSystemAudio = (text) => {
   }
 };
 
-// HÀM TẢI AUDIO TỪ FIREBASE DÀNH CHO HỌC SINH (TUYỆT ĐỐI KHÔNG GỌI API GEMINI)
+// HÀM TẢI AUDIO TỪ FIREBASE DÀNH CHO HỌC SINH (SIÊU TỐC ĐỘ, TRẢ VỀ MP3)
 const fetchAndCacheAudio = async (text) => {
   if (!text) return null;
   const cleanText = text.trim();
@@ -106,13 +91,12 @@ const fetchAndCacheAudio = async (text) => {
   
   if (audioCache.has(safeId)) return audioCache.get(safeId);
 
+  // Chỉ tìm trên Firebase do Admin đã build sẵn (Không cần hàm convert Wav rườm rà nữa)
   if (db) {
       try {
           const docSnap = await getDoc(doc(db, "audio_cache", safeId));
           if (docSnap.exists()) {
-              const base64Data = docSnap.data().audioBase64;
-              const wavBlob = pcmToWav(base64Data, 24000);
-              const audioUrl = URL.createObjectURL(wavBlob);
+              const audioUrl = docSnap.data().audioBase64; // Data URL chuẩn MP3 luôn
               audioCache.set(safeId, audioUrl);
               return audioUrl;
           }
@@ -462,9 +446,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const qData = sessionQList[qIndex];
 
-  // ==========================================
-  // CHẠY NGẦM TẢI AUDIO CỦA CÂU HIỆN TẠI VÀO RAM
-  // ==========================================
   useEffect(() => {
     if (qData) {
         const mainText = qData.audioText || qData.targetText || qData.question;
@@ -1247,12 +1228,23 @@ const AdminPanel = ({ currentUser, showToast }) => {
   const [isPushing, setIsPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
   
+  // BIẾN CHO AZURE TTS
+  const [azureKey, setAzureKey] = useState('');
+  const [azureRegion, setAzureRegion] = useState('southeastasia');
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [forceRebuild, setForceRebuild] = useState(false);
   const [audioProgress, setAudioProgress] = useState({ current: 0, total: 0, text: '' });
   
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+
+  // Mảng giọng Azure (Đa dạng Nam/Nữ xịn)
+  const AZURE_VOICES = [
+    "en-US-AriaNeural",     // Nữ, rõ ràng
+    "en-US-GuyNeural",      // Nam, chuẩn Mỹ
+    "en-US-JennyNeural",    // Nữ, thân thiện
+    "en-US-SteffanNeural"   // Nam, trầm ấm
+  ];
 
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
@@ -1370,6 +1362,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
 
           setAudioProgress({ current: 0, total: textsArray.length, text: 'Đang chuẩn bị quét Firebase...' });
           let successCount = 0; let skipCount = 0;
+          let batchCount = 0; // Bộ đếm số lượt API đã dùng trong 1 phút
 
           for (let i = 0; i < textsArray.length; i++) {
               const currentText = textsArray[i].trim();
@@ -1382,6 +1375,13 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   if (docSnap.exists()) { skipCount++; continue; }
               }
 
+              // Kiểm tra nếu đã gọi 10 lần -> Nghỉ 60 giây để né giới hạn API
+              if (batchCount >= 10) {
+                  setAudioProgress({ current: i + 1, total: textsArray.length, text: `Đã chạy 10 lượt. Đang nghỉ 60 giây để khôi phục API...` });
+                  await new Promise(r => setTimeout(r, 60000));
+                  batchCount = 0; // Reset bộ đếm sau khi nghỉ
+              }
+
               let promptText = currentText;
               if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${currentText}`;
 
@@ -1391,24 +1391,24 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   model: "gemini-2.5-flash-preview-tts"
               };
 
-              // GỌI API GEMINI VÀ XỬ LÝ LỖI (KHÔNG CÓ RETRY ĐỂ TRÁNH TREO)
               try {
                   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
                       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                   });
                   
                   if (!response.ok) { 
-                      console.error(`Lỗi Gemini API ở câu: ${currentText}`); 
                       if (response.status === 429) {
-                          setPushMsg({ type: 'error', text: `❌ Quá tải 10 lượt/phút (Lỗi 429)! Đã lưu thành công ${successCount} audio. Vui lòng đợi 1 phút rồi bấm BUILD AUDIO lại.` });
-                          setIsGeneratingAudio(false);
-                          return;
+                          // Nếu lỡ bị lố giới hạn, ép nghỉ 60s ngay lập tức rồi chạy lại câu này
+                          setAudioProgress({ current: i + 1, total: textsArray.length, text: `Vượt quá giới hạn! Ép nghỉ 60 giây...` });
+                          await new Promise(r => setTimeout(r, 60000));
+                          batchCount = 0;
+                          i--; // Lùi lại 1 bước để xử lý lại câu bị lỗi
+                          continue;
                       } else {
                           const errData = await response.json();
                           const msg = errData.error?.message || `Lỗi HTTP ${response.status}`;
-                          setPushMsg({ type: 'error', text: `❌ Dừng ở câu: "${currentText}". Lỗi: ${msg}` });
-                          setIsGeneratingAudio(false);
-                          return;
+                          console.error(`Bỏ qua câu "${currentText}" do lỗi: ${msg}`);
+                          continue; // Lỗi khác thì bỏ qua câu này
                       }
                   }
 
@@ -1420,15 +1420,10 @@ const AdminPanel = ({ currentUser, showToast }) => {
                           text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
                       });
                       successCount++;
-                      
-                      // KỶ LUẬT THÉP: Nghỉ 6.5s để đảm bảo < 10 lượt/phút
-                      setAudioProgress({ current: i + 1, total: textsArray.length, text: `Thành công! Nghỉ 6.5s để né giới hạn API...` });
-                      await new Promise(r => setTimeout(r, 6500)); 
+                      batchCount++; // Tăng bộ đếm API
                   }
               } catch (err) {
-                  setPushMsg({ type: 'error', text: `❌ Lỗi mạng khi đọc câu: "${currentText}". Lỗi: ${err.message}` });
-                  setIsGeneratingAudio(false);
-                  return;
+                  console.error(`Lỗi mạng khi đọc câu: "${currentText}". Bỏ qua. Lỗi: ${err.message}`);
               }
           }
           if (successCount > 0 || skipCount > 0) setPushMsg({ type: 'success', text: `✅ Hoàn tất: Tạo mới ${successCount}, Bỏ qua ${skipCount} (có sẵn trên Cloud).` });
@@ -1450,8 +1445,20 @@ const AdminPanel = ({ currentUser, showToast }) => {
       
       {activeTab === 'cms' && (
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 flex flex-col gap-4 animate-fade-in">
+          
+          {/* KHUNG CẤU HÌNH AZURE (Tạm thời) */}
+          <div className="bg-purple-50 p-4 rounded-xl border border-purple-200 flex flex-col sm:flex-row gap-3">
+             <div className="flex-1">
+                 <label className="block text-xs font-bold text-purple-900 mb-1">Azure TTS API Key (Để tạo file Audio)</label>
+                 <input type="password" value={azureKey} onChange={e=>setAzureKey(e.target.value)} placeholder="Nhập Key Azure của bạn..." className="w-full bg-white border-2 border-purple-300 rounded-lg p-2 text-sm outline-none" />
+             </div>
+             <div className="sm:w-48">
+                 <label className="block text-xs font-bold text-purple-900 mb-1">Azure Region</label>
+                 <input type="text" value={azureRegion} onChange={e=>setAzureRegion(e.target.value)} placeholder="VD: southeastasia" className="w-full bg-white border-2 border-purple-300 rounded-lg p-2 text-sm outline-none" />
+             </div>
+          </div>
+
           <div className="flex flex-col gap-4 bg-blue-50 p-4 sm:p-5 rounded-xl border border-blue-200">
-             
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                  <div className="w-full">
                     <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
@@ -1487,7 +1494,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
                  
                  <div className="w-full flex flex-col gap-2">
                      <button onClick={handleGenerateAudioForJSON} disabled={isFetchingData || isPushing || isGeneratingAudio} className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-3.5 rounded-xl border-b-4 border-purple-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
-                        {isGeneratingAudio ? 'ĐANG TẠO...' : '🎧 3. BUILD AUDIO'}
+                        {isGeneratingAudio ? 'ĐANG TẢI VỀ...' : '🎧 3. BUILD AUDIO AZURE'}
                      </button>
                      <div className="flex items-center justify-center gap-2">
                         <input type="checkbox" id="forceRebuild" checked={forceRebuild} onChange={e=>setForceRebuild(e.target.checked)} className="w-4 h-4 cursor-pointer"/>
@@ -1495,7 +1502,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
                      </div>
                  </div>
              </div>
-
           </div>
           
           {pushMsg.text && (
