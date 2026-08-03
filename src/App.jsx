@@ -37,23 +37,26 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH HYBRID (KẾT HỢP NATIVE & CLOUD)
-// Ưu tiên dùng giọng Natural/Premium có sẵn. Dự phòng bằng Google MP3 Cloud.
+// ĐỘNG CƠ ÂM THANH HYBRID V2 (SỬA LỖI SAFARI/IPHONE)
+// Chắc chắn phát Native Voice, fallback an toàn sang Google MP3
 // ============================================================================
 const globalAudioPlayer = new Audio();
 let isAudioUnlocked = false;
 let premiumVoices = [];
+let fallbackEnglishVoices = [];
 
 const initVoices = () => {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     const voices = window.speechSynthesis.getVoices();
     if (voices.length > 0) {
       let englishVoices = voices.filter(v => v.lang.startsWith('en'));
+      fallbackEnglishVoices = englishVoices;
       premiumVoices = englishVoices.filter(v => 
         v.name.includes('Natural') || 
         v.name.includes('Premium') || 
         v.name.includes('Google') || 
-        v.name.includes('Samantha')
+        v.name.includes('Samantha') || 
+        v.name.includes('Daniel')
       );
     }
   }
@@ -84,57 +87,59 @@ if (typeof document !== 'undefined') {
     document.addEventListener('click', unlockAudioEngine);
 }
 
-// Giọng Local (Siri/Google) - Dùng làm dự phòng khi rớt mạng
-const playSystemAudio = (text) => { 
-  if ('speechSynthesis' in window) {
-    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
-    if (typeof text !== 'string') return;
-    let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
-    const utterance = new SpeechSynthesisUtterance(speakText);
-    utterance.lang = 'en-US'; utterance.rate = 0.9;
-    window.speechSynthesis.speak(utterance);
-  }
+// Hàm dự phòng phát MP3 qua Cloud
+const playGoogleCloudMP3 = (cleanText) => {
+  const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en-US&client=tw-ob`;
+  globalAudioPlayer.src = url;
+  globalAudioPlayer.load();
+  globalAudioPlayer.play().catch((err) => {
+      console.warn("Lỗi tải MP3 Cloud:", err);
+  });
 };
 
-// PHÁT AUDIO: KẾT HỢP GIỌNG NATIVE XỊN VÀ GOOGLE MP3
+// PHÁT AUDIO CHÍNH (FIX LỖI IPHONE)
 const playPremiumAudio = (text) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
 
-  // Đảm bảo Apple không khóa mỏ
+  // Đảm bảo thẻ Audio không bị Apple khóa
   if (globalAudioPlayer.src === "" || globalAudioPlayer.src === window.location.href) {
       globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
       globalAudioPlayer.play().catch(()=>{});
   }
 
-  // Ưu tiên 1: Dùng giọng Natural/Premium có sẵn trên máy (Zero delay)
-  if (premiumVoices.length > 0 && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
+  // Ưu tiên 1: Dùng giọng Native có sẵn trên trình duyệt
+  if ('speechSynthesis' in window) {
+      // Fix lỗi iPhone: Chỉ gọi cancel nếu hệ thống đang thực sự phát âm thanh khác
+      if (window.speechSynthesis.speaking) {
+          window.speechSynthesis.cancel();
+      }
+      
       const utterance = new SpeechSynthesisUtterance(cleanText);
       utterance.rate = 0.85;
-      const voiceIndex = cleanText.length % premiumVoices.length; // Xoay vòng giọng Nam/Nữ tự nhiên
-      utterance.voice = premiumVoices[voiceIndex];
+      utterance.lang = 'en-US'; // Quan trọng: Ép Safari dùng giọng Siri mặc định nếu list giọng rỗng
+      
+      // Gán giọng xịn nếu lấy được
+      if (premiumVoices.length > 0) {
+          const voiceIndex = cleanText.length % premiumVoices.length;
+          utterance.voice = premiumVoices[voiceIndex];
+      } else if (fallbackEnglishVoices.length > 0) {
+          const voiceIndex = cleanText.length % fallbackEnglishVoices.length;
+          utterance.voice = fallbackEnglishVoices[voiceIndex];
+      }
+
+      // Xử lý khi giọng Native bị hỏng
+      utterance.onerror = (e) => {
+          console.warn("Lỗi Native TTS, fallback sang MP3", e);
+          playGoogleCloudMP3(cleanText);
+      };
+
       window.speechSynthesis.speak(utterance);
-      return;
+      return; // Dừng lại ở đây vì Native đã chạy
   }
 
-  // Ưu tiên 2: Fallback về Google Translate MP3 (Đồng nhất, không đơ trên các máy không có giọng xịn)
-  const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en-US&client=tw-ob`;
-  
-  globalAudioPlayer.src = url;
-  globalAudioPlayer.load();
-  globalAudioPlayer.play().catch((err) => {
-      console.warn("Lỗi tải MP3 Cloud, dùng giọng hệ thống dự phòng:", err);
-      // Fallback khi rớt mạng: Chữa lỗi Cancel làm im lặng trên iPhone
-      if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-          setTimeout(() => {
-              const utterance = new SpeechSynthesisUtterance(cleanText);
-              utterance.lang = 'en-US';
-              window.speechSynthesis.speak(utterance);
-          }, 50); // Timeout 50ms rất quan trọng để fix bug trên Safari iOS
-      }
-  });
+  // Ưu tiên 2: Fallback MP3 nếu trình duyệt không hỗ trợ SpeechSynthesis
+  playGoogleCloudMP3(cleanText);
 };
 
 // ============================================================================
@@ -878,15 +883,15 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-emerald-500 border-emerald-700 text-white hover:brightness-110 shadow-xl' :
+          ${isCompleted ? 'bg-gradient-to-r from-emerald-600 to-teal-700 border-teal-800 text-white hover:brightness-110 shadow-xl' :
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 text-white hover:brightness-110 shadow-xl'}`}>
-          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'}`}>
+          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-800 text-white' : 'bg-white/20 text-white'}`}>
             {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
           </div>
           <div className="flex-1">
             <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
-            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
+            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-200 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-200"/> Mastered</p>}
             {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
           </div>
         </button>
