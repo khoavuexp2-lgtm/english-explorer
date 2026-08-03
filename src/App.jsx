@@ -36,15 +36,12 @@ try {
   }
 } catch (error) { console.warn("Firebase config error:", error); }
 
-// ============================================================================
-// ĐỘNG CƠ ÂM THANH V29 (CHỐNG LỖI IPHONE & TỰ ĐỘNG CHỮA LÀNH)
-// ============================================================================
 const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"]; 
 const audioCache = new Map(); 
 const globalAudioPlayer = new Audio();
 let isAudioUnlocked = false;
 
-// Hàm mở khóa Audio trên iPhone (Gắn vào sự kiện touch/click đầu tiên của Web)
+// Mở khóa Audio trên thiết bị Apple
 const unlockAudioEngine = () => {
     if (isAudioUnlocked) return;
     globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
@@ -91,7 +88,7 @@ const pcmToWav = (pcmData, sampleRate) => {
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
-// Giọng Robot mặc định
+// Giọng Robot mặc định (Phát trực tiếp, KHÔNG lưu database)
 const playSystemAudio = (text) => { 
   if ('speechSynthesis' in window) {
     if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
@@ -103,15 +100,15 @@ const playSystemAudio = (text) => {
   }
 };
 
-// Hàm chạy ngầm: Tải từ RAM -> Firebase -> Gemini
-const preloadTTS = async (text, voiceName = "Kore") => {
-  if (!text) return;
+// HÀM TẢI AUDIO TỪ FIREBASE (Tuyệt đối không gọi AI ở thiết bị người học)
+const fetchAndCacheAudio = async (text) => {
+  if (!text) return null;
   const cleanText = text.trim();
   const safeId = generateSafeId(cleanText);
   
-  if (audioCache.has(safeId)) return; // Đã có trong RAM thì thôi
+  if (audioCache.has(safeId)) return audioCache.get(safeId);
 
-  // 1. Tìm trên Firebase
+  // Chỉ tìm trên Firebase do Admin đã build sẵn
   if (db) {
       try {
           const docSnap = await getDoc(doc(db, "audio_cache", safeId));
@@ -120,68 +117,43 @@ const preloadTTS = async (text, voiceName = "Kore") => {
               const wavBlob = pcmToWav(base64Data, 24000);
               const audioUrl = URL.createObjectURL(wavBlob);
               audioCache.set(safeId, audioUrl);
-              return;
+              return audioUrl;
           }
-      } catch (err) {}
+      } catch (err) { console.warn("Firebase Cache read error:", err); }
   }
-
-  // 2. Không có trên Firebase -> Tự động gọi Gemini (Self-Healing)
-  let apiKey = ""; 
-  try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
-  if (!apiKey) return;
-
-  try {
-      let promptText = cleanText;
-      if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${cleanText}`;
-      const payload = {
-        contents: [{ parts: [{ text: promptText }] }],
-        generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } },
-        model: "gemini-2.5-flash-preview-tts"
-      };
-
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-      });
-      const data = await response.json();
-      const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-      
-      if (inlineData) {
-          const wavBlob = pcmToWav(inlineData.data, 24000);
-          const audioUrl = URL.createObjectURL(wavBlob);
-          audioCache.set(safeId, audioUrl); // Lưu RAM
-          
-          // Lưu ngược lại lên Firebase cho người sau xài ké
-          if (db) {
-             setDoc(doc(db, "audio_cache", safeId), {
-                 text: cleanText, voice: voiceName, audioBase64: inlineData.data, createdAt: new Date().toISOString()
-             }).catch(()=>{});
-          }
-      }
-  } catch (e) {}
+  return null;
 };
 
-// Hàm phát: Ưu tiên RAM (Phát ngay không delay) -> Rớt về Robot
-const playPremiumAudio = (text) => {
+// Hàm chạy ngầm tải trước dữ liệu vào RAM
+const preloadTTS = (text) => { fetchAndCacheAudio(text); };
+
+// HÀM PHÁT ÂM THANH XỊN (NẾU CÓ)
+const playPremiumAudio = async (text) => {
   if (!text) return;
   const cleanText = text.trim();
-  const safeId = generateSafeId(cleanText);
 
-  // Nếu đã được Preload vào RAM, phát ngay lập tức (Vượt rào cản iPhone)
-  if (audioCache.has(safeId)) {
-      globalAudioPlayer.src = audioCache.get(safeId);
-      globalAudioPlayer.play().catch((e) => {
-          console.warn("Lỗi phát audio player, chuyển sang giọng hệ thống.");
+  // Mở khóa âm thanh thiết bị Apple
+  if (globalAudioPlayer.src === "" || globalAudioPlayer.src === window.location.href) {
+      globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
+      globalAudioPlayer.play().then(() => globalAudioPlayer.pause()).catch(()=>{});
+  }
+
+  try {
+      const url = await fetchAndCacheAudio(cleanText);
+      if (url) {
+          globalAudioPlayer.src = url;
+          globalAudioPlayer.load();
+          await globalAudioPlayer.play();
+      } else {
+          // Báo log và tự động rơi về giọng Robot (không lưu Robot lên Firebase)
+          console.warn("Chưa có âm thanh trên Cloud cho câu này, chuyển sang giọng Robot.");
           playSystemAudio(cleanText);
-      });
-  } else {
-      // Nếu RAM chưa kịp có, dùng giọng Robot để chống im lặng
-      playSystemAudio(cleanText);
+      }
+  } catch (error) {
+      console.warn("Lỗi phát âm thanh:", error);
+      playSystemAudio(cleanText); 
   }
 };
-
-// ============================================================================
-// CÁC THÀNH PHẦN KHÁC (NGUYÊN BẢN VÀ ĐÃ FIX LỖI)
-// ============================================================================
 
 const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
@@ -500,11 +472,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   // ==========================================
   useEffect(() => {
     if (qData) {
-        const v = VOICES[qIndex % VOICES.length];
         const mainText = qData.audioText || qData.targetText || qData.question;
-        if (mainText) preloadTTS(mainText, v);
-        if (qData.options) qData.options.forEach(opt => preloadTTS(opt, v));
-        if (qData.words) qData.words.forEach(w => preloadTTS(w, v));
+        if (mainText) preloadTTS(mainText);
+        if (qData.options) qData.options.forEach(opt => preloadTTS(opt));
+        if (qData.words) qData.words.forEach(w => preloadTTS(w));
     }
     if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
   }, [qData, qIndex]);
@@ -1372,11 +1343,11 @@ const AdminPanel = ({ currentUser, showToast }) => {
           for (const key in obj) {
               if (['audioText', 'question', 'targetText', 'answer', 'textBefore', 'textAfter'].includes(key) && typeof obj[key] === 'string') {
                   if (obj[key].trim()) textsSet.add(obj[key].trim());
-              }
-              if (['options', 'words'].includes(key) && Array.isArray(obj[key])) {
+              } else if (['options', 'words'].includes(key) && Array.isArray(obj[key])) {
                   obj[key].forEach(val => { if (typeof val === 'string' && val.trim()) textsSet.add(val.trim()); });
+              } else if (typeof obj[key] === 'object') {
+                  extractTextsFromJSON(obj[key], textsSet);
               }
-              if (typeof obj[key] === 'object') extractTextsFromJSON(obj[key], textsSet);
           }
       }
       return textsSet;
@@ -1426,7 +1397,15 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
               });
               
-              if (!response.ok) { console.error(`Lỗi Gemini API ở câu: ${currentText}`); continue; }
+              if (!response.ok) { 
+                  console.error(`Lỗi Gemini API ở câu: ${currentText}`); 
+                  if (response.status === 429) {
+                      setPushMsg({ type: 'error', text: "Đã hết giới hạn 15 lượt API/phút. Vui lòng thử lại sau 1 phút." }); 
+                      break; 
+                  }
+                  await new Promise(r => setTimeout(r, 4200));
+                  continue; 
+              }
 
               const data = await response.json();
               const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
@@ -1436,10 +1415,8 @@ const AdminPanel = ({ currentUser, showToast }) => {
                       text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
                   });
                   successCount++;
-                  await new Promise(r => setTimeout(r, 4200)); 
-              } else {
-                  setPushMsg({ type: 'error', text: "Đã hết giới hạn API. Vui lòng thử lại sau 1 phút." }); break;
               }
+              await new Promise(r => setTimeout(r, 4200)); 
           }
           if (successCount > 0 || skipCount > 0) setPushMsg({ type: 'success', text: `✅ Hoàn tất: Tạo mới ${successCount}, Bỏ qua ${skipCount} (có sẵn trên Cloud).` });
       } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` }); } 
@@ -1523,7 +1500,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
                  <div className="w-full bg-purple-200 h-2 rounded-full overflow-hidden">
                      <div className="bg-purple-600 h-full transition-all duration-300" style={{ width: `${(audioProgress.current / audioProgress.total) * 100}%` }}></div>
                  </div>
-                 <p className="text-xs text-purple-600 font-medium mt-2 italic">*Hệ thống tự động nghỉ 4s giữa mỗi câu để không bị Google chặn.</p>
+                 <p className="text-xs text-purple-600 font-medium mt-2 italic">*Hệ thống tự động nghỉ 4.2s sau mỗi câu để không bị Google chặn.</p>
              </div>
           )}
 
