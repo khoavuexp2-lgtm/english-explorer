@@ -44,6 +44,8 @@ try {
 // CÔNG NGHỆ CHUYỂN ĐỔI GIỌNG NÓI CAO CẤP GEMINI (TTS)
 // ---------------------------------------------------------
 const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"]; 
+const audioCache = new Map(); // Bộ nhớ đệm âm thanh
+const fetchingAudio = new Set(); // Cờ chống gọi API trùng lặp
 
 const pcmToWav = (pcmData, sampleRate) => {
   const binaryStr = atob(pcmData);
@@ -75,6 +77,7 @@ const pcmToWav = (pcmData, sampleRate) => {
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
+
 const playAudio = (text) => { 
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -87,15 +90,19 @@ const playAudio = (text) => {
   }
 };
 
-const playPremiumAudio = async (text, voiceName) => {
+// Hàm gọi API và lưu vào Cache
+const fetchAndCacheAudio = async (text, voiceName) => {
+  if (!text) return null;
+  const cacheKey = `${voiceName}_${text}`;
+  
+  if (audioCache.has(cacheKey)) return audioCache.get(cacheKey);
+  if (fetchingAudio.has(cacheKey)) return null;
+
   let apiKey = ""; 
   try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
-  
-  if (!apiKey) {
-      playAudio(text); 
-      return;
-  }
+  if (!apiKey) return null;
 
+  fetchingAudio.add(cacheKey);
   let promptText = text;
   if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${text}`;
 
@@ -118,33 +125,56 @@ const playPremiumAudio = async (text, voiceName) => {
     const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
     
     if (inlineData) {
-       const mimeType = inlineData.mimeType || "";
        let sampleRate = 24000;
-       const rateMatch = mimeType.match(/rate=(\d+)/);
+       const rateMatch = (inlineData.mimeType || "").match(/rate=(\d+)/);
        if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
        
        const wavBlob = pcmToWav(inlineData.data, sampleRate);
        const audioUrl = URL.createObjectURL(wavBlob);
-       const audio = new Audio(audioUrl);
-       await audio.play();
-    } else {
-       playAudio(text); 
+       audioCache.set(cacheKey, audioUrl); // Lưu vào RAM
+       fetchingAudio.delete(cacheKey);
+       return audioUrl;
     }
   } catch (e) {
       console.error("Premium TTS failed", e);
-      playAudio(text);
+  }
+  fetchingAudio.delete(cacheKey);
+  return null;
+};
+
+// Hàm Preload (Chạy ngầm)
+const preloadTTS = (text, voiceName) => { fetchAndCacheAudio(text, voiceName); };
+
+// Hàm Phát âm thanh (Phát ngay nếu có trong Cache)
+const playPremiumAudio = async (text, voiceName) => {
+  if (!text) return;
+  const cacheKey = `${voiceName}_${text}`;
+  let url = audioCache.get(cacheKey);
+  
+  if (!url) {
+      url = await fetchAndCacheAudio(text, voiceName);
+  }
+
+  if (url) {
+      const audio = new Audio(url);
+      audio.play();
+  } else {
+      playAudio(text); // Dự phòng giọng Browser
   }
 };
 
 // ---------------------------------------------------------
-// TÍNH NĂNG MỚI: RÚT CÂU HỎI ARENA TỪ BANK (Bỏ tự sinh AI)
+// TÍNH NĂNG MỚI: RÚT CÂU HỎI ARENA TỪ TỔNG HỢP CÁC TÀI NGUYÊN (BANK)
+// Tối ưu tỷ lệ: Bỏ Speak, Giới hạn Reading (Max 2), Giới hạn Listening (Max 3)
 // ---------------------------------------------------------
 const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
   
-  let questionsPool = [];
-  let targetUnits = [];
+  let vocabGrammarPool = [];
+  let readingPool = [];
+  let listeningPool = [];
   
+  let targetUnits = [];
   if (scope === 'Unit 1') targetUnits = ['1'];
   else if (scope === 'Unit 2') targetUnits = ['2'];
   else if (scope === 'Unit 3') targetUnits = ['3'];
@@ -170,12 +200,18 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
                   arraysToCheck.forEach(key => {
                       if (data[key] && Array.isArray(data[key])) {
                           data[key].forEach(q => {
+                              if (q.type === 'speak') return; // BỎ CÂU HỎI SPEAK
                               if (q.options && q.answer && q.question) {
                                   let finalQ = q.question;
-                                  if (q.type === 'listen-fill') finalQ += `\n[ ${q.textBefore} ___ ${q.textAfter} ]`;
-                                  else if (q.passage) finalQ = `Read:\n${q.passage}\n\nQ: ${q.question}`;
+                                  let qObj = { ...q, question: finalQ };
+                                  
+                                  if (q.type === 'listen-fill') qObj.question += `\n[ ${q.textBefore} ___ ${q.textAfter} ]`;
+                                  else if (q.passage) qObj.question = `Read:\n${q.passage}\n\nQ: ${q.question}`;
 
-                                  questionsPool.push({ question: finalQ, options: q.options, answer: q.answer });
+                                  // Phân loại câu hỏi
+                                  if (key === 'read' || key === 'reading' || q.passage) readingPool.push(qObj);
+                                  else if (key === 'listen' || key === 'listening' || q.audioText) listeningPool.push(qObj);
+                                  else vocabGrammarPool.push(qObj);
                               }
                           });
                       }
@@ -184,15 +220,21 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
           }
       }
 
-      if (questionsPool.length > 0) {
-          const uniqueQuestions = Array.from(new Map(questionsPool.map(item => [item.question, item])).values());
-          return uniqueQuestions.sort(() => Math.random() - 0.5).slice(0, numQs);
-      }
+      // Xáo trộn và giới hạn số lượng các kỹ năng dài
+      readingPool = readingPool.sort(() => Math.random() - 0.5).slice(0, 2); // Tối đa 2 câu Read
+      listeningPool = listeningPool.sort(() => Math.random() - 0.5).slice(0, 3); // Tối đa 3 câu Listen
+      
+      let finalPool = [...vocabGrammarPool, ...readingPool, ...listeningPool];
+      
+      // Lọc trùng lặp và chốt số lượng cuối cùng
+      const uniqueQuestions = Array.from(new Map(finalPool.map(item => [item.question, item])).values());
+      return uniqueQuestions.sort(() => Math.random() - 0.5).slice(0, numQs);
+
   } catch (e) {
       console.error("Bank fetch error:", e);
   }
   
-  return [{ question: "Không tìm thấy câu hỏi trong kho dữ liệu Syllabus. Admin vui lòng Push thêm Data!", options: ["OK", "A", "B", "C"], answer: "OK" }];
+  return [{ question: "Không tìm thấy câu hỏi. Admin vui lòng Push thêm Data!", options: ["OK", "A", "B", "C"], answer: "OK" }];
 };
 
 const evaluateSpeech = (transcript, target) => {
@@ -422,6 +464,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+  
 
   useEffect(() => {
     if (sessionData && isOpen) {
@@ -449,12 +492,20 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const qData = sessionQList[qIndex];
 
   useEffect(() => {
-    if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
-  }, [qData]);
+      if (qData) {
+          const currentVoice = VOICES[qIndex % VOICES.length];
+          const mainText = qData.audioText || qData.targetText || qData.question;
+          if (mainText) preloadTTS(mainText, currentVoice); // Tải câu chính
+          
+          if (qData.options) qData.options.forEach(opt => preloadTTS(opt, currentVoice)); // Tải các đáp án A B C D
+          if (qData.words) qData.words.forEach(w => preloadTTS(w, currentVoice)); // Tải các từ ghép câu
+      }
+      if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
+    }, [qData, qIndex]);
 
-  useEffect(() => {
-    if (status === 'correct' && qData?.type === 'order') playAudio(qData.answer);
-  }, [status, qData]);
+    useEffect(() => {
+      if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer, VOICES[qIndex % VOICES.length]);
+    }, [status, qData, qIndex]);
 
   useEffect(() => {
     if (qData?.type === 'speak') {
@@ -590,7 +641,11 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const handleSelectOption = (opt) => { setSelectedOpt(opt); playAudio(opt); };
+// ĐỔI SANG GIỌNG AI KHI BẤM ĐÁP ÁN
+  const handleSelectOption = (opt) => { 
+      setSelectedOpt(opt); 
+      playPremiumAudio(opt, VOICES[qIndex % VOICES.length]);
+  };
 
   const handleCheck = () => {
     let isCorrect = false;
@@ -606,9 +661,13 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
+// ĐỔI SANG GIỌNG AI KHI BẤM GHÉP CÂU
   const handleOrderWord = (w) => {
     if (orderedWords.includes(w)) setOrderedWords(orderedWords.filter(x => x !== w));
-    else { setOrderedWords([...orderedWords, w]); playAudio(w); }
+    else { 
+        setOrderedWords([...orderedWords, w]); 
+        playPremiumAudio(w, VOICES[qIndex % VOICES.length]); 
+    }
   };
 
   const handleContinue = () => {
@@ -1063,13 +1122,21 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     setArenaState('hosting');
   };
 
-  const handleStartBattle = async () => {
+const handleStartBattle = async () => {
     setIsGenerating(true);
     
     let questions = await fetchArenaQuestionsFromBank(config.scope, parseInt(config.questions), selectedGrade?.id || 'g5');
     
     if (!questions || questions.length === 0) {
         questions = [{ question: "Lỗi hệ thống. Không thể truy xuất CSDL.", options: ["1", "2", "3", "4"], answer: "2" }];
+    } else {
+        // TÍNH NĂNG MỚI: PRELOAD TẤT CẢ ÂM THANH TRONG TRẬN ĐẤU NGAY LÚC TẠO PHÒNG
+        questions.forEach((q, idx) => {
+            const v = VOICES[idx % VOICES.length];
+            const mainText = q.audioText || q.question;
+            preloadTTS(mainText, v);
+            if (q.options) q.options.forEach(opt => preloadTTS(opt, v));
+        });
     }
     
     setArenaQuestions(questions);
@@ -1086,7 +1153,8 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     
     const isCorrect = opt && opt === arenaQuestions[currentQ]?.answer;
     setAnswerState({ selected: opt, isCorrect });
-    
+    // ĐỔI SANG GIỌNG AI KHI BẤM ĐÁP ÁN TRONG ARENA
+    if (opt) playPremiumAudio(opt, VOICES[currentQ % VOICES.length]);
     if (isCorrect) {
         setPlayerScore(prev => prev + 10);
     }
@@ -1188,8 +1256,10 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     );
   }
 
-  if (arenaState === 'battle') {
+if (arenaState === 'battle') {
     const q = arenaQuestions[currentQ];
+    const currentVoice = VOICES[currentQ % VOICES.length]; // Giọng của câu hiện tại
+
     return (
       <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
         <div className="flex justify-between text-white font-bold mb-2">
@@ -1197,13 +1267,22 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
             <span className="text-yellow-400">Score: {playerScore}</span>
         </div>
         <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10">
-          <div className="h-full bg-blue-500 transition-all ease-linear" style={{ width: `${(timer/10)*100}%` }}></div>
+          <div className="h-full bg-blue-500 transition-all ease-linear" style={{ width: `${(timer/config.timeLimit)*100}%` }}></div>
         </div>
         
         <div className="bg-white rounded-[2rem] p-6 sm:p-10 text-center shadow-2xl flex-1 flex flex-col animate-slide-up">
           <div className="flex justify-center mb-4"><Database className="w-10 h-10 text-purple-500 animate-pulse" /></div>
           <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">Database Challenge - {config.scope}</p>
-          <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap">{q?.question || "Loading..."}</h2>
+          
+          <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap flex items-start justify-center gap-3">
+             {/* NÚT PLAY AUDIO DÀNH RIÊNG CHO ARENA (HIỆN NẾU CÓ ÂM THANH) */}
+             {(q?.type === 'listen-fill' || q?.audioText) && (
+                <button onClick={() => playPremiumAudio(q.audioText || q.question, currentVoice)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+                   <Volume2 className="w-6 h-6" />
+                </button>
+             )}
+             <span className="pt-1">{q?.question || "Loading..."}</span>
+          </h2>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-auto">
             {q?.options?.map((opt, i) => {
