@@ -40,6 +40,17 @@ const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"];
 const audioCache = new Map(); 
 const globalAudioPlayer = new Audio();
 
+// BỘ TẠO MÃ HASH ĐỘC NHẤT GIÚP CHỐNG LỖI TÌM KIẾM AUDIO
+const generateSafeId = (text) => {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
+  }
+  const cleanStr = text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
+  return `${cleanStr}_${Math.abs(hash)}`;
+};
+
 const pcmToWav = (pcmData, sampleRate) => {
   const binaryStr = atob(pcmData);
   const bytes = new Uint8Array(binaryStr.length);
@@ -69,20 +80,21 @@ const playAudio = (text) => {
   }
 };
 
-const fetchAndCacheAudio = async (text, voiceName) => {
+const fetchAndCacheAudio = async (text) => {
   if (!text) return null;
-  const cacheKey = `${voiceName}_${text}`;
-  if (audioCache.has(cacheKey)) return audioCache.get(cacheKey);
+  const cleanText = text.trim();
+  const safeId = generateSafeId(cleanText);
+  
+  if (audioCache.has(safeId)) return audioCache.get(safeId);
 
   if (db) {
       try {
-          const safeId = text.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 60);
           const docSnap = await getDoc(doc(db, "audio_cache", safeId));
           if (docSnap.exists()) {
               const base64Data = docSnap.data().audioBase64;
               const wavBlob = pcmToWav(base64Data, 24000);
               const audioUrl = URL.createObjectURL(wavBlob);
-              audioCache.set(cacheKey, audioUrl);
+              audioCache.set(safeId, audioUrl);
               return audioUrl;
           }
       } catch (err) { console.warn("Firebase Cache read error:", err); }
@@ -90,26 +102,30 @@ const fetchAndCacheAudio = async (text, voiceName) => {
   return null;
 };
 
-const preloadTTS = (text, voiceName) => { fetchAndCacheAudio(text, voiceName); };
+const preloadTTS = (text) => { fetchAndCacheAudio(text); };
 
-const playPremiumAudio = async (text, voiceName) => {
+const playPremiumAudio = async (text) => {
   if (!text) return;
+  const cleanText = text.trim();
+
   if (globalAudioPlayer.src === "" || globalAudioPlayer.src === window.location.href) {
       globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
       globalAudioPlayer.play().then(() => globalAudioPlayer.pause()).catch(()=>{});
   }
+
   try {
-      const url = await fetchAndCacheAudio(text, voiceName);
+      const url = await fetchAndCacheAudio(cleanText);
       if (url) {
           globalAudioPlayer.src = url;
           globalAudioPlayer.load();
           await globalAudioPlayer.play();
       } else {
-          playAudio(text);
+          console.warn("Chưa có âm thanh trên Cloud cho câu này, chuyển sang giọng Robot.");
+          playAudio(cleanText);
       }
   } catch (error) {
       console.warn("Lỗi phát âm thanh:", error);
-      playAudio(text); 
+      playAudio(cleanText); 
   }
 };
 
@@ -428,17 +444,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   useEffect(() => {
     if (qData) {
-        const currentVoice = VOICES[qIndex % VOICES.length];
         const mainText = qData.audioText || qData.targetText || qData.question;
-        if (mainText) preloadTTS(mainText, currentVoice);
-        if (qData.options) qData.options.forEach(opt => preloadTTS(opt, currentVoice));
-        if (qData.words) qData.words.forEach(w => preloadTTS(w, currentVoice));
+        if (mainText) preloadTTS(mainText);
+        if (qData.options) qData.options.forEach(opt => preloadTTS(opt));
+        if (qData.words) qData.words.forEach(w => preloadTTS(w));
     }
     if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
   }, [qData, qIndex]);
 
   useEffect(() => {
-    if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer, VOICES[qIndex % VOICES.length]);
+    if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer);
   }, [status, qData, qIndex]);
 
   useEffect(() => {
@@ -475,8 +490,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
      if (!textToSpeak) return;
      setIsAudioLoading(true);
-     const currentVoice = VOICES[qIndex % VOICES.length];
-     await playPremiumAudio(textToSpeak, currentVoice);
+     await playPremiumAudio(textToSpeak);
      setIsAudioLoading(false);
   };
 
@@ -527,7 +541,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt, VOICES[qIndex % VOICES.length]); };
+  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt); };
 
   const handleCheck = () => {
     let isCorrect = false;
@@ -545,7 +559,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleOrderWord = (w) => {
     if (orderedWords.includes(w)) setOrderedWords(orderedWords.filter(x => x !== w));
-    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w, VOICES[qIndex % VOICES.length]); }
+    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w); }
   };
 
   const handleContinue = () => {
@@ -1001,11 +1015,10 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     if (!questions || questions.length === 0) {
         questions = [{ question: "Lỗi hệ thống. Không thể truy xuất CSDL.", options: ["1", "2", "3", "4"], answer: "2" }];
     } else {
-        questions.forEach((q, idx) => {
-            const v = VOICES[idx % VOICES.length];
+        questions.forEach((q) => {
             const mainText = q.audioText || q.question;
-            preloadTTS(mainText, v);
-            if (q.options) q.options.forEach(opt => preloadTTS(opt, v));
+            preloadTTS(mainText);
+            if (q.options) q.options.forEach(opt => preloadTTS(opt));
         });
     }
     setArenaQuestions(questions);
@@ -1017,7 +1030,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     if (answerState) return;
     const isCorrect = opt && opt === arenaQuestions[currentQ]?.answer;
     setAnswerState({ selected: opt, isCorrect });
-    if (opt) playPremiumAudio(opt, VOICES[currentQ % VOICES.length]);
+    if (opt) playPremiumAudio(opt);
     if (isCorrect) setPlayerScore(prev => prev + 10);
     setTimeout(() => {
         if (currentQ < arenaQuestions.length - 1) {
@@ -1108,7 +1121,6 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
 
   if (arenaState === 'battle') {
     const q = arenaQuestions[currentQ];
-    const currentVoice = VOICES[currentQ % VOICES.length];
     return (
       <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
         <div className="flex justify-between text-white font-bold mb-2">
@@ -1123,7 +1135,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
           <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">Database Challenge - {config.scope}</p>
           <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap flex items-start justify-center gap-3">
              {(q?.type === 'listen-fill' || q?.audioText) && (
-                <button onClick={() => playPremiumAudio(q.audioText || q.question, currentVoice)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+                <button onClick={() => playPremiumAudio(q.audioText || q.question)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
                    <Volume2 className="w-6 h-6" />
                 </button>
              )}
@@ -1216,6 +1228,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
   
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [forceRebuild, setForceRebuild] = useState(false);
   const [audioProgress, setAudioProgress] = useState({ current: 0, total: 0, text: '' });
   
   const [usersList, setUsersList] = useState([]);
@@ -1245,16 +1258,11 @@ const AdminPanel = ({ currentUser, showToast }) => {
     try { await updateDoc(doc(db, "users", userId), { status: newStatus }); fetchUsers(); showToast("Status updated"); } catch(e) { showToast("Error updating"); }
   };
 
-  // -------------------------------------------------------------
-  // TÍNH NĂNG MỚI: TẢI DATA MÁY CHỦ
-  // -------------------------------------------------------------
   const handleFetchData = async () => {
-    setIsFetchingData(true); 
-    setPushMsg({ type: '', text: '' });
+    setIsFetchingData(true); setPushMsg({ type: '', text: '' });
     try {
       if (!db) throw new Error("Firebase is not connected.");
       let collectionName = dataType; let docId = "";
-      
       if (dataType === 'syllabus') { collectionName = 'metadata'; docId = `syllabus_g${grade}`; } 
       else {
           let prefix = "";
@@ -1265,18 +1273,16 @@ const AdminPanel = ({ currentUser, showToast }) => {
           if (dataType === 'cambridge') prefix = 'cambridge';
           docId = `grade${grade}_${prefix}${unit}`;
       }
-
       const docSnap = await getDoc(doc(db, collectionName, docId));
       if (docSnap.exists()) {
           setJsonInput(JSON.stringify(docSnap.data(), null, 2));
           setPushMsg({ type: 'success', text: `✅ Đã tải thành công dữ liệu từ [${collectionName}/${docId}]` });
       } else {
           setJsonInput("");
-          setPushMsg({ type: 'error', text: `❌ Không tìm thấy dữ liệu tại [${collectionName}/${docId}] (Chưa có ai push lên đây).` });
+          setPushMsg({ type: 'error', text: `❌ Không tìm thấy dữ liệu tại [${collectionName}/${docId}]` });
       }
-    } catch (error) {
-      setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` });
-    } finally { setIsFetchingData(false); }
+    } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` }); } 
+    finally { setIsFetchingData(false); }
   };
 
   const handlePushData = async () => {
@@ -1285,7 +1291,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
       if (!jsonInput.trim()) throw new Error("JSON data is empty!");
       const parsedData = JSON.parse(jsonInput);
       if (!db) throw new Error("Firebase is not connected.");
-      
       let collectionName = dataType; let docId = "";
       if (dataType === 'syllabus') { collectionName = 'metadata'; docId = `syllabus_g${grade}`; } 
       else {
@@ -1297,7 +1302,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
           if (dataType === 'cambridge') prefix = 'cambridge';
           docId = `grade${grade}_${prefix}${unit}`;
       }
-      
       await setDoc(doc(db, collectionName, docId), parsedData);
       setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
@@ -1345,13 +1349,15 @@ const AdminPanel = ({ currentUser, showToast }) => {
           let successCount = 0; let skipCount = 0;
 
           for (let i = 0; i < textsArray.length; i++) {
-              const currentText = textsArray[i];
+              const currentText = textsArray[i].trim();
               setAudioProgress({ current: i + 1, total: textsArray.length, text: `Đang xử lý: ${currentText.substring(0, 30)}...` });
               const voiceName = VOICES[i % VOICES.length];
-              const safeId = currentText.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 60);
+              const safeId = generateSafeId(currentText);
 
-              const docSnap = await getDoc(doc(db, "audio_cache", safeId));
-              if (docSnap.exists()) { skipCount++; continue; }
+              if (!forceRebuild) {
+                  const docSnap = await getDoc(doc(db, "audio_cache", safeId));
+                  if (docSnap.exists()) { skipCount++; continue; }
+              }
 
               let promptText = currentText;
               if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${currentText}`;
@@ -1381,7 +1387,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   setPushMsg({ type: 'error', text: "Đã hết giới hạn API. Vui lòng thử lại sau 1 phút." }); break;
               }
           }
-          if (successCount > 0 || skipCount > 0) setPushMsg({ type: 'success', text: `✅ Audio Generator hoàn tất: Tạo mới ${successCount} files, Bỏ qua ${skipCount} files.` });
+          if (successCount > 0 || skipCount > 0) setPushMsg({ type: 'success', text: `✅ Hoàn tất: Tạo mới ${successCount}, Bỏ qua ${skipCount} (có sẵn trên Cloud).` });
       } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` }); } 
       finally { setIsGeneratingAudio(false); setAudioProgress({ current: 0, total: 0, text: '' }); }
   };
@@ -1402,7 +1408,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 flex flex-col gap-4 animate-fade-in">
           <div className="flex flex-col gap-4 bg-blue-50 p-4 sm:p-5 rounded-xl border border-blue-200">
              
-             {/* Hàng chọn cấu hình */}
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                  <div className="w-full">
                     <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
@@ -1428,7 +1433,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
                  </div>
              </div>
 
-             {/* Hàng nút chức năng */}
              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-blue-200">
                  <button onClick={handleFetchData} disabled={isFetchingData || isPushing || isGeneratingAudio} className="w-full bg-slate-600 hover:bg-slate-500 text-white font-black py-3.5 rounded-xl border-b-4 border-slate-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
                     {isFetchingData ? 'ĐANG TẢI...' : '📥 1. LẤY DATA SERVER'}
@@ -1436,9 +1440,16 @@ const AdminPanel = ({ currentUser, showToast }) => {
                  <button onClick={handlePushData} disabled={isFetchingData || isPushing || isGeneratingAudio} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
                     {isPushing ? 'PUSHING...' : '🚀 2. LƯU (PUSH) DATA'}
                  </button>
-                 <button onClick={handleGenerateAudioForJSON} disabled={isFetchingData || isPushing || isGeneratingAudio} className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-3.5 rounded-xl border-b-4 border-purple-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
-                    {isGeneratingAudio ? 'ĐANG TẠO...' : '🎧 3. BUILD AUDIO'}
-                 </button>
+                 
+                 <div className="w-full flex flex-col gap-2">
+                     <button onClick={handleGenerateAudioForJSON} disabled={isFetchingData || isPushing || isGeneratingAudio} className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-3.5 rounded-xl border-b-4 border-purple-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
+                        {isGeneratingAudio ? 'ĐANG TẠO...' : '🎧 3. BUILD AUDIO'}
+                     </button>
+                     <div className="flex items-center justify-center gap-2">
+                        <input type="checkbox" id="forceRebuild" checked={forceRebuild} onChange={e=>setForceRebuild(e.target.checked)} className="w-4 h-4 cursor-pointer"/>
+                        <label htmlFor="forceRebuild" className="text-xs font-bold text-purple-900 cursor-pointer">Ghi đè Audio cũ (Rebuild toàn bộ)</label>
+                     </div>
+                 </div>
              </div>
 
           </div>
@@ -1685,6 +1696,15 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
             <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
             <p className={`text-sm font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
+          </div>
+          <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
+            <p className="text-sm text-blue-400 font-black">Mr. Khoa</p>
+            <div className="flex items-center gap-1.5 mt-1 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-xl backdrop-blur-sm">
+                <Phone className="w-3 h-3 text-emerald-400" />
+                <p className="text-[10px] text-emerald-400 font-bold tracking-wide">0901637827</p>
+            </div>
+            <p className="text-[9px] text-slate-500 font-semibold mt-1">Zalo / Viber</p>
           </div>
           <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
             <LogOut className="min-w-[24px] h-5" /> 
