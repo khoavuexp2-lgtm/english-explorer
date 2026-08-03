@@ -36,11 +36,35 @@ try {
   }
 } catch (error) { console.warn("Firebase config error:", error); }
 
+// ============================================================================
+// ĐỘNG CƠ ÂM THANH V29 (CHỐNG LỖI IPHONE & TỰ ĐỘNG CHỮA LÀNH)
+// ============================================================================
 const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"]; 
 const audioCache = new Map(); 
 const globalAudioPlayer = new Audio();
+let isAudioUnlocked = false;
 
-// BỘ TẠO MÃ HASH ĐỘC NHẤT GIÚP CHỐNG LỖI TÌM KIẾM AUDIO
+// Hàm mở khóa Audio trên iPhone (Gắn vào sự kiện touch/click đầu tiên của Web)
+const unlockAudioEngine = () => {
+    if (isAudioUnlocked) return;
+    globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
+    globalAudioPlayer.play().then(() => { globalAudioPlayer.pause(); }).catch(()=>{});
+    
+    if ('speechSynthesis' in window) {
+        const u = new SpeechSynthesisUtterance('');
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+    }
+    isAudioUnlocked = true;
+    document.removeEventListener('touchstart', unlockAudioEngine);
+    document.removeEventListener('click', unlockAudioEngine);
+};
+if (typeof document !== 'undefined') {
+    document.addEventListener('touchstart', unlockAudioEngine);
+    document.addEventListener('click', unlockAudioEngine);
+}
+
+// BỘ TẠO MÃ HASH ĐỘC NHẤT
 const generateSafeId = (text) => {
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
@@ -57,9 +81,7 @@ const pcmToWav = (pcmData, sampleRate) => {
   for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
   const buffer = new ArrayBuffer(44 + bytes.length);
   const view = new DataView(buffer);
-  const writeString = (offset, string) => {
-    for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
-  };
+  const writeString = (offset, string) => { for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i)); };
   writeString(0, 'RIFF'); view.setUint32(4, 36 + bytes.length, true);
   writeString(8, 'WAVE'); writeString(12, 'fmt '); view.setUint32(16, 16, true);
   view.setUint16(20, 1, true); view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
@@ -69,9 +91,10 @@ const pcmToWav = (pcmData, sampleRate) => {
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
-const playAudio = (text) => { 
+// Giọng Robot mặc định
+const playSystemAudio = (text) => { 
   if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
+    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
     if (typeof text !== 'string') return;
     let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
     const utterance = new SpeechSynthesisUtterance(speakText);
@@ -80,13 +103,15 @@ const playAudio = (text) => {
   }
 };
 
-const fetchAndCacheAudio = async (text) => {
-  if (!text) return null;
+// Hàm chạy ngầm: Tải từ RAM -> Firebase -> Gemini
+const preloadTTS = async (text, voiceName = "Kore") => {
+  if (!text) return;
   const cleanText = text.trim();
   const safeId = generateSafeId(cleanText);
   
-  if (audioCache.has(safeId)) return audioCache.get(safeId);
+  if (audioCache.has(safeId)) return; // Đã có trong RAM thì thôi
 
+  // 1. Tìm trên Firebase
   if (db) {
       try {
           const docSnap = await getDoc(doc(db, "audio_cache", safeId));
@@ -95,39 +120,68 @@ const fetchAndCacheAudio = async (text) => {
               const wavBlob = pcmToWav(base64Data, 24000);
               const audioUrl = URL.createObjectURL(wavBlob);
               audioCache.set(safeId, audioUrl);
-              return audioUrl;
+              return;
           }
-      } catch (err) { console.warn("Firebase Cache read error:", err); }
+      } catch (err) {}
   }
-  return null;
-};
 
-const preloadTTS = (text) => { fetchAndCacheAudio(text); };
-
-const playPremiumAudio = async (text) => {
-  if (!text) return;
-  const cleanText = text.trim();
-
-  if (globalAudioPlayer.src === "" || globalAudioPlayer.src === window.location.href) {
-      globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
-      globalAudioPlayer.play().then(() => globalAudioPlayer.pause()).catch(()=>{});
-  }
+  // 2. Không có trên Firebase -> Tự động gọi Gemini (Self-Healing)
+  let apiKey = ""; 
+  try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
+  if (!apiKey) return;
 
   try {
-      const url = await fetchAndCacheAudio(cleanText);
-      if (url) {
-          globalAudioPlayer.src = url;
-          globalAudioPlayer.load();
-          await globalAudioPlayer.play();
-      } else {
-          console.warn("Chưa có âm thanh trên Cloud cho câu này, chuyển sang giọng Robot.");
-          playAudio(cleanText);
+      let promptText = cleanText;
+      if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${cleanText}`;
+      const payload = {
+        contents: [{ parts: [{ text: promptText }] }],
+        generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } },
+        model: "gemini-2.5-flash-preview-tts"
+      };
+
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+      
+      if (inlineData) {
+          const wavBlob = pcmToWav(inlineData.data, 24000);
+          const audioUrl = URL.createObjectURL(wavBlob);
+          audioCache.set(safeId, audioUrl); // Lưu RAM
+          
+          // Lưu ngược lại lên Firebase cho người sau xài ké
+          if (db) {
+             setDoc(doc(db, "audio_cache", safeId), {
+                 text: cleanText, voice: voiceName, audioBase64: inlineData.data, createdAt: new Date().toISOString()
+             }).catch(()=>{});
+          }
       }
-  } catch (error) {
-      console.warn("Lỗi phát âm thanh:", error);
-      playAudio(cleanText); 
+  } catch (e) {}
+};
+
+// Hàm phát: Ưu tiên RAM (Phát ngay không delay) -> Rớt về Robot
+const playPremiumAudio = (text) => {
+  if (!text) return;
+  const cleanText = text.trim();
+  const safeId = generateSafeId(cleanText);
+
+  // Nếu đã được Preload vào RAM, phát ngay lập tức (Vượt rào cản iPhone)
+  if (audioCache.has(safeId)) {
+      globalAudioPlayer.src = audioCache.get(safeId);
+      globalAudioPlayer.play().catch((e) => {
+          console.warn("Lỗi phát audio player, chuyển sang giọng hệ thống.");
+          playSystemAudio(cleanText);
+      });
+  } else {
+      // Nếu RAM chưa kịp có, dùng giọng Robot để chống im lặng
+      playSystemAudio(cleanText);
   }
 };
+
+// ============================================================================
+// CÁC THÀNH PHẦN KHÁC (NGUYÊN BẢN VÀ ĐÃ FIX LỖI)
+// ============================================================================
 
 const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
@@ -413,7 +467,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -442,12 +495,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const qData = sessionQList[qIndex];
 
+  // ==========================================
+  // CHẠY NGẦM TẢI AUDIO CỦA CÂU HIỆN TẠI VÀO RAM
+  // ==========================================
   useEffect(() => {
     if (qData) {
+        const v = VOICES[qIndex % VOICES.length];
         const mainText = qData.audioText || qData.targetText || qData.question;
-        if (mainText) preloadTTS(mainText);
-        if (qData.options) qData.options.forEach(opt => preloadTTS(opt));
-        if (qData.words) qData.words.forEach(w => preloadTTS(w));
+        if (mainText) preloadTTS(mainText, v);
+        if (qData.options) qData.options.forEach(opt => preloadTTS(opt, v));
+        if (qData.words) qData.words.forEach(w => preloadTTS(w, v));
     }
     if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
   }, [qData, qIndex]);
@@ -486,12 +543,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
-  const handleMainAudioClick = async () => {
+  const handleMainAudioClick = () => {
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
-     if (!textToSpeak) return;
-     setIsAudioLoading(true);
-     await playPremiumAudio(textToSpeak);
-     setIsAudioLoading(false);
+     if (textToSpeak) playPremiumAudio(textToSpeak);
   };
 
   const toggleListen = async () => {
@@ -666,8 +720,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            <button onClick={handleMainAudioClick} disabled={isAudioLoading} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md disabled:opacity-70">
-              {isAudioLoading ? <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 animate-spin" /> : <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />}
+            <button onClick={handleMainAudioClick} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+              <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />
             </button>
             <span className="pt-0.5">{qData.question}</span>
           </h2>
