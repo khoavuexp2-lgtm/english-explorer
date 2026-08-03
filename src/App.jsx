@@ -41,8 +41,7 @@ try {
 }
 
 // ---------------------------------------------------------
-// TÍNH NĂNG MỚI: CÔNG NGHỆ CHUYỂN ĐỔI GIỌNG NÓI CAO CẤP GEMINI (TTS)
-// Luân phiên thay đổi giọng (Nam, Nữ, Trẻ con) để tạo sự đa dạng
+// CÔNG NGHỆ CHUYỂN ĐỔI GIỌNG NÓI CAO CẤP GEMINI (TTS)
 // ---------------------------------------------------------
 const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"]; 
 
@@ -76,7 +75,7 @@ const pcmToWav = (pcmData, sampleRate) => {
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
-const playAudio = (text) => { // Hệ thống giọng mặc định (Dự phòng)
+const playAudio = (text) => { 
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
     if (typeof text !== 'string') return;
@@ -93,11 +92,10 @@ const playPremiumAudio = async (text, voiceName) => {
   try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
   
   if (!apiKey) {
-      playAudio(text); // Gọi giọng mặc định nếu thiếu Key
+      playAudio(text); 
       return;
   }
 
-  // Tăng cường cảm xúc cho giọng trẻ em (Puck, Kore)
   let promptText = text;
   if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${text}`;
 
@@ -139,7 +137,7 @@ const playPremiumAudio = async (text, voiceName) => {
 };
 
 // ---------------------------------------------------------
-// TÍNH NĂNG MỚI: RÚT CÂU HỎI ARENA TỪ TỔNG HỢP CÁC TÀI NGUYÊN (BANK)
+// TÍNH NĂNG MỚI: RÚT CÂU HỎI ARENA TỪ BANK (Bỏ tự sinh AI)
 // ---------------------------------------------------------
 const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
@@ -147,17 +145,15 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   let questionsPool = [];
   let targetUnits = [];
   
-  // Xác định các Unit cần lấy Data
   if (scope === 'Unit 1') targetUnits = ['1'];
   else if (scope === 'Unit 2') targetUnits = ['2'];
   else if (scope === 'Unit 3') targetUnits = ['3'];
-  else targetUnits = ['1', '2', '3', '4', '5']; // All / Mid-Term
+  else targetUnits = ['1', '2', '3', '4', '5']; 
   
-  const gNum = gradeId.replace('g', ''); // Trích xuất số của khối lớp (Ví dụ: '5')
+  const gNum = gradeId.replace('g', ''); 
   
   try {
       for (const u of targetUnits) {
-          // Rút từ 4 nguồn tài nguyên cốt lõi của giáo viên
           const sources = [
               { coll: 'units', doc: `grade${gNum}_unit${u}` },
               { coll: 'practice', doc: `grade${gNum}_prac${u}` },
@@ -169,16 +165,13 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
               const snap = await getDoc(doc(db, s.coll, s.doc));
               if (snap.exists()) {
                   const data = snap.data();
-                  
-                  // Quét toàn bộ các nhánh dữ liệu để lọc ra dạng Trắc nghiệm
                   const arraysToCheck = ['vocab', 'grammar', 'listen', 'read', 'questions', 'listening', 'reading', 'boss'];
+                  
                   arraysToCheck.forEach(key => {
                       if (data[key] && Array.isArray(data[key])) {
                           data[key].forEach(q => {
-                              // Chắt lọc định dạng trắc nghiệm
                               if (q.options && q.answer && q.question) {
                                   let finalQ = q.question;
-                                  // Tái cấu trúc lại câu hỏi nghe/đọc cho phù hợp với Arena
                                   if (q.type === 'listen-fill') finalQ += `\n[ ${q.textBefore} ___ ${q.textAfter} ]`;
                                   else if (q.passage) finalQ = `Read:\n${q.passage}\n\nQ: ${q.question}`;
 
@@ -192,7 +185,6 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
       }
 
       if (questionsPool.length > 0) {
-          // Lọc trùng lặp & Xáo trộn ngẫu nhiên
           const uniqueQuestions = Array.from(new Map(questionsPool.map(item => [item.question, item])).values());
           return uniqueQuestions.sort(() => Math.random() - 0.5).slice(0, numQs);
       }
@@ -515,7 +507,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
      if (!textToSpeak) return;
      setIsAudioLoading(true);
-     // Luân phiên lấy 1 trong 5 giọng đọc xịn để câu hỏi không bị nhàm chán
      const currentVoice = VOICES[qIndex % VOICES.length];
      await playPremiumAudio(textToSpeak, currentVoice);
      setIsAudioLoading(false);
@@ -831,17 +822,213 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     </div>
   );
 };
+const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
+  const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
+  const isUnitCompleted = user?.completedUnits?.includes(unit.id);
+  const savedProgress = isUnitCompleted ? 4 : (user?.unitProgress?.[unit.id] || 0);
+  
+  const [currentStationIdx, setCurrentStationIdx] = useState(savedProgress); 
+  const [activeGame, setActiveGame] = useState(null);
 
-// ---------------------------------------------------------
-// COMPONENT ARENAVIEW (NÂNG CẤP): LẤY DATA NGẪU NHIÊN TỪ FIRESTORE (BANK CỦA GIÁO VIÊN)
-// ---------------------------------------------------------
+  const getMapNodes = () => {
+    const baseNodes = [ { id: 1, type: "vocab", x: 20, y: 80 }, { id: 2, type: "grammar", x: 45, y: 65 }, { id: 3, type: "listen", x: 75, y: 55 }, { id: 4, type: "read", x: 40, y: 30 }, { id: 5, type: "boss", x: 80, y: 15 } ];
+    const styles = [ { label: "Word Island", icon: "🏝️" }, { label: "Grammar Reef", icon: "🪸" }, { label: "Listen Shell", icon: "🐚" }, { label: "Read Cave", icon: "🌊" }, { label: "Kraken Boss", icon: "🦑" } ];
+    return baseNodes.map((node, i) => ({ ...node, ...styles[i] }));
+  };
+  
+  const nodes = getMapNodes();
+  const pathD = nodes.reduce((acc, node, i) => i === 0 ? `M ${node.x} ${node.y}` : `${acc} L ${node.x} ${node.y}`, "");
+
+  return (
+    <div className="w-full h-full flex flex-col p-2 sm:p-4 animate-fade-in relative">
+      <button onClick={onBack} className="absolute top-6 left-6 sm:top-8 sm:left-8 z-50 p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white hover:bg-white/20 border border-white/20 shadow-xl"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+      <div className={`relative w-full flex-1 rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden shadow-2xl border-[4px] sm:border-[6px] border-white/10 bg-gradient-to-tr ${theme.bg}`}>
+        <div className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-xl px-4 py-1.5 sm:px-6 sm:py-2 rounded-2xl border border-white/10 shadow-2xl whitespace-nowrap">
+          <span className="text-white font-black tracking-widest text-[10px] sm:text-sm uppercase">{grade.name} • {unit.name}</span>
+        </div>
+        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" preserveAspectRatio="none" viewBox="0 0 100 100">
+           <path d={pathD} fill="transparent" stroke={theme.pathColor} strokeWidth="2.5" strokeDasharray="4 6" strokeLinecap="round" />
+        </svg>
+        <div className="absolute z-30 transition-all duration-1000 -translate-x-1/2 -translate-y-1/2 drop-shadow-2xl pointer-events-none" style={{ left: `${nodes[currentStationIdx].x}%`, top: `${nodes[currentStationIdx].y}%`, marginTop: '-35px' }}>
+          <div className="text-4xl sm:text-6xl animate-float">{theme.vehicle}</div>
+        </div>
+        {nodes.map((node, index) => {
+          const isPassed = isUnitCompleted || index < currentStationIdx;
+          const isCurrent = !isUnitCompleted && index === currentStationIdx;
+          const isLocked = !isUnitCompleted && index > currentStationIdx;
+          return (
+            <button key={node.id} onClick={() => !isLocked && setActiveGame(node)}
+              className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
+              <div className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl sm:text-4xl shadow-2xl border-2 sm:border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
+                {node.icon}
+                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white"><CheckCircle2 className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
+                {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-5 h-5 sm:w-8 sm:h-8 text-white/50"/></div>}
+              </div>
+              <div className="px-2 py-1 sm:px-4 sm:py-1.5 rounded-lg sm:rounded-xl text-[8px] sm:text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
+            </button>
+          );
+        })}
+      </div>
+      
+      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit.name} - ${activeGame?.label}`} onWin={() => {
+        setActiveGame(null);
+        let newStars = (user?.inventory?.stars ?? 0) + 15;
+        if (currentStationIdx < nodes.length - 1) {
+            const nextIdx = currentStationIdx + 1;
+            if(!isUnitCompleted) setCurrentStationIdx(nextIdx); 
+            if (updateUser && user && !isUnitCompleted) {
+               updateUser({...user, inventory: {...user.inventory, stars: newStars}, unitProgress: {...(user.unitProgress || {}), [unit.id]: nextIdx}});
+            } else if (updateUser && user) {
+               updateUser({...user, inventory: {...user.inventory, stars: newStars}});
+            }
+        } else {
+           if (updateUser && user) {
+               let finalStars = newStars + (isUnitCompleted ? 0 : 35); 
+               let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
+               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted, unitProgress: {...(user.unitProgress || {}), [unit.id]: nodes.length - 1}});
+           }
+           onBack();
+        }
+      }} />
+    </div>
+  );
+};
+
+const GenericListSelector = ({ title, grade, items, onBack, onSelect, icon: Icon, colorClass }) => (
+  <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
+    <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
+      <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} - {title}</h2></div>
+    </div>
+    <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
+      {items && items.length > 0 ? items.map(item => (
+        <button key={item.id} onClick={() => onSelect(item)} 
+          className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0 ${colorClass}`}>
+          <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 bg-white/20 text-white">
+            <Icon className="w-5 h-5 sm:w-7 sm:h-7" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm sm:text-xl font-black text-white">{item.name}: {item.title}</h3>
+          </div>
+        </button>
+      )) : (
+        <div className="text-center p-8 bg-white/5 rounded-[2rem] border border-white/10 text-white/50 font-bold">Chưa có dữ liệu từ Admin.</div>
+      )}
+    </div>
+  </div>
+);
+
+const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
+  <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
+    <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
+      <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
+      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
+    </div>
+    <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
+      {syllabus?.units && syllabus.units.length > 0 ? syllabus.units.map(unit => {
+        const isCompleted = user?.completedUnits?.includes(unit.id);
+        const progress = user?.unitProgress?.[unit.id] || 0;
+        return (
+        <button key={unit.id} onClick={() => onSelectUnit(unit)} 
+          className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
+          ${isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
+            progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 hover:brightness-110 shadow-xl' :
+            'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
+          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : progress > 0 ? 'bg-orange-700 text-white' : 'bg-white/20 text-white'}`}>
+            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
+            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
+            {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
+          </div>
+        </button>
+      )}) : (
+        <div className="text-center p-8 bg-white/5 rounded-[2rem] border border-white/10 text-white font-bold">
+           <Database className="w-12 h-12 text-white/30 mx-auto mb-4" />
+           Chưa có dữ liệu Khung chương trình.<br/>Admin vui lòng vào Admin Panel, chọn "6. Syllabus" để Push Data.
+        </div>
+      )}
+    </div>
+  </div>
+);
+
+const GradesView = ({ onSelectGrade }) => (
+  <div className="w-full h-full flex flex-col items-center justify-center p-4 animate-fade-in relative z-10 pb-24 lg:pb-4">
+    <div className="mb-6 sm:mb-8 text-center"><h2 className="text-2xl sm:text-4xl font-black text-white drop-shadow-lg">Select Your Grade</h2></div>
+    <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-4 max-w-5xl w-full">
+      {GRADES.map(grade => (
+        <button key={grade.id} onClick={() => onSelectGrade(grade)} 
+          className={`relative flex-1 min-w-[120px] sm:min-w-[140px] max-w-[150px] sm:max-w-[180px] text-left p-4 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[6px] sm:border-b-[8px] transition-all bg-gradient-to-b ${grade.color} border-black/20 hover:-translate-y-2 hover:shadow-2xl active:translate-y-0 active:border-b-0`}>
+          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-white/20 text-white w-fit mb-2 sm:mb-4"><grade.icon className="w-6 h-6 sm:w-8 sm:h-8" /></div>
+          <h3 className="font-black text-lg sm:text-2xl text-white">{grade.name}</h3>
+          <p className="text-[10px] sm:text-xs font-bold text-white/70 mt-1">{grade.desc}</p>
+        </button>
+      ))}
+    </div>
+  </div>
+);
+
+const PracticeHub = ({ grade, onSelectCategory }) => (
+  <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
+    <div className="mb-8">
+      <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">{grade.name} Practice Hub</h2>
+      <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
+    </div>
+    
+    <div className="flex flex-col gap-8">
+      <div>
+        <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Skill Drills</h3>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <button onClick={() => onSelectCategory('listening')} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <Headphones className="w-8 h-8 mb-3 text-teal-100" />
+            <h4 className="text-xl font-black">Listening</h4>
+            <p className="text-sm font-medium text-teal-100">By Unit</p>
+          </button>
+          <button onClick={() => onSelectCategory('speaking')} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <Mic className="w-8 h-8 mb-3 text-cyan-100" />
+            <h4 className="text-xl font-black">Speaking</h4>
+            <p className="text-sm font-medium text-cyan-100">By Unit</p>
+          </button>
+          <button onClick={() => onSelectCategory('reading')} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <BookOpen className="w-8 h-8 mb-3 text-rose-100" />
+            <h4 className="text-xl font-black">Reading</h4>
+            <p className="text-sm font-medium text-rose-100">By Unit</p>
+          </button>
+          <button onClick={() => onSelectCategory('extra')} className="p-6 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl border-b-[6px] border-purple-800 text-white hover:-translate-y-1 shadow-lg text-left">
+            <Star className="w-8 h-8 mb-3 text-purple-100" />
+            <h4 className="text-xl font-black">Extra Exercises</h4>
+            <p className="text-sm font-medium text-purple-100">Arena Prep</p>
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-amber-400"/> Full Exams</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <button onClick={() => onSelectCategory('tests')} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
+            <Timer className="w-12 h-12 mb-4 text-indigo-200" />
+            <h3 className="text-3xl font-black mb-2">45-Min Test</h3>
+            <p className="text-indigo-100 text-base font-medium">Review and End-of-Term comprehensive tests.</p>
+          </button>
+          <button onClick={() => onSelectCategory('cambridge')} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
+            <Medal className="w-12 h-12 mb-4 text-amber-100" />
+            <h3 className="text-2xl font-black mb-2">Cambridge A2</h3>
+            <p className="text-amber-50 text-sm font-medium">Flyers/KET level reading and vocabulary.</p>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+);
+
 const ArenaView = ({ user, updateUser, selectedGrade }) => {
   const [arenaState, setArenaState] = useState('lobby'); 
   const [pin, setPin] = useState('');
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
   const [rewardClaimed, setRewardClaimed] = useState(false);
-  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, scope: 'Unit 1' }); // Đã loại bỏ Source (AI vs Bank)
+  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, scope: 'Unit 1' }); 
   const [arenaQuestions, setArenaQuestions] = useState([]);
   const [currentQ, setCurrentQ] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -879,7 +1066,6 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
   const handleStartBattle = async () => {
     setIsGenerating(true);
     
-    // Gọi hàm mới: Trích xuất ngẫu nhiên từ kho tàng Syllabus, Practice, Extra của Giáo viên
     let questions = await fetchArenaQuestionsFromBank(config.scope, parseInt(config.questions), selectedGrade?.id || 'g5');
     
     if (!questions || questions.length === 0) {
@@ -1577,5 +1763,62 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       
       <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
     </div>
+  );
+}
+// --- DÁN PHẦN NÀY VÀO DƯỚI CÙNG CỦA FILE APP.JSX ---
+
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [globalToast, setGlobalToast] = useState("");
+
+  const showToast = (msg) => {
+      setGlobalToast(msg);
+      setTimeout(() => setGlobalToast(""), 4000);
+  };
+
+  useEffect(() => {
+    if (!auth) { setIsAuthChecking(false); return; }
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        const userProfile = await syncUserWithDb(firebaseUser);
+        setUser(userProfile);
+      } else { setUser(null); }
+      setIsAuthChecking(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  const handleLogout = async () => { if (auth) await signOut(auth); setUser(null); };
+
+  const updateUserAndDb = async (newUserData) => {
+    setUser(newUserData); 
+    if (db && newUserData) {
+      try { 
+        const cleanData = JSON.parse(JSON.stringify(newUserData));
+        const targetUid = cleanData.uid || auth?.currentUser?.uid; 
+        if (!targetUid) return;
+        await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
+      } 
+      catch(e) { 
+        console.error("Firestore save failed:", e); 
+        if (newUserData.role === 'admin' || newUserData.role === 'superadmin') {
+           showToast(`[Admin Error] Firebase: ${e.message}`);
+        }
+      }
+    }
+  };
+
+  if (isAuthChecking) return <div className="h-screen w-screen bg-[#0f172a] flex items-center justify-center px-4"><div className="flex flex-col items-center gap-4 text-center"><Compass className="w-10 h-10 sm:w-12 sm:h-12 text-blue-500 animate-spin" /><p className="text-white font-black animate-pulse text-sm sm:text-base">Checking credentials...</p></div></div>;
+  
+  return (
+    <>
+      {globalToast && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 bg-slate-900 text-emerald-400 px-6 py-3 rounded-xl shadow-2xl z-[200] font-bold border border-emerald-500 animate-slide-up whitespace-nowrap">
+              {globalToast}
+          </div>
+      )}
+      {!user ? <OnboardingView /> : <MainLayout user={user} handleLogout={handleLogout} updateUser={updateUserAndDb} showToast={showToast} />}
+    </>
   );
 }
