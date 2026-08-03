@@ -37,13 +37,34 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH CLOUD TTS ĐỒNG NHẤT 100% THIẾT BỊ (Bypass Limit)
-// Sử dụng Free MP3 Endpoint để mọi thiết bị (iPhone/Android/Windows) nghe cùng 1 giọng.
+// ĐỘNG CƠ ÂM THANH HYBRID (KẾT HỢP NATIVE & CLOUD)
+// Ưu tiên dùng giọng Natural/Premium có sẵn. Dự phòng bằng Google MP3 Cloud.
 // ============================================================================
 const globalAudioPlayer = new Audio();
 let isAudioUnlocked = false;
+let premiumVoices = [];
 
-// Mở khóa Audio trên thiết bị Apple (Tránh lỗi Autoplay Policy)
+const initVoices = () => {
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      let englishVoices = voices.filter(v => v.lang.startsWith('en'));
+      premiumVoices = englishVoices.filter(v => 
+        v.name.includes('Natural') || 
+        v.name.includes('Premium') || 
+        v.name.includes('Google') || 
+        v.name.includes('Samantha')
+      );
+    }
+  }
+};
+
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  initVoices();
+  window.speechSynthesis.onvoiceschanged = initVoices;
+}
+
+// Mở khóa Audio trên thiết bị Apple (Tránh lỗi Autoplay Policy của iPhone)
 const unlockAudioEngine = () => {
     if (isAudioUnlocked) return;
     globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
@@ -75,10 +96,10 @@ const playSystemAudio = (text) => {
   }
 };
 
-// PHÁT MP3 TỪ CLOUD - 100% Đồng nhất
+// PHÁT AUDIO: KẾT HỢP GIỌNG NATIVE XỊN VÀ GOOGLE MP3
 const playPremiumAudio = (text) => {
   if (!text) return;
-  const cleanText = text.trim();
+  const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
 
   // Đảm bảo Apple không khóa mỏ
   if (globalAudioPlayer.src === "" || globalAudioPlayer.src === window.location.href) {
@@ -86,14 +107,33 @@ const playPremiumAudio = (text) => {
       globalAudioPlayer.play().catch(()=>{});
   }
 
-  // Dùng API tạo MP3 trực tiếp (Bypass mọi limit, tốc độ cao, cùng 1 giọng Mỹ chuẩn)
+  // Ưu tiên 1: Dùng giọng Natural/Premium có sẵn trên máy (Zero delay)
+  if (premiumVoices.length > 0 && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(cleanText);
+      utterance.rate = 0.85;
+      const voiceIndex = cleanText.length % premiumVoices.length; // Xoay vòng giọng Nam/Nữ tự nhiên
+      utterance.voice = premiumVoices[voiceIndex];
+      window.speechSynthesis.speak(utterance);
+      return;
+  }
+
+  // Ưu tiên 2: Fallback về Google Translate MP3 (Đồng nhất, không đơ trên các máy không có giọng xịn)
   const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en-US&client=tw-ob`;
   
   globalAudioPlayer.src = url;
   globalAudioPlayer.load();
-  globalAudioPlayer.play().catch((error) => {
-      console.warn("Lỗi tải MP3 Cloud, dùng giọng hệ thống dự phòng:", error);
-      playSystemAudio(cleanText); 
+  globalAudioPlayer.play().catch((err) => {
+      console.warn("Lỗi tải MP3 Cloud, dùng giọng hệ thống dự phòng:", err);
+      // Fallback khi rớt mạng: Chữa lỗi Cancel làm im lặng trên iPhone
+      if ('speechSynthesis' in window) {
+          window.speechSynthesis.cancel();
+          setTimeout(() => {
+              const utterance = new SpeechSynthesisUtterance(cleanText);
+              utterance.lang = 'en-US';
+              window.speechSynthesis.speak(utterance);
+          }, 50); // Timeout 50ms rất quan trọng để fix bug trên Safari iOS
+      }
   });
 };
 
@@ -838,10 +878,10 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-gradient-to-r from-emerald-400 to-teal-500 border-teal-700 text-white hover:brightness-110 shadow-xl' :
+          ${isCompleted ? 'bg-emerald-500 border-emerald-700 text-white hover:brightness-110 shadow-xl' :
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 text-white hover:brightness-110 shadow-xl'}`}>
-          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 bg-white/20 text-white`}>
+          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : 'bg-white/20 text-white'}`}>
             {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
           </div>
           <div className="flex-1">
