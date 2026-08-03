@@ -1168,7 +1168,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-auto">
             {q?.options?.map((opt, i) => {
-              const defaultColors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
+              const defaultColors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-50 border-emerald-700 hover:bg-emerald-400'];
               let btnClass = defaultColors[i%4];
               if (answerState) {
                   if (opt === q.answer) btnClass = 'bg-emerald-500 border-emerald-700 animate-pulse'; 
@@ -1335,13 +1335,17 @@ const AdminPanel = ({ currentUser, showToast }) => {
     } finally { setIsPushing(false); }
   };
 
+  // Quét toàn bộ Text (Ngoại trừ phần Speak)
   const extractTextsFromJSON = (obj, textsSet = new Set()) => {
       if (!obj) return textsSet;
       if (Array.isArray(obj)) {
           obj.forEach(item => extractTextsFromJSON(item, textsSet));
       } else if (typeof obj === 'object') {
+          // TUYỆT ĐỐI BỎ QUA TOÀN BỘ DỮ LIỆU CỦA CÂU HỎI LOẠI "SPEAK"
+          if (obj.type === 'speak') return textsSet;
+
           for (const key in obj) {
-              if (['audioText', 'question', 'targetText', 'answer', 'textBefore', 'textAfter'].includes(key) && typeof obj[key] === 'string') {
+              if (['audioText', 'question', 'answer'].includes(key) && typeof obj[key] === 'string') {
                   if (obj[key].trim()) textsSet.add(obj[key].trim());
               } else if (['options', 'words'].includes(key) && Array.isArray(obj[key])) {
                   obj[key].forEach(val => { if (typeof val === 'string' && val.trim()) textsSet.add(val.trim()); });
@@ -1381,7 +1385,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
 
               if (!forceRebuild) {
                   const docSnap = await getDoc(doc(db, "audio_cache", safeId));
-                  if (docSnap.exists()) { skipCount++; continue; }
+                  if (docSnap.exists()) { skipCount++; continue; } // Câu này đã có, Lướt qua ngay lập tức!
               }
 
               let promptText = currentText;
@@ -1399,12 +1403,16 @@ const AdminPanel = ({ currentUser, showToast }) => {
               
               if (!response.ok) { 
                   console.error(`Lỗi Gemini API ở câu: ${currentText}`); 
+                  // BÁO LỖI QUÁ TẢI 15 LƯỢT/PHÚT VÀ DỪNG TIẾN TRÌNH
                   if (response.status === 429) {
-                      setPushMsg({ type: 'error', text: "Đã hết giới hạn 15 lượt API/phút. Vui lòng thử lại sau 1 phút." }); 
-                      break; 
+                      setPushMsg({ type: 'error', text: `❌ Quá tải API (Lỗi 429)! Đã lưu thành công ${successCount} audio. Vui lòng đợi đúng 1 phút rồi bấm "BUILD AUDIO" lại (Không chọn Ghi đè) để tiếp tục.` }); 
+                      setIsGeneratingAudio(false);
+                      return; 
                   }
-                  await new Promise(r => setTimeout(r, 4200));
-                  continue; 
+                  // Lỗi khác
+                  setPushMsg({ type: 'error', text: `❌ Lỗi API (${response.status}) khi đọc: ${currentText}` });
+                  setIsGeneratingAudio(false);
+                  return;
               }
 
               const data = await response.json();
@@ -1415,8 +1423,15 @@ const AdminPanel = ({ currentUser, showToast }) => {
                       text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
                   });
                   successCount++;
+                  
+                  // KỶ LUẬT THÉP: NGHỈ ĐÚNG 5 GIÂY ĐỂ ĐẢM BẢO CHỈ 12 REQUEST / PHÚT
+                  setAudioProgress({ current: i + 1, total: textsArray.length, text: `Nghỉ 5s để né giới hạn API...` });
+                  await new Promise(r => setTimeout(r, 5000)); 
+              } else {
+                  setPushMsg({ type: 'error', text: "Lỗi trả về từ Gemini. Vui lòng thử lại sau." }); 
+                  setIsGeneratingAudio(false);
+                  return;
               }
-              await new Promise(r => setTimeout(r, 4200)); 
           }
           if (successCount > 0 || skipCount > 0) setPushMsg({ type: 'success', text: `✅ Hoàn tất: Tạo mới ${successCount}, Bỏ qua ${skipCount} (có sẵn trên Cloud).` });
       } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` }); } 
@@ -1500,7 +1515,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
                  <div className="w-full bg-purple-200 h-2 rounded-full overflow-hidden">
                      <div className="bg-purple-600 h-full transition-all duration-300" style={{ width: `${(audioProgress.current / audioProgress.total) * 100}%` }}></div>
                  </div>
-                 <p className="text-xs text-purple-600 font-medium mt-2 italic">*Hệ thống tự động nghỉ 4.2s sau mỗi câu để không bị Google chặn.</p>
              </div>
           )}
 
