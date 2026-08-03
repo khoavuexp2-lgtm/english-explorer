@@ -40,55 +40,226 @@ try {
   console.warn("Firebase config error:", error);
 }
 
-// BỘ NÃO AI GEMINI 2.5 CHO ARENA ĐÃ ĐƯỢC CHUẨN HOÁ
-const generateArenaQuestions = async (scope, numQs) => {
+// ---------------------------------------------------------
+// TÍNH NĂNG MỚI: CÔNG NGHỆ CHUYỂN ĐỔI GIỌNG NÓI CAO CẤP GEMINI (TTS)
+// Luân phiên thay đổi giọng (Nam, Nữ, Trẻ con) để tạo sự đa dạng
+// ---------------------------------------------------------
+const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"]; 
+
+const pcmToWav = (pcmData, sampleRate) => {
+  const binaryStr = atob(pcmData);
+  const bytes = new Uint8Array(binaryStr.length);
+  for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+  
+  const buffer = new ArrayBuffer(44 + bytes.length);
+  const view = new DataView(buffer);
+  
+  const writeString = (offset, string) => {
+    for (let i = 0; i < string.length; i++) view.setUint8(offset + i, string.charCodeAt(i));
+  };
+  
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + bytes.length, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, 'data');
+  view.setUint32(40, bytes.length, true);
+  
+  new Uint8Array(buffer, 44).set(bytes);
+  return new Blob([buffer], { type: 'audio/wav' });
+};
+
+const playAudio = (text) => { // Hệ thống giọng mặc định (Dự phòng)
+  if ('speechSynthesis' in window) {
+    window.speechSynthesis.cancel();
+    if (typeof text !== 'string') return;
+    let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
+    const utterance = new SpeechSynthesisUtterance(speakText);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.9;
+    window.speechSynthesis.speak(utterance);
+  }
+};
+
+const playPremiumAudio = async (text, voiceName) => {
   let apiKey = ""; 
   try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
-
-  const prompt = "Generate exactly " + numQs + " multiple-choice English questions for 5th-grade students in Vietnam (10 years old). The topic is: " + scope + ". Make sure it is educational and fun.";
   
+  if (!apiKey) {
+      playAudio(text); // Gọi giọng mặc định nếu thiếu Key
+      return;
+  }
+
+  // Tăng cường cảm xúc cho giọng trẻ em (Puck, Kore)
+  let promptText = text;
+  if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${text}`;
+
   const payload = {
-    contents: [{ parts: [{ text: prompt }] }],
-    systemInstruction: { 
-      parts: [{ text: "You are an expert English teacher. You MUST return ONLY a JSON array. Each object must have exactly these keys: 'question' (string), 'options' (array of 4 string choices), and 'answer' (string, must exactly match one of the options)." }] 
-    },
+    contents: [{ parts: [{ text: promptText }] }],
     generationConfig: { 
-      responseMimeType: "application/json" 
-    }
+      responseModalities: ["AUDIO"], 
+      speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } 
+    },
+    model: "gemini-2.5-flash-preview-tts"
   };
 
-  const delays = [1000, 2000, 4000, 8000, 16000];
-  
-  for (let attempt = 0; attempt <= 5; attempt++) {
-    try {
-      const response = await fetch("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=" + apiKey, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      
-      if (!response.ok) throw new Error("HTTP error! status: " + response.status);
-      
-      const result = await response.json();
-      let text = result.candidates?.[0]?.content?.parts?.[0]?.text;
-      
-      if (text) {
-         // GIẢI PHÁP CHỐNG LỖI AST CỦA VERCEL 100%: Dùng mã ASCII để tạo ký tự thay vì viết trực tiếp
-         const marker = String.fromCharCode(96, 96, 96);
-         text = text.replace(new RegExp(marker + "json", "gi"), "").replace(new RegExp(marker, "g"), "").trim();
-         const parsed = JSON.parse(text);
-         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      throw new Error("Invalid format returned by AI.");
-    } catch (e) {
-      if (attempt === 5) {
-         console.error("AI Generation failed after 5 retries.", e);
-         return [
-           { question: "System Error. Could not connect to AI. Please check your API Key on Vercel.", options: ["A", "B", "C", "D"], answer: "A" }
-         ];
-      }
-      await new Promise(resolve => setTimeout(resolve, delays[attempt]));
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+    
+    if (inlineData) {
+       const mimeType = inlineData.mimeType || "";
+       let sampleRate = 24000;
+       const rateMatch = mimeType.match(/rate=(\d+)/);
+       if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
+       
+       const wavBlob = pcmToWav(inlineData.data, sampleRate);
+       const audioUrl = URL.createObjectURL(wavBlob);
+       const audio = new Audio(audioUrl);
+       await audio.play();
+    } else {
+       playAudio(text); 
     }
+  } catch (e) {
+      console.error("Premium TTS failed", e);
+      playAudio(text);
+  }
+};
+
+// ---------------------------------------------------------
+// TÍNH NĂNG MỚI: RÚT CÂU HỎI ARENA TỪ TỔNG HỢP CÁC TÀI NGUYÊN (BANK)
+// ---------------------------------------------------------
+const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
+  if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
+  
+  let questionsPool = [];
+  let targetUnits = [];
+  
+  // Xác định các Unit cần lấy Data
+  if (scope === 'Unit 1') targetUnits = ['1'];
+  else if (scope === 'Unit 2') targetUnits = ['2'];
+  else if (scope === 'Unit 3') targetUnits = ['3'];
+  else targetUnits = ['1', '2', '3', '4', '5']; // All / Mid-Term
+  
+  const gNum = gradeId.replace('g', ''); // Trích xuất số của khối lớp (Ví dụ: '5')
+  
+  try {
+      for (const u of targetUnits) {
+          // Rút từ 4 nguồn tài nguyên cốt lõi của giáo viên
+          const sources = [
+              { coll: 'units', doc: `grade${gNum}_unit${u}` },
+              { coll: 'practice', doc: `grade${gNum}_prac${u}` },
+              { coll: 'extra', doc: `grade${gNum}_extra${u}` },
+              { coll: 'cambridge', doc: `grade${gNum}_cambridge${u}` } 
+          ];
+
+          for (const s of sources) {
+              const snap = await getDoc(doc(db, s.coll, s.doc));
+              if (snap.exists()) {
+                  const data = snap.data();
+                  
+                  // Quét toàn bộ các nhánh dữ liệu để lọc ra dạng Trắc nghiệm
+                  const arraysToCheck = ['vocab', 'grammar', 'listen', 'read', 'questions', 'listening', 'reading', 'boss'];
+                  arraysToCheck.forEach(key => {
+                      if (data[key] && Array.isArray(data[key])) {
+                          data[key].forEach(q => {
+                              // Chắt lọc định dạng trắc nghiệm
+                              if (q.options && q.answer && q.question) {
+                                  let finalQ = q.question;
+                                  // Tái cấu trúc lại câu hỏi nghe/đọc cho phù hợp với Arena
+                                  if (q.type === 'listen-fill') finalQ += `\n[ ${q.textBefore} ___ ${q.textAfter} ]`;
+                                  else if (q.passage) finalQ = `Read:\n${q.passage}\n\nQ: ${q.question}`;
+
+                                  questionsPool.push({ question: finalQ, options: q.options, answer: q.answer });
+                              }
+                          });
+                      }
+                  });
+              }
+          }
+      }
+
+      if (questionsPool.length > 0) {
+          // Lọc trùng lặp & Xáo trộn ngẫu nhiên
+          const uniqueQuestions = Array.from(new Map(questionsPool.map(item => [item.question, item])).values());
+          return uniqueQuestions.sort(() => Math.random() - 0.5).slice(0, numQs);
+      }
+  } catch (e) {
+      console.error("Bank fetch error:", e);
+  }
+  
+  return [{ question: "Không tìm thấy câu hỏi trong kho dữ liệu Syllabus. Admin vui lòng Push thêm Data!", options: ["OK", "A", "B", "C"], answer: "OK" }];
+};
+
+const evaluateSpeech = (transcript, target) => {
+  let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
+  
+  cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
+  cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
+
+  const normalizationDict = {
+    '15': 'fifteen', '16': 'sixteen', '38': 'thirty eight', '81': 'eighty one',
+    '93': 'ninety three', '116': 'one hundred and sixteen', '33': 'thirty three',
+    '97': 'ninety seven', '67': 'sixty seven', '79': 'seventy nine', '23': 'twenty three',
+    'st': 'street', 'rd': 'road', 'ave': 'avenue'
+  };
+
+  const transcriptWords = cleanTranscript.split(' ').map(word => normalizationDict[word] || word);
+  cleanTranscript = transcriptWords.join(' ').replace(/\s+/g, ' ').trim();
+  cleanTarget = cleanTarget.replace(/\s+/g, ' ').trim();
+
+  if (cleanTranscript === cleanTarget) return { pass: true, msg: "Perfect pronunciation!" };
+  if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) return { pass: false, msg: "You pronounced 'bag' instead of 'big'." };
+  
+  return { pass: false, msg: `Try again! Remember to speak clearly.` };
+};
+
+const syncUserWithDb = async (googleUser) => {
+  if (!db) return null;
+  const defaultInventory = { stars: 0, flames: 0, lives: 5, freeRefillUsed: false };
+  const defaultName = googleUser.displayName || "Explorer";
+  const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
+  const adminEmails = ["khoavuexp2@gmail.com", "khoavuexp@gmail.com"];
+  const isHardcodedAdmin = adminEmails.includes(googleUser.email);
+
+  try {
+    const userRef = doc(db, "users", googleUser.uid);
+    const userSnap = await getDoc(userRef);
+    const today = new Date().toDateString();
+
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      const finalRole = isHardcodedAdmin ? "admin" : (data.role || "student");
+      let streak = data.streak || 0;
+      let lastLogin = data.lastLogin || "";
+      if (lastLogin !== today) {
+         const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+         if (lastLogin === yesterday.toDateString()) streak += 1; else streak = 1;
+         await updateDoc(userRef, { streak, lastLogin: today, role: finalRole });
+      } else if (isHardcodedAdmin && data.role !== "admin") {
+         await updateDoc(userRef, { role: "admin" });
+      }
+      return { uid: googleUser.uid, ...data, name: data.name || defaultName, avatar: data.avatar || defaultAvatar, role: finalRole, status: data.status || "active", inventory: data.inventory || defaultInventory, completedUnits: data.completedUnits || [], unitProgress: data.unitProgress || {}, streak, lastLogin: today, badges: data.badges || [] };
+    } else {
+      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [] };
+      await setDoc(userRef, newUser);
+      return newUser;
+    }
+  } catch (error) {
+    return { uid: googleUser.uid, name: defaultName, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
   }
 };
 
@@ -132,97 +303,6 @@ const MAP_THEMES = {
   ocean: { bg: "from-[#0891b2] to-[#1e3a8a]", vehicle: "⛵", pathColor: "rgba(255,255,255,0.4)" },
   space: { bg: "from-[#0f172a] to-[#312e81]", vehicle: "🚀", pathColor: "rgba(255,255,255,0.2)" },
   forest: { bg: "from-[#14532d] to-[#064e3b]", vehicle: "🚙", pathColor: "rgba(255,255,255,0.3)" }
-};
-
-const playAudio = (text) => {
-  if ('speechSynthesis' in window) {
-    window.speechSynthesis.cancel();
-    if (typeof text !== 'string') return;
-    let speakText = text;
-    speakText = speakText.replace(/_+/g, 'blank'); 
-    speakText = speakText.replace(/\blive\b/gi, 'livv'); 
-    speakText = speakText.replace(/\blives\b/gi, 'livvz');
-    const utterance = new SpeechSynthesisUtterance(speakText);
-    utterance.lang = 'en-US';
-    utterance.rate = 0.9;
-    window.speechSynthesis.speak(utterance);
-  }
-};
-
-const evaluateSpeech = (transcript, target) => {
-  let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-  let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-  
-  cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
-  cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
-
-  const normalizationDict = {
-    '15': 'fifteen',
-    '16': 'sixteen',
-    '38': 'thirty eight',
-    '81': 'eighty one',
-    '93': 'ninety three',
-    '116': 'one hundred and sixteen',
-    '33': 'thirty three',
-    '97': 'ninety seven',
-    '67': 'sixty seven',
-    '79': 'seventy nine',
-    '23': 'twenty three',
-    'st': 'street',
-    'rd': 'road',
-    'ave': 'avenue'
-  };
-
-  const transcriptWords = cleanTranscript.split(' ').map(word => normalizationDict[word] || word);
-  cleanTranscript = transcriptWords.join(' ');
-
-  cleanTranscript = cleanTranscript.replace(/\s+/g, ' ').trim();
-  cleanTarget = cleanTarget.replace(/\s+/g, ' ').trim();
-
-  if (cleanTranscript === cleanTarget) return { pass: true, msg: "Perfect pronunciation!" };
-  if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) return { pass: false, msg: "You pronounced 'bag' instead of 'big'." };
-  
-  return { pass: false, msg: `Try again! Remember to speak clearly.` };
-};
-
-const syncUserWithDb = async (googleUser) => {
-  if (!db) return null;
-  const defaultInventory = { stars: 0, flames: 0, lives: 5, freeRefillUsed: false };
-  const defaultName = googleUser.displayName || "Explorer";
-  const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
-
-  const adminEmails = ["khoavuexp2@gmail.com", "khoavuexp@gmail.com"];
-  const isHardcodedAdmin = adminEmails.includes(googleUser.email);
-
-  try {
-    const userRef = doc(db, "users", googleUser.uid);
-    const userSnap = await getDoc(userRef);
-    const today = new Date().toDateString();
-
-    if (userSnap.exists()) {
-      const data = userSnap.data();
-      const finalRole = isHardcodedAdmin ? "admin" : (data.role || "student");
-      
-      let streak = data.streak || 0;
-      let lastLogin = data.lastLogin || "";
-      if (lastLogin !== today) {
-         const yesterday = new Date();
-         yesterday.setDate(yesterday.getDate() - 1);
-         if (lastLogin === yesterday.toDateString()) streak += 1;
-         else streak = 1;
-         await updateDoc(userRef, { streak, lastLogin: today, role: finalRole });
-      } else if (isHardcodedAdmin && data.role !== "admin") {
-         await updateDoc(userRef, { role: "admin" });
-      }
-      return { uid: googleUser.uid, ...data, name: data.name || defaultName, avatar: data.avatar || defaultAvatar, role: finalRole, status: data.status || "active", inventory: data.inventory || defaultInventory, completedUnits: data.completedUnits || [], unitProgress: data.unitProgress || {}, streak, lastLogin: today, badges: data.badges || [] };
-    } else {
-      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [] };
-      await setDoc(userRef, newUser);
-      return newUser;
-    }
-  } catch (error) {
-    return { uid: googleUser.uid, name: defaultName, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
-  }
 };
 
 const TopMetricsBar = ({ user }) => (
@@ -346,6 +426,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -429,6 +510,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
+
+  const handleMainAudioClick = async () => {
+     const textToSpeak = qData.audioText || qData.targetText || qData.question;
+     if (!textToSpeak) return;
+     setIsAudioLoading(true);
+     // Luân phiên lấy 1 trong 5 giọng đọc xịn để câu hỏi không bị nhàm chán
+     const currentVoice = VOICES[qIndex % VOICES.length];
+     await playPremiumAudio(textToSpeak, currentVoice);
+     setIsAudioLoading(false);
+  };
 
   const toggleListen = async () => {
     if (isListening) { 
@@ -639,7 +730,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            <button onClick={() => playAudio(qData.audioText || qData.targetText || qData.question)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md"><Volume2 className="w-4 h-4 sm:w-6 sm:h-6" /></button>
+            <button onClick={handleMainAudioClick} disabled={isAudioLoading} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md disabled:opacity-70">
+              {isAudioLoading ? <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 animate-spin" /> : <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />}
+            </button>
             <span className="pt-0.5">{qData.question}</span>
           </h2>
           
@@ -739,213 +832,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   );
 };
 
-const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
-  const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
-  const isUnitCompleted = user?.completedUnits?.includes(unit.id);
-  const savedProgress = isUnitCompleted ? 4 : (user?.unitProgress?.[unit.id] || 0);
-  
-  const [currentStationIdx, setCurrentStationIdx] = useState(savedProgress); 
-  const [activeGame, setActiveGame] = useState(null);
-
-  const getMapNodes = () => {
-    const baseNodes = [ { id: 1, type: "vocab", x: 20, y: 80 }, { id: 2, type: "grammar", x: 45, y: 65 }, { id: 3, type: "listen", x: 75, y: 55 }, { id: 4, type: "read", x: 40, y: 30 }, { id: 5, type: "boss", x: 80, y: 15 } ];
-    const styles = [ { label: "Word Island", icon: "🏝️" }, { label: "Grammar Reef", icon: "🪸" }, { label: "Listen Shell", icon: "🐚" }, { label: "Read Cave", icon: "🌊" }, { label: "Kraken Boss", icon: "🦑" } ];
-    return baseNodes.map((node, i) => ({ ...node, ...styles[i] }));
-  };
-  
-  const nodes = getMapNodes();
-  const pathD = nodes.reduce((acc, node, i) => i === 0 ? `M ${node.x} ${node.y}` : `${acc} L ${node.x} ${node.y}`, "");
-
-  return (
-    <div className="w-full h-full flex flex-col p-2 sm:p-4 animate-fade-in relative">
-      <button onClick={onBack} className="absolute top-6 left-6 sm:top-8 sm:left-8 z-50 p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white hover:bg-white/20 border border-white/20 shadow-xl"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
-      <div className={`relative w-full flex-1 rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden shadow-2xl border-[4px] sm:border-[6px] border-white/10 bg-gradient-to-tr ${theme.bg}`}>
-        <div className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-xl px-4 py-1.5 sm:px-6 sm:py-2 rounded-2xl border border-white/10 shadow-2xl whitespace-nowrap">
-          <span className="text-white font-black tracking-widest text-[10px] sm:text-sm uppercase">{grade.name} • {unit.name}</span>
-        </div>
-        <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" preserveAspectRatio="none" viewBox="0 0 100 100">
-           <path d={pathD} fill="transparent" stroke={theme.pathColor} strokeWidth="2.5" strokeDasharray="4 6" strokeLinecap="round" />
-        </svg>
-        <div className="absolute z-30 transition-all duration-1000 -translate-x-1/2 -translate-y-1/2 drop-shadow-2xl pointer-events-none" style={{ left: `${nodes[currentStationIdx].x}%`, top: `${nodes[currentStationIdx].y}%`, marginTop: '-35px' }}>
-          <div className="text-4xl sm:text-6xl animate-float">{theme.vehicle}</div>
-        </div>
-        {nodes.map((node, index) => {
-          const isPassed = isUnitCompleted || index < currentStationIdx;
-          const isCurrent = !isUnitCompleted && index === currentStationIdx;
-          const isLocked = !isUnitCompleted && index > currentStationIdx;
-          return (
-            <button key={node.id} onClick={() => !isLocked && setActiveGame(node)}
-              className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
-              <div className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl sm:text-4xl shadow-2xl border-2 sm:border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
-                {node.icon}
-                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white"><CheckCircle2 className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
-                {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-5 h-5 sm:w-8 sm:h-8 text-white/50"/></div>}
-              </div>
-              <div className="px-2 py-1 sm:px-4 sm:py-1.5 rounded-lg sm:rounded-xl text-[8px] sm:text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
-            </button>
-          );
-        })}
-      </div>
-      
-      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit.name} - ${activeGame?.label}`} onWin={() => {
-        setActiveGame(null);
-        let newStars = (user?.inventory?.stars ?? 0) + 15;
-        if (currentStationIdx < nodes.length - 1) {
-            const nextIdx = currentStationIdx + 1;
-            if(!isUnitCompleted) setCurrentStationIdx(nextIdx); 
-            if (updateUser && user && !isUnitCompleted) {
-               updateUser({...user, inventory: {...user.inventory, stars: newStars}, unitProgress: {...(user.unitProgress || {}), [unit.id]: nextIdx}});
-            } else if (updateUser && user) {
-               updateUser({...user, inventory: {...user.inventory, stars: newStars}});
-            }
-        } else {
-           if (updateUser && user) {
-               let finalStars = newStars + (isUnitCompleted ? 0 : 35); 
-               let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
-               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted, unitProgress: {...(user.unitProgress || {}), [unit.id]: nodes.length - 1}});
-           }
-           onBack();
-        }
-      }} />
-    </div>
-  );
-};
-
-const GenericListSelector = ({ title, grade, items, onBack, onSelect, icon: Icon, colorClass }) => (
-  <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
-    <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
-      <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
-      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} - {title}</h2></div>
-    </div>
-    <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
-      {items && items.length > 0 ? items.map(item => (
-        <button key={item.id} onClick={() => onSelect(item)} 
-          className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0 ${colorClass}`}>
-          <div className="w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 bg-white/20 text-white">
-            <Icon className="w-5 h-5 sm:w-7 sm:h-7" />
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm sm:text-xl font-black text-white">{item.name}: {item.title}</h3>
-          </div>
-        </button>
-      )) : (
-        <div className="text-center p-8 bg-white/5 rounded-[2rem] border border-white/10 text-white/50 font-bold">Chưa có dữ liệu từ Admin.</div>
-      )}
-    </div>
-  </div>
-);
-
-const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
-  <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
-    <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
-      <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
-      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
-    </div>
-    <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
-      {syllabus?.units && syllabus.units.length > 0 ? syllabus.units.map(unit => {
-        const isCompleted = user?.completedUnits?.includes(unit.id);
-        const progress = user?.unitProgress?.[unit.id] || 0;
-        return (
-        <button key={unit.id} onClick={() => onSelectUnit(unit)} 
-          className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
-            progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 hover:brightness-110 shadow-xl' :
-            'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
-          <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : progress > 0 ? 'bg-orange-700 text-white' : 'bg-white/20 text-white'}`}>
-            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
-          </div>
-          <div className="flex-1">
-            <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
-            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
-            {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
-          </div>
-        </button>
-      )}) : (
-        <div className="text-center p-8 bg-white/5 rounded-[2rem] border border-white/10 text-white font-bold">
-           <Database className="w-12 h-12 text-white/30 mx-auto mb-4" />
-           Chưa có dữ liệu Khung chương trình.<br/>Admin vui lòng vào Admin Panel, chọn "6. Syllabus" để Push Data.
-        </div>
-      )}
-    </div>
-  </div>
-);
-
-const GradesView = ({ onSelectGrade }) => (
-  <div className="w-full h-full flex flex-col items-center justify-center p-4 animate-fade-in relative z-10 pb-24 lg:pb-4">
-    <div className="mb-6 sm:mb-8 text-center"><h2 className="text-2xl sm:text-4xl font-black text-white drop-shadow-lg">Select Your Grade</h2></div>
-    <div className="flex flex-wrap justify-center items-center gap-3 sm:gap-4 max-w-5xl w-full">
-      {GRADES.map(grade => (
-        <button key={grade.id} onClick={() => onSelectGrade(grade)} 
-          className={`relative flex-1 min-w-[120px] sm:min-w-[140px] max-w-[150px] sm:max-w-[180px] text-left p-4 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[6px] sm:border-b-[8px] transition-all bg-gradient-to-b ${grade.color} border-black/20 hover:-translate-y-2 hover:shadow-2xl active:translate-y-0 active:border-b-0`}>
-          <div className="p-2 sm:p-3 rounded-xl sm:rounded-2xl bg-white/20 text-white w-fit mb-2 sm:mb-4"><grade.icon className="w-6 h-6 sm:w-8 sm:h-8" /></div>
-          <h3 className="font-black text-lg sm:text-2xl text-white">{grade.name}</h3>
-          <p className="text-[10px] sm:text-xs font-bold text-white/70 mt-1">{grade.desc}</p>
-        </button>
-      ))}
-    </div>
-  </div>
-);
-
-const PracticeHub = ({ grade, onSelectCategory }) => (
-  <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
-    <div className="mb-8">
-      <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">{grade.name} Practice Hub</h2>
-      <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
-    </div>
-    
-    <div className="flex flex-col gap-8">
-      <div>
-        <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><LayoutGrid className="w-6 h-6 text-emerald-400"/> Skill Drills</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <button onClick={() => onSelectCategory('listening')} className="p-6 bg-gradient-to-br from-teal-500 to-emerald-600 rounded-3xl border-b-[6px] border-teal-800 text-white hover:-translate-y-1 shadow-lg text-left">
-            <Headphones className="w-8 h-8 mb-3 text-teal-100" />
-            <h4 className="text-xl font-black">Listening</h4>
-            <p className="text-sm font-medium text-teal-100">By Unit</p>
-          </button>
-          <button onClick={() => onSelectCategory('speaking')} className="p-6 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-3xl border-b-[6px] border-cyan-800 text-white hover:-translate-y-1 shadow-lg text-left">
-            <Mic className="w-8 h-8 mb-3 text-cyan-100" />
-            <h4 className="text-xl font-black">Speaking</h4>
-            <p className="text-sm font-medium text-cyan-100">By Unit</p>
-          </button>
-          <button onClick={() => onSelectCategory('reading')} className="p-6 bg-gradient-to-br from-rose-500 to-pink-600 rounded-3xl border-b-[6px] border-rose-800 text-white hover:-translate-y-1 shadow-lg text-left">
-            <BookOpen className="w-8 h-8 mb-3 text-rose-100" />
-            <h4 className="text-xl font-black">Reading</h4>
-            <p className="text-sm font-medium text-rose-100">By Unit</p>
-          </button>
-          <button onClick={() => onSelectCategory('extra')} className="p-6 bg-gradient-to-br from-purple-500 to-indigo-600 rounded-3xl border-b-[6px] border-purple-800 text-white hover:-translate-y-1 shadow-lg text-left">
-            <Star className="w-8 h-8 mb-3 text-purple-100" />
-            <h4 className="text-xl font-black">Extra Exercises</h4>
-            <p className="text-sm font-medium text-purple-100">Arena Prep</p>
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Timer className="w-6 h-6 text-amber-400"/> Full Exams</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <button onClick={() => onSelectCategory('tests')} className="text-left p-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-[2rem] border-b-[8px] border-indigo-900 text-white hover:-translate-y-2 transition-transform shadow-xl">
-            <Timer className="w-12 h-12 mb-4 text-indigo-200" />
-            <h3 className="text-3xl font-black mb-2">45-Min Test</h3>
-            <p className="text-indigo-100 text-base font-medium">Review and End-of-Term comprehensive tests.</p>
-          </button>
-          <button onClick={() => onSelectCategory('cambridge')} className="text-left p-8 bg-gradient-to-br from-amber-400 to-orange-500 rounded-[2rem] border-b-[8px] border-amber-700 text-white hover:-translate-y-2 transition-transform shadow-xl">
-            <Medal className="w-12 h-12 mb-4 text-amber-100" />
-            <h3 className="text-2xl font-black mb-2">Cambridge A2</h3>
-            <p className="text-amber-50 text-sm font-medium">Flyers/KET level reading and vocabulary.</p>
-          </button>
-        </div>
-      </div>
-    </div>
-  </div>
-);
-
-const ArenaView = ({ user, updateUser }) => {
+// ---------------------------------------------------------
+// COMPONENT ARENAVIEW (NÂNG CẤP): LẤY DATA NGẪU NHIÊN TỪ FIRESTORE (BANK CỦA GIÁO VIÊN)
+// ---------------------------------------------------------
+const ArenaView = ({ user, updateUser, selectedGrade }) => {
   const [arenaState, setArenaState] = useState('lobby'); 
   const [pin, setPin] = useState('');
   const [players, setPlayers] = useState([]);
   const [timer, setTimer] = useState(10);
   const [rewardClaimed, setRewardClaimed] = useState(false);
-  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, difficulty: 'Medium', source: 'ai', scope: 'Unit 1' });
+  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, scope: 'Unit 1' }); // Đã loại bỏ Source (AI vs Bank)
   const [arenaQuestions, setArenaQuestions] = useState([]);
   const [currentQ, setCurrentQ] = useState(0);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -982,25 +878,12 @@ const ArenaView = ({ user, updateUser }) => {
 
   const handleStartBattle = async () => {
     setIsGenerating(true);
-    let questions = [];
     
-    if (config.source === 'ai') {
-        questions = await generateArenaQuestions(config.scope, Math.min(config.questions, 15));
-    } else {
-        try {
-            let targetUnit = '1';
-            if (config.scope.includes('2')) targetUnit = '2';
-            else if (config.scope.includes('5')) targetUnit = 'r1'; 
-            
-            const snap = await getDoc(doc(db, "extra", `grade5_extra${targetUnit}`));
-            if (snap.exists() && snap.data().questions) {
-                questions = snap.data().questions.sort(()=>Math.random()-0.5).slice(0, config.questions);
-            }
-        } catch(e) { console.error("Bank fetch error:", e); }
-    }
+    // Gọi hàm mới: Trích xuất ngẫu nhiên từ kho tàng Syllabus, Practice, Extra của Giáo viên
+    let questions = await fetchArenaQuestionsFromBank(config.scope, parseInt(config.questions), selectedGrade?.id || 'g5');
     
     if (!questions || questions.length === 0) {
-        questions = [{ question: "System Error. What is 1+1?", options: ["1", "2", "3", "4"], answer: "2" }];
+        questions = [{ question: "Lỗi hệ thống. Không thể truy xuất CSDL.", options: ["1", "2", "3", "4"], answer: "2" }];
     }
     
     setArenaQuestions(questions);
@@ -1044,26 +927,16 @@ const ArenaView = ({ user, updateUser }) => {
             <h2 className="text-2xl font-black text-white">Room Settings</h2>
           </div>
           
-          <div className="flex flex-col gap-5 mb-8">
+          <div className="flex flex-col gap-6 mb-8">
             <div>
-              <label className="text-slate-400 font-bold mb-2 block flex items-center gap-2"><Filter className="w-4 h-4"/> Knowledge Scope</label>
-              <select value={config.scope} onChange={(e) => setConfig({...config, scope: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
+              <label className="text-slate-400 font-bold mb-3 block flex items-center gap-2"><Filter className="w-4 h-4"/> Knowledge Scope</label>
+              <select value={config.scope} onChange={(e) => setConfig({...config, scope: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-4 font-black text-white outline-none focus:border-blue-500">
                   <option value="Unit 1">Unit 1 Only</option>
                   <option value="Unit 2">Unit 2 Only</option>
-                  <option value="Units 1 to 5">Units 1 - 5 (Mid-Term)</option>
+                  <option value="Unit 3">Unit 3 Only</option>
+                  <option value="Units 1 to 5">Units 1 - 5 (Mid-Term Review)</option>
               </select>
-            </div>
-
-            <div>
-              <label className="text-slate-400 font-bold mb-2 block flex items-center gap-2"><Database className="w-4 h-4"/> Question Source</label>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <button onClick={() => setConfig({...config, source: 'ai'})} className={`flex-1 py-3 px-4 rounded-xl font-black transition-all ${config.source === 'ai' ? 'bg-blue-600 text-white shadow-lg border-2 border-blue-400' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
-                  Dynamic (AI Generated)
-                </button>
-                <button onClick={() => setConfig({...config, source: 'bank'})} className={`flex-1 py-3 px-4 rounded-xl font-black transition-all ${config.source === 'bank' ? 'bg-purple-600 text-white shadow-lg border-2 border-purple-400' : 'bg-slate-800 text-slate-400 border border-slate-700 hover:bg-slate-700'}`}>
-                  Static (Extra Exercises Bank)
-                </button>
-              </div>
+              <p className="text-xs text-slate-500 mt-2 italic">*Hệ thống sẽ bốc câu hỏi ngẫu nhiên từ kho bài học (Lesson), bài tập (Practice) và câu hỏi nâng cao (Extra) của giáo viên.</p>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -1103,7 +976,7 @@ const ArenaView = ({ user, updateUser }) => {
           <div className="flex justify-center gap-4 mb-8 text-xs font-bold text-slate-400 uppercase tracking-wider flex-wrap">
              <span className="bg-slate-800 px-3 py-1 rounded-full">{config.scope}</span>
              <span className="bg-slate-800 px-3 py-1 rounded-full">{config.questions} Qs | {config.timeLimit} Mins</span>
-             <span className="bg-indigo-900/50 text-indigo-300 border border-indigo-500/30 px-3 py-1 rounded-full">{config.source === 'ai' ? 'AI Dynamic' : 'Static Bank'}</span>
+             <span className="bg-indigo-900/50 text-indigo-300 border border-indigo-500/30 px-3 py-1 rounded-full">Syllabus Bank</span>
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
@@ -1142,9 +1015,9 @@ const ArenaView = ({ user, updateUser }) => {
         </div>
         
         <div className="bg-white rounded-[2rem] p-6 sm:p-10 text-center shadow-2xl flex-1 flex flex-col animate-slide-up">
-          <div className="flex justify-center mb-4"><Bot className="w-10 h-10 text-purple-500 animate-pulse" /></div>
-          <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">{config.source === 'ai' ? `AI Challenge` : `Bank Challenge`} - {config.scope}</p>
-          <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12">{q?.question || "Loading..."}</h2>
+          <div className="flex justify-center mb-4"><Database className="w-10 h-10 text-purple-500 animate-pulse" /></div>
+          <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">Database Challenge - {config.scope}</p>
+          <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap">{q?.question || "Loading..."}</h2>
           
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-auto">
             {q?.options?.map((opt, i) => {
@@ -1212,8 +1085,8 @@ const ArenaView = ({ user, updateUser }) => {
         <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-orange-400 to-rose-500 rounded-2xl sm:rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/20">
           <Swords className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
         </div>
-        <h2 className="text-2xl sm:text-4xl font-black text-white mb-3">AI Arena Lobby</h2>
-        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-8">Join a live multiplayer match or host your own epic battle generated by AI!</p>
+        <h2 className="text-2xl sm:text-4xl font-black text-white mb-3">Syllabus Arena Lobby</h2>
+        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-8">Join a live multiplayer match or host an epic battle from our Knowledge Bank!</p>
         
         <input type="text" placeholder="Game PIN" className="w-full bg-slate-950 text-white font-black text-center text-xl sm:text-2xl p-3 sm:p-4 rounded-xl sm:rounded-2xl mb-4 border-2 border-slate-700 outline-none focus:border-blue-500 transition-colors" />
         <button onClick={() => setArenaState('hosting')} className="w-full bg-blue-600 text-white font-black py-3 sm:py-4 text-lg sm:text-xl rounded-xl sm:rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4">
@@ -1541,7 +1414,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const navItems = [
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
-    { id: 'arena', label: "AI Arena", icon: Swords, color: 'text-orange-400' },
+    { id: 'arena', label: "Syllabus Arena", icon: Swords, color: 'text-orange-400' },
     { id: 'leaderboard', label: "Leaderboard", icon: Crown, color: 'text-yellow-400' }
   ];
   if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
@@ -1599,7 +1472,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
              setCurrentView('listSelector');
           }} />;
       
-      case 'arena': return <ArenaView user={user} updateUser={updateUser} />;
+      case 'arena': return <ArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
       case 'leaderboard': return <LeaderboardView showToast={showToast} />;
       
       case 'listSelector':
