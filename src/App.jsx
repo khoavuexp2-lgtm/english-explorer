@@ -88,7 +88,7 @@ const pcmToWav = (pcmData, sampleRate) => {
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
-// Giọng Robot mặc định (Phát trực tiếp, KHÔNG lưu database)
+// Giọng Robot mặc định (Phát trực tiếp trình duyệt, KHÔNG BAO GIỜ lưu lên database)
 const playSystemAudio = (text) => { 
   if ('speechSynthesis' in window) {
     if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
@@ -100,15 +100,16 @@ const playSystemAudio = (text) => {
   }
 };
 
-// HÀM TẢI AUDIO TỪ FIREBASE (Tuyệt đối không gọi AI ở thiết bị người học)
-const fetchAndCacheAudio = async (text) => {
+// HÀM TẢI AUDIO CÓ CHẾ ĐỘ "TỰ CHỮA LÀNH" VÀ BACKOFF
+const fetchAndCacheAudio = async (text, voiceNameParam) => {
   if (!text) return null;
   const cleanText = text.trim();
   const safeId = generateSafeId(cleanText);
   
+  // 1. Kiểm tra trong RAM (Local Cache)
   if (audioCache.has(safeId)) return audioCache.get(safeId);
 
-  // Chỉ tìm trên Firebase do Admin đã build sẵn
+  // 2. Tìm trên Firebase (Cloud Cache) - Ưu tiên cao nhất
   if (db) {
       try {
           const docSnap = await getDoc(doc(db, "audio_cache", safeId));
@@ -121,14 +122,61 @@ const fetchAndCacheAudio = async (text) => {
           }
       } catch (err) { console.warn("Firebase Cache read error:", err); }
   }
+
+  // 3. Cơ chế tự chữa lành (Tự động gọi Gemini nếu Admin quên Build Audio câu này)
+  let apiKey = ""; 
+  try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
+  if (!apiKey) return null;
+
+  const delays = [1000, 2000, 4000, 8000, 16000];
+  const voiceName = voiceNameParam || VOICES[Math.abs(safeId.length) % VOICES.length];
+  let promptText = cleanText;
+  if (voiceName === "Puck" || voiceName === "Kore") promptText = `Say cheerfully: ${cleanText}`;
+
+  const payload = {
+    contents: [{ parts: [{ text: promptText }] }],
+    generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voiceName } } } },
+    model: "gemini-2.5-flash-preview-tts"
+  };
+
+  for (let attempt = 0; attempt <= 5; attempt++) {
+      try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+          });
+          
+          if (response.ok) {
+              const data = await response.json();
+              const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+              if (inlineData) {
+                  const wavBlob = pcmToWav(inlineData.data, 24000);
+                  const audioUrl = URL.createObjectURL(wavBlob);
+                  audioCache.set(safeId, audioUrl); // Lưu RAM
+                  
+                  // Lưu luôn lên Firebase để máy khác không phải gọi lại
+                  if (db) {
+                      setDoc(doc(db, "audio_cache", safeId), {
+                          text: cleanText, voice: voiceName, audioBase64: inlineData.data, createdAt: new Date().toISOString()
+                      }).catch(()=>{});
+                  }
+                  return audioUrl;
+              }
+          } else if (response.status !== 429) {
+              break; // Lỗi cứng (sai key, sai form), thoát vòng lặp retry
+          }
+      } catch (err) {}
+      // Nếu lỗi 429 (Quá tải), tự động chờ và thử lại
+      if (attempt < 5) await new Promise(r => setTimeout(r, delays[attempt]));
+  }
+
   return null;
 };
 
 // Hàm chạy ngầm tải trước dữ liệu vào RAM
-const preloadTTS = (text) => { fetchAndCacheAudio(text); };
+const preloadTTS = (text, voiceName) => { fetchAndCacheAudio(text, voiceName); };
 
-// HÀM PHÁT ÂM THANH XỊN (NẾU CÓ)
-const playPremiumAudio = async (text) => {
+// HÀM PHÁT ÂM THANH CHÍNH
+const playPremiumAudio = async (text, voiceName) => {
   if (!text) return;
   const cleanText = text.trim();
 
@@ -139,14 +187,14 @@ const playPremiumAudio = async (text) => {
   }
 
   try {
-      const url = await fetchAndCacheAudio(cleanText);
+      const url = await fetchAndCacheAudio(cleanText, voiceName);
       if (url) {
           globalAudioPlayer.src = url;
           globalAudioPlayer.load();
           await globalAudioPlayer.play();
       } else {
-          // Báo log và tự động rơi về giọng Robot (không lưu Robot lên Firebase)
-          console.warn("Chưa có âm thanh trên Cloud cho câu này, chuyển sang giọng Robot.");
+          // Báo log và tự động rơi về giọng Robot 
+          console.warn("API từ chối cấp Audio cho câu này, chuyển sang giọng Robot dự phòng.");
           playSystemAudio(cleanText);
       }
   } catch (error) {
@@ -472,16 +520,17 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   // ==========================================
   useEffect(() => {
     if (qData) {
+        const v = VOICES[qIndex % VOICES.length];
         const mainText = qData.audioText || qData.targetText || qData.question;
-        if (mainText) preloadTTS(mainText);
-        if (qData.options) qData.options.forEach(opt => preloadTTS(opt));
-        if (qData.words) qData.words.forEach(w => preloadTTS(w));
+        if (mainText) preloadTTS(mainText, v);
+        if (qData.options) qData.options.forEach(opt => preloadTTS(opt, v));
+        if (qData.words) qData.words.forEach(w => preloadTTS(w, v));
     }
     if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
   }, [qData, qIndex]);
 
   useEffect(() => {
-    if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer);
+    if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer, VOICES[qIndex % VOICES.length]);
   }, [status, qData, qIndex]);
 
   useEffect(() => {
@@ -516,7 +565,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleMainAudioClick = () => {
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
-     if (textToSpeak) playPremiumAudio(textToSpeak);
+     if (textToSpeak) playPremiumAudio(textToSpeak, VOICES[qIndex % VOICES.length]);
   };
 
   const toggleListen = async () => {
@@ -566,7 +615,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt); };
+  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt, VOICES[qIndex % VOICES.length]); };
 
   const handleCheck = () => {
     let isCorrect = false;
@@ -584,7 +633,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleOrderWord = (w) => {
     if (orderedWords.includes(w)) setOrderedWords(orderedWords.filter(x => x !== w));
-    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w); }
+    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w, VOICES[qIndex % VOICES.length]); }
   };
 
   const handleContinue = () => {
@@ -1374,7 +1423,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
               setIsGeneratingAudio(false); return;
           }
 
-          setAudioProgress({ current: 0, total: textsArray.length, text: 'Đang quét Firebase...' });
+          setAudioProgress({ current: 0, total: textsArray.length, text: 'Đang chuẩn bị quét Firebase...' });
           let successCount = 0; let skipCount = 0;
 
           for (let i = 0; i < textsArray.length; i++) {
@@ -1385,7 +1434,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
 
               if (!forceRebuild) {
                   const docSnap = await getDoc(doc(db, "audio_cache", safeId));
-                  if (docSnap.exists()) { skipCount++; continue; } // Câu này đã có, Lướt qua ngay lập tức!
+                  if (docSnap.exists()) { skipCount++; continue; }
               }
 
               let promptText = currentText;
@@ -1397,38 +1446,46 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   model: "gemini-2.5-flash-preview-tts"
               };
 
-              const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
-                  method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-              });
-              
-              if (!response.ok) { 
-                  console.error(`Lỗi Gemini API ở câu: ${currentText}`); 
-                  // BÁO LỖI QUÁ TẢI 15 LƯỢT/PHÚT VÀ DỪNG TIẾN TRÌNH
-                  if (response.status === 429) {
-                      setPushMsg({ type: 'error', text: `❌ Quá tải API (Lỗi 429)! Đã lưu thành công ${successCount} audio. Vui lòng đợi đúng 1 phút rồi bấm "BUILD AUDIO" lại (Không chọn Ghi đè) để tiếp tục.` }); 
-                      setIsGeneratingAudio(false);
-                      return; 
+              let success = false;
+              let apiErrorMsg = "";
+              const delays = [1000, 2000, 4000, 8000, 16000];
+
+              for (let attempt = 0; attempt <= 5; attempt++) {
+                  try {
+                      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                      });
+                      
+                      if (response.ok) {
+                          const data = await response.json();
+                          const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+                          if (inlineData) {
+                              await setDoc(doc(db, "audio_cache", safeId), {
+                                  text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
+                              });
+                              success = true;
+                              successCount++;
+                              break;
+                          }
+                      } else {
+                          const errData = await response.json();
+                          apiErrorMsg = errData.error?.message || `Lỗi HTTP ${response.status}`;
+                          if (response.status !== 429) {
+                              break; 
+                          }
+                      }
+                  } catch (err) {
+                      apiErrorMsg = err.message;
                   }
-                  // Lỗi khác
-                  setPushMsg({ type: 'error', text: `❌ Lỗi API (${response.status}) khi đọc: ${currentText}` });
-                  setIsGeneratingAudio(false);
-                  return;
+                  if (attempt < 5 && !success) await new Promise(r => setTimeout(r, delays[attempt]));
               }
 
-              const data = await response.json();
-              const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-              
-              if (inlineData) {
-                  await setDoc(doc(db, "audio_cache", safeId), {
-                      text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
-                  });
-                  successCount++;
-                  
-                  // KỶ LUẬT THÉP: NGHỈ ĐÚNG 5 GIÂY ĐỂ ĐẢM BẢO CHỈ 12 REQUEST / PHÚT
-                  setAudioProgress({ current: i + 1, total: textsArray.length, text: `Nghỉ 5s để né giới hạn API...` });
+              if (success) {
+                  // Kỷ luật thép: Nghỉ 5 giây giữa các câu để né giới hạn 15 req/min
+                  setAudioProgress({ current: i + 1, total: textsArray.length, text: `Thành công! Nghỉ 5s để né giới hạn API...` });
                   await new Promise(r => setTimeout(r, 5000)); 
               } else {
-                  setPushMsg({ type: 'error', text: "Lỗi trả về từ Gemini. Vui lòng thử lại sau." }); 
+                  setPushMsg({ type: 'error', text: `❌ Dừng ở câu: "${currentText}". Lỗi chi tiết: ${apiErrorMsg}` });
                   setIsGeneratingAudio(false);
                   return;
               }
@@ -1800,9 +1857,7 @@ export default function App() {
         if (!targetUid) return;
         await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
       } 
-      catch(e) { 
-        console.error("Firestore save failed:", e); 
-      }
+      catch(e) { console.error("Firestore save failed:", e); }
     }
   };
 
