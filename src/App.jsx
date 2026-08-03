@@ -1210,10 +1210,14 @@ const AdminPanel = ({ currentUser, showToast }) => {
   const [grade, setGrade] = useState('5');
   const [unit, setUnit] = useState('1'); 
   const [jsonInput, setJsonInput] = useState("");
+  
+  const [isFetchingData, setIsFetchingData] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
+  
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
   const [audioProgress, setAudioProgress] = useState({ current: 0, total: 0, text: '' });
+  
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
@@ -1241,12 +1245,47 @@ const AdminPanel = ({ currentUser, showToast }) => {
     try { await updateDoc(doc(db, "users", userId), { status: newStatus }); fetchUsers(); showToast("Status updated"); } catch(e) { showToast("Error updating"); }
   };
 
+  // -------------------------------------------------------------
+  // TÍNH NĂNG MỚI: TẢI DATA MÁY CHỦ
+  // -------------------------------------------------------------
+  const handleFetchData = async () => {
+    setIsFetchingData(true); 
+    setPushMsg({ type: '', text: '' });
+    try {
+      if (!db) throw new Error("Firebase is not connected.");
+      let collectionName = dataType; let docId = "";
+      
+      if (dataType === 'syllabus') { collectionName = 'metadata'; docId = `syllabus_g${grade}`; } 
+      else {
+          let prefix = "";
+          if (dataType === 'units') prefix = 'unit';
+          if (dataType === 'practice') prefix = 'prac';
+          if (dataType === 'extra') prefix = 'extra';
+          if (dataType === 'tests') prefix = 'test';
+          if (dataType === 'cambridge') prefix = 'cambridge';
+          docId = `grade${grade}_${prefix}${unit}`;
+      }
+
+      const docSnap = await getDoc(doc(db, collectionName, docId));
+      if (docSnap.exists()) {
+          setJsonInput(JSON.stringify(docSnap.data(), null, 2));
+          setPushMsg({ type: 'success', text: `✅ Đã tải thành công dữ liệu từ [${collectionName}/${docId}]` });
+      } else {
+          setJsonInput("");
+          setPushMsg({ type: 'error', text: `❌ Không tìm thấy dữ liệu tại [${collectionName}/${docId}] (Chưa có ai push lên đây).` });
+      }
+    } catch (error) {
+      setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` });
+    } finally { setIsFetchingData(false); }
+  };
+
   const handlePushData = async () => {
     setIsPushing(true); setPushMsg({ type: '', text: '' });
     try {
       if (!jsonInput.trim()) throw new Error("JSON data is empty!");
       const parsedData = JSON.parse(jsonInput);
       if (!db) throw new Error("Firebase is not connected.");
+      
       let collectionName = dataType; let docId = "";
       if (dataType === 'syllabus') { collectionName = 'metadata'; docId = `syllabus_g${grade}`; } 
       else {
@@ -1258,6 +1297,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
           if (dataType === 'cambridge') prefix = 'cambridge';
           docId = `grade${grade}_${prefix}${unit}`;
       }
+      
       await setDoc(doc(db, collectionName, docId), parsedData);
       setPushMsg({ type: 'success', text: `✅ Successfully pushed to [${collectionName}/${docId}]` });
     } catch (error) {
@@ -1360,39 +1400,47 @@ const AdminPanel = ({ currentUser, showToast }) => {
       
       {activeTab === 'cms' && (
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 flex flex-col gap-4 animate-fade-in">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 bg-blue-50 p-4 sm:p-5 rounded-xl border border-blue-200">
-             <div className="w-full">
-                <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
-                <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
-                  <option value="syllabus">6. Syllabus</option>
-                  <option value="units">1. Standard Lesson</option>
-                  <option value="practice">2. Practice Hub</option>
-                  <option value="extra">3. Extra Exercises</option>
-                  <option value="tests">4. 45-Min Test</option>
-                  <option value="cambridge">5. Cambridge</option>
-                </select>
+          <div className="flex flex-col gap-4 bg-blue-50 p-4 sm:p-5 rounded-xl border border-blue-200">
+             
+             {/* Hàng chọn cấu hình */}
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                 <div className="w-full">
+                    <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
+                    <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
+                      <option value="syllabus">6. Syllabus</option>
+                      <option value="units">1. Standard Lesson</option>
+                      <option value="practice">2. Practice Hub</option>
+                      <option value="extra">3. Extra Exercises</option>
+                      <option value="tests">4. 45-Min Test</option>
+                      <option value="cambridge">5. Cambridge</option>
+                    </select>
+                 </div>
+                 <div className="w-full">
+                    <label className="block text-sm font-bold text-blue-900 mb-2">Grade</label>
+                    <select value={grade} onChange={e=>setGrade(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
+                      {[1,2,3,4,5].map(g => <option key={g} value={g}>Grade {g}</option>)}
+                    </select>
+                 </div>
+                 <div className="w-full">
+                    <label className="block text-sm font-bold text-blue-900 mb-2">Unit/Test ID</label>
+                    <input type="text" value={unit} onChange={e=>setUnit(e.target.value)} disabled={dataType === 'syllabus'}
+                      placeholder="e.g. 1, r1, f1" className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none disabled:bg-slate-200" />
+                 </div>
              </div>
-             <div className="w-full">
-                <label className="block text-sm font-bold text-blue-900 mb-2">Grade</label>
-                <select value={grade} onChange={e=>setGrade(e.target.value)} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
-                  {[1,2,3,4,5].map(g => <option key={g} value={g}>Grade {g}</option>)}
-                </select>
+
+             {/* Hàng nút chức năng */}
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-blue-200">
+                 <button onClick={handleFetchData} disabled={isFetchingData || isPushing || isGeneratingAudio} className="w-full bg-slate-600 hover:bg-slate-500 text-white font-black py-3.5 rounded-xl border-b-4 border-slate-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
+                    {isFetchingData ? 'ĐANG TẢI...' : '📥 1. LẤY DATA SERVER'}
+                 </button>
+                 <button onClick={handlePushData} disabled={isFetchingData || isPushing || isGeneratingAudio} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
+                    {isPushing ? 'PUSHING...' : '🚀 2. LƯU (PUSH) DATA'}
+                 </button>
+                 <button onClick={handleGenerateAudioForJSON} disabled={isFetchingData || isPushing || isGeneratingAudio} className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-3.5 rounded-xl border-b-4 border-purple-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
+                    {isGeneratingAudio ? 'ĐANG TẠO...' : '🎧 3. BUILD AUDIO'}
+                 </button>
              </div>
-             <div className="w-full">
-                <label className="block text-sm font-bold text-blue-900 mb-2">Unit/Test ID</label>
-                <input type="text" value={unit} onChange={e=>setUnit(e.target.value)} disabled={dataType === 'syllabus'}
-                  placeholder="e.g. 1, r1, f1" className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none disabled:bg-slate-200" />
-             </div>
-             <div className="w-full flex items-end">
-                <button onClick={handlePushData} disabled={isPushing || isGeneratingAudio} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
-                   {isPushing ? 'PUSHING...' : '🚀 PUSH DATA'}
-                </button>
-             </div>
-             <div className="w-full flex items-end">
-                <button onClick={handleGenerateAudioForJSON} disabled={isPushing || isGeneratingAudio} className="w-full bg-purple-600 hover:bg-purple-500 text-white font-black py-3.5 rounded-xl border-b-4 border-purple-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
-                   {isGeneratingAudio ? 'ĐANG TẠO...' : '🎧 BUILD AUDIO'}
-                </button>
-             </div>
+
           </div>
           
           {pushMsg.text && (
