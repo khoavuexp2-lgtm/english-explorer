@@ -36,6 +36,7 @@ try {
   }
 } catch (error) { console.warn("Firebase config error:", error); }
 
+const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"];
 const audioCache = new Map(); 
 const globalAudioPlayer = new Audio();
 let isAudioUnlocked = false;
@@ -878,7 +879,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-emerald-500 border-emerald-700 hover:brightness-110 shadow-xl' :
+          ${isCompleted ? 'bg-emerald-50 border-emerald-700 hover:brightness-110 shadow-xl' :
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 hover:brightness-110 shadow-xl'}`}>
           <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : progress > 0 ? 'bg-orange-700 text-white' : 'bg-white/20 text-white'}`}>
@@ -1015,12 +1016,6 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     let questions = await fetchArenaQuestionsFromBank(config.scope, parseInt(config.questions), selectedGrade?.id || 'g5');
     if (!questions || questions.length === 0) {
         questions = [{ question: "Lỗi hệ thống. Không thể truy xuất CSDL.", options: ["1", "2", "3", "4"], answer: "2" }];
-    } else {
-        questions.forEach((q) => {
-            const mainText = q.audioText || q.question;
-            preloadTTS(mainText);
-            if (q.options) q.options.forEach(opt => preloadTTS(opt));
-        });
     }
     setArenaQuestions(questions);
     setCurrentQ(0); setPlayerScore(0); setAnswerState(null);
@@ -1372,39 +1367,47 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   model: "gemini-2.5-flash-preview-tts"
               };
 
-              try {
-                  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
-                      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-                  });
-                  
-                  if (!response.ok) { 
-                      if (response.status === 429) {
-                          setPushMsg({ type: 'error', text: `❌ Quá tải 10 lượt/phút (Lỗi 429)! Đã lưu thành công ${successCount} audio. Vui lòng đợi 1 phút rồi bấm BUILD AUDIO lại.` });
-                          setIsGeneratingAudio(false);
-                          return;
+              let success = false;
+              let apiErrorMsg = "";
+              const delays = [1000, 2000, 4000, 8000, 16000];
+
+              for (let attempt = 0; attempt <= 5; attempt++) {
+                  try {
+                      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`, {
+                          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+                      });
+                      
+                      if (response.ok) {
+                          const data = await response.json();
+                          const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
+                          if (inlineData) {
+                              await setDoc(doc(db, "audio_cache", safeId), {
+                                  text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
+                              });
+                              success = true;
+                              successCount++;
+                              break;
+                          }
                       } else {
                           const errData = await response.json();
-                          const msg = errData.error?.message || `Lỗi HTTP ${response.status}`;
-                          console.error(`Bỏ qua câu "${currentText}" do lỗi: ${msg}`);
-                          continue; 
+                          apiErrorMsg = errData.error?.message || `Lỗi HTTP ${response.status}`;
+                          if (response.status !== 429) {
+                              break; 
+                          }
                       }
+                  } catch (err) {
+                      apiErrorMsg = err.message;
                   }
+                  if (attempt < 5 && !success) await new Promise(r => setTimeout(r, delays[attempt]));
+              }
 
-                  const data = await response.json();
-                  const inlineData = data.candidates?.[0]?.content?.parts?.[0]?.inlineData;
-                  
-                  if (inlineData) {
-                      await setDoc(doc(db, "audio_cache", safeId), {
-                          text: currentText, voice: voiceName, audioBase64: inlineData.data, updatedAt: new Date().toISOString()
-                      });
-                      successCount++;
-                      
-                      // KỶ LUẬT THÉP: Nghỉ 6.5s để đảm bảo < 10 lượt/phút
-                      setAudioProgress({ current: i + 1, total: textsArray.length, text: `Thành công! Nghỉ 6.5s để né giới hạn API...` });
-                      await new Promise(r => setTimeout(r, 6500)); 
-                  }
-              } catch (err) {
-                  console.error(`Lỗi mạng khi đọc câu: "${currentText}". Bỏ qua. Lỗi: ${err.message}`);
+              if (success) {
+                  setAudioProgress({ current: i + 1, total: textsArray.length, text: `Thành công! Nghỉ 5s để né giới hạn API...` });
+                  await new Promise(r => setTimeout(r, 5000)); 
+              } else {
+                  setPushMsg({ type: 'error', text: `❌ Dừng ở câu: "${currentText}". Lỗi chi tiết: ${apiErrorMsg}` });
+                  setIsGeneratingAudio(false);
+                  return;
               }
           }
           if (successCount > 0 || skipCount > 0) setPushMsg({ type: 'success', text: `✅ Hoàn tất: Tạo mới ${successCount}, Bỏ qua ${skipCount} (có sẵn trên Cloud).` });
@@ -1489,7 +1492,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
                  <div className="w-full bg-purple-200 h-2 rounded-full overflow-hidden">
                      <div className="bg-purple-600 h-full transition-all duration-300" style={{ width: `${(audioProgress.current / audioProgress.total) * 100}%` }}></div>
                  </div>
-                 <p className="text-xs text-purple-600 font-medium mt-2 italic">*Hệ thống tự động nghỉ 6.5s sau mỗi câu để không bị Google chặn.</p>
+                 <p className="text-xs text-purple-600 font-medium mt-2 italic">*Hệ thống tự động nghỉ 5s sau mỗi câu để không bị Google chặn.</p>
              </div>
           )}
 
