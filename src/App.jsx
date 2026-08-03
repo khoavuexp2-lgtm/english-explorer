@@ -41,12 +41,13 @@ try {
   console.warn("Firebase config error:", error);
 }
 
-// ---------------------------------------------------------
-// CÔNG NGHỆ CHUYỂN ĐỔI GIỌNG NÓI CAO CẤP GEMINI (TTS)
+/// ---------------------------------------------------------
+// TÍNH NĂNG MỚI: CÔNG NGHỆ CHUYỂN ĐỔI GIỌNG NÓI CAO CẤP GEMINI (TTS)
+// Cập nhật: Fix lỗi mất âm thanh do rào cản Async của trình duyệt và tối ưu Firebase
 // ---------------------------------------------------------
 const VOICES = ["Puck", "Kore", "Zephyr", "Charon", "Aoede"]; 
-const audioCache = new Map(); // Bộ nhớ đệm âm thanh
-const fetchingAudio = new Set(); // Cờ chống gọi API trùng lặp
+const audioCache = new Map(); 
+const globalAudioPlayer = new Audio();
 
 const pcmToWav = (pcmData, sampleRate) => {
   const binaryStr = atob(pcmData);
@@ -78,7 +79,6 @@ const pcmToWav = (pcmData, sampleRate) => {
   return new Blob([buffer], { type: 'audio/wav' });
 };
 
-
 const playAudio = (text) => { 
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
@@ -91,37 +91,30 @@ const playAudio = (text) => {
   }
 };
 
-// Hàm gọi API, lưu Local RAM và lưu Cloud Firebase (Chống quá tải 100%)
 const fetchAndCacheAudio = (text, voiceName) => {
   if (!text) return Promise.resolve(null);
   const cacheKey = `${voiceName}_${text}`;
   
-  // 1. Tầng 1: Kiểm tra RAM (Local Cache) - Nếu học sinh vừa bấm nghe câu này rồi thì lấy ra luôn cho nhanh
+  // 1. Kiểm tra RAM (Đã tải ở phiên này chưa?)
   if (audioCache.has(cacheKey)) {
       return audioCache.get(cacheKey);
   }
 
-  // Khởi tạo tiến trình tải âm thanh
   const fetchPromise = (async () => {
-      // 2. Tầng 2: Kiểm tra trên Firebase (Cloud Cache) - Xem có ai đã từng nghe câu này chưa
+      // 2. Kiểm tra Firebase Cache (Dùng Doc ID trực tiếp thay vì Query để không bị lỗi treo)
       if (db) {
           try {
-              const audioRef = collection(db, "audio_cache");
-              const q = query(audioRef, where("text", "==", text), where("voice", "==", voiceName));
-              const querySnapshot = await getDocs(q);
-              
-              if (!querySnapshot.empty) {
-                  // ĐÃ TÌM THẤY TRÊN FIREBASE! Tải về biến thành Audio ngay (Không tốn lượt Gemini)
-                  const base64Data = querySnapshot.docs[0].data().audioBase64;
+              const safeId = cacheKey.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 60);
+              const docSnap = await getDoc(doc(db, "audio_cache", safeId));
+              if (docSnap.exists()) {
+                  const base64Data = docSnap.data().audioBase64;
                   const wavBlob = pcmToWav(base64Data, 24000);
                   return URL.createObjectURL(wavBlob);
               }
-          } catch (err) {
-              console.warn("Không thể kiểm tra Firebase Cache, chuyển sang gọi Gemini...", err);
-          }
+          } catch (err) { console.warn("Firebase Cache read error:", err); }
       }
 
-      // 3. Tầng 3: Chưa ai từng nghe câu này -> Bắt buộc gọi AI Gemini để tạo mới
+      // 3. Gọi Gemini AI
       let apiKey = ""; 
       try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
       if (!apiKey) return null;
@@ -152,26 +145,23 @@ const fetchAndCacheAudio = (text, voiceName) => {
            const rateMatch = (inlineData.mimeType || "").match(/rate=(\d+)/);
            if (rateMatch) sampleRate = parseInt(rateMatch[1], 10);
            
-           // LƯU LÊN FIREBASE ĐỂ DÙNG CHUNG CHO TẤT CẢ HỌC SINH SAU NÀY
+           // Lưu lên Firebase Cache vĩnh viễn
            if (db) {
                try {
-                   await addDoc(collection(db, "audio_cache"), {
+                   const safeId = cacheKey.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 60);
+                   await setDoc(doc(db, "audio_cache", safeId), {
                        text: text,
                        voice: voiceName,
                        audioBase64: inlineData.data,
                        createdAt: new Date().toISOString()
                    });
-               } catch (dbErr) { console.error("Lỗi khi lưu Audio lên Firebase:", dbErr); }
+               } catch (dbErr) {}
            }
 
            const wavBlob = pcmToWav(inlineData.data, sampleRate);
            return URL.createObjectURL(wavBlob);
-        } else {
-           console.warn("Đã dùng hết lượt Gemini Free. Vui lòng đợi 1 phút.", data);
         }
-      } catch (e) {
-          console.error("Premium TTS failed", e);
-      }
+      } catch (e) { console.error("Premium TTS failed", e); }
       return null; 
   })();
 
@@ -179,24 +169,38 @@ const fetchAndCacheAudio = (text, voiceName) => {
   return fetchPromise;
 };
 
-// Hàm Preload (Chạy ngầm)
 const preloadTTS = (text, voiceName) => { fetchAndCacheAudio(text, voiceName); };
 
-// Hàm Phát âm thanh (Phát ngay nếu có trong Cache)
 const playPremiumAudio = async (text, voiceName) => {
   if (!text) return;
-  const cacheKey = `${voiceName}_${text}`;
-  let url = audioCache.get(cacheKey);
+
+  // Xử lý lập tức để không bị Safari/Chrome khóa âm thanh
+  let apiKey = ""; 
+  try { if (import.meta.env.VITE_GEMINI_API_KEY) apiKey = import.meta.env.VITE_GEMINI_API_KEY; } catch (e) {}
   
-  if (!url) {
-      url = await fetchAndCacheAudio(text, voiceName);
+  if (!apiKey) {
+      playAudio(text); // Gọi đồng bộ ngay lập tức nếu thiếu API
+      return;
   }
 
-  if (url) {
-      const audio = new Audio(url);
-      audio.play();
-  } else {
-      playAudio(text); // Dự phòng giọng Browser
+  // Mở khóa Context cho thiết bị di động bằng âm thanh tĩnh
+  if (globalAudioPlayer.src === "" || globalAudioPlayer.src === window.location.href) {
+      globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
+      globalAudioPlayer.play().then(() => globalAudioPlayer.pause()).catch(()=>{});
+  }
+
+  try {
+      const url = await fetchAndCacheAudio(text, voiceName);
+      if (url) {
+          globalAudioPlayer.src = url;
+          globalAudioPlayer.load();
+          await globalAudioPlayer.play();
+      } else {
+          playAudio(text); // Dự phòng
+      }
+  } catch (error) {
+      console.warn("Lỗi phát âm thanh:", error);
+      playAudio(text); 
   }
 };
 
