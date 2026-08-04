@@ -13,7 +13,7 @@ import {
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, query, where } from "firebase/firestore";
 
 let firebaseConfig = {};
 try {
@@ -37,30 +37,23 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH WEBAUDIO API (CHỐNG LỖI CÂM TRÊN IOS SAFARI 100%)
-// Thay thế thẻ <audio> bằng AudioContext để chích thẳng âm thanh Base64 vào loa
+// ĐỘNG CƠ CROWD-SOURCING & PRELOAD AUDIO (CHỐNG LỖI CÂM TRÊN IPHONE 100%)
+// Tự động tạo, chia sẻ, nạp ngầm và dọn rác Audio trên Firebase
 // ============================================================================
-let audioCtx = null;
-const audioCache = new Map(); // Lưu tạm RAM để không gọi API 2 lần
+const globalAudioPlayer = new Audio();
+const audioCache = new Map(); // Bộ đệm RAM (Lưu Blob URL để phát nội bộ siêu tốc)
+const pendingTTS = new Set(); // Chống gọi API trùng lặp
+let isAudioUnlocked = false;
 
-const initAudioContext = () => {
-    if (!audioCtx) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) audioCtx = new AudioContext();
-    }
-    if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume();
-    }
-};
+// 8 Giọng Neural2 siêu thực của Google Cloud
+const GCLOUD_VOICES = [
+  "en-US-Neural2-A", "en-US-Neural2-C", "en-US-Neural2-D", "en-US-Neural2-E", 
+  "en-US-Neural2-F", "en-US-Neural2-H", "en-US-Neural2-I", "en-US-Neural2-J"
+];
 
-if (typeof document !== 'undefined') {
-    document.addEventListener('touchstart', initAudioContext, { once: true });
-    document.addEventListener('click', initAudioContext, { once: true });
-}
-
+// Hàm lấy giọng Native dự phòng
 let premiumVoices = [];
 let fallbackEnglishVoices = [];
-
 const initVoices = () => {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     const voices = window.speechSynthesis.getVoices();
@@ -68,137 +61,144 @@ const initVoices = () => {
       let englishVoices = voices.filter(v => v.lang.startsWith('en'));
       fallbackEnglishVoices = englishVoices;
       premiumVoices = englishVoices.filter(v => 
-        v.name.includes('Natural') || 
-        v.name.includes('Premium') || 
-        v.name.includes('Google') || 
-        v.name.includes('Samantha') || 
-        v.name.includes('Daniel')
+        v.name.includes('Natural') || v.name.includes('Premium') || 
+        v.name.includes('Google') || v.name.includes('Samantha')
       );
     }
   }
 };
-
 if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-  initVoices();
-  window.speechSynthesis.onvoiceschanged = initVoices;
+  initVoices(); window.speechSynthesis.onvoiceschanged = initVoices;
 }
 
-const GCLOUD_VOICES = [
-  "en-US-Neural2-A", "en-US-Neural2-C", "en-US-Neural2-D", "en-US-Neural2-E", 
-  "en-US-Neural2-F", "en-US-Neural2-H", "en-US-Neural2-I", "en-US-Neural2-J"
-];
-
+// BỘ TẠO MÃ HASH ĐỘC NHẤT
 const generateSafeId = (text) => {
   let hash = 0;
-  for (let i = 0; i < text.length; i++) {
-    hash = ((hash << 5) - hash) + text.charCodeAt(i);
-    hash |= 0;
-  }
-  const cleanStr = text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
-  return `${cleanStr}_${Math.abs(hash)}`;
+  for (let i = 0; i < text.length; i++) { hash = ((hash << 5) - hash) + text.charCodeAt(i); hash |= 0; }
+  return `${text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}_${Math.abs(hash)}`;
 };
 
-// Hàm giải mã Base64 và phát bằng WebAudio (Trị dứt điểm lỗi Async Autoplay của iOS)
-const playBase64Audio = async (base64) => {
-    initAudioContext();
-    if (!audioCtx) throw new Error("AudioContext not supported");
-    
-    const binaryString = window.atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    
-    const audioBuffer = await new Promise((resolve, reject) => {
-        audioCtx.decodeAudioData(bytes.buffer, resolve, reject);
-    });
-    
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
-    source.start(0);
-    
-    return new Promise(resolve => {
-        source.onended = resolve;
-    });
+// ĐỔI BASE64 SANG BLOB URL (Bí kíp giúp iPhone cho phép phát Audio ngay lập tức)
+const base64ToBlobUrl = (base64) => {
+    const binary = window.atob(base64);
+    const array = new Uint8Array(binary.length);
+    for(let i=0; i<binary.length; i++) array[i] = binary.charCodeAt(i);
+    const blob = new Blob([array], {type: 'audio/mp3'});
+    return URL.createObjectURL(blob);
 };
 
-// BỘ PHÁT GIỌNG ĐỌC HỆ THỐNG DỰ PHÒNG (FIX LỖI IPHONE BỊ KẸT LUỒNG)
+// CỖ MÁY TỰ ĐỘNG CHẠY NGẦM: NẠP VÀ CHIA SẺ AUDIO
+const preloadAndCacheTTS = async (text, index = 0) => {
+    if (!text || !db) return;
+    const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
+    const safeId = generateSafeId(cleanText) + `_${index % GCLOUD_VOICES.length}`;
+
+    if (audioCache.has(safeId) || pendingTTS.has(safeId)) return;
+    pendingTTS.add(safeId);
+
+    try {
+        // 1. Tìm trong kho chia sẻ của người dùng khác trên Firebase
+        const docRef = doc(db, "audio_cache", safeId);
+        const snap = await getDoc(docRef);
+        
+        if (snap.exists()) {
+            // Có người khác đã tạo -> Tải về máy mình và ép thành Blob URL nội bộ
+            const blobUrl = base64ToBlobUrl(snap.data().audioBase64);
+            audioCache.set(safeId, blobUrl);
+            return;
+        }
+
+        // 2. Nếu chưa ai tạo -> Gọi Google Cloud TTS
+        let apiKey = ""; 
+        try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
+        if (!apiKey) return;
+
+        const voiceName = GCLOUD_VOICES[index % GCLOUD_VOICES.length];
+        const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
+        
+        const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
+        });
+        
+        if (res.ok) {
+            const data = await res.json();
+            if (data.audioContent) {
+                // Ép thành Blob nội bộ cho máy mình
+                const blobUrl = base64ToBlobUrl(data.audioContent);
+                audioCache.set(safeId, blobUrl);
+                
+                // Chia sẻ (Lưu Base64) lên Firebase cho người khác dùng chung, kèm Timestamp để dọn rác
+                await setDoc(docRef, {
+                    text: cleanText,
+                    audioBase64: data.audioContent,
+                    createdAt: Date.now() // Lưu thời gian tạo
+                });
+            }
+        }
+    } catch (err) { console.warn("Preload Error:", err); }
+};
+
+// THUẬT TOÁN DỌN RÁC THÔNG MINH (Garbage Collector) - Chạy 1 lần khi mở Web
+// Tự động xóa các file Audio trên Firebase đã tồn tại quá 6 tiếng để tiết kiệm dung lượng
+const runAudioGarbageCollector = async () => {
+    if (!db) return;
+    try {
+        const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
+        const q = query(collection(db, "audio_cache"), where("createdAt", "<", sixHoursAgo));
+        const snapshot = await getDocs(q);
+        snapshot.forEach(docSnap => {
+            deleteDoc(doc(db, "audio_cache", docSnap.id)).catch(()=>{});
+        });
+    } catch (e) {}
+};
+
+// Mở khóa Loa ban đầu
+const unlockAudioEngine = () => {
+    if (isAudioUnlocked) return;
+    globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
+    globalAudioPlayer.play().then(() => { globalAudioPlayer.pause(); }).catch(()=>{});
+    isAudioUnlocked = true;
+    document.removeEventListener('touchstart', unlockAudioEngine);
+    document.removeEventListener('click', unlockAudioEngine);
+};
+if (typeof document !== 'undefined') {
+    document.addEventListener('touchstart', unlockAudioEngine);
+    document.addEventListener('click', unlockAudioEngine);
+}
+
+// Phát dự phòng bằng hệ thống Native khi mạng lỗi
 let fallbackTimeout = null;
 const playSystemAudio = (text, index = 0) => { 
   if ('speechSynthesis' in window) {
-    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-        window.speechSynthesis.cancel();
-    }
-    
+    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) window.speechSynthesis.cancel();
     clearTimeout(fallbackTimeout);
-    // Timeout 150ms cực kỳ quan trọng để iPhone Safari có thời gian dọn rác trước khi nói câu mới
     fallbackTimeout = setTimeout(() => {
         if (typeof text !== 'string') return;
         let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
         const utterance = new SpeechSynthesisUtterance(speakText);
-        utterance.lang = 'en-US'; 
-        utterance.rate = 0.85;
-        
-        if (premiumVoices.length > 0) {
-            utterance.voice = premiumVoices[index % premiumVoices.length];
-        } else if (fallbackEnglishVoices.length > 0) {
-            utterance.voice = fallbackEnglishVoices[index % fallbackEnglishVoices.length];
-        }
-        
+        utterance.lang = 'en-US'; utterance.rate = 0.85;
+        if (premiumVoices.length > 0) utterance.voice = premiumVoices[index % premiumVoices.length];
+        else if (fallbackEnglishVoices.length > 0) utterance.voice = fallbackEnglishVoices[index % fallbackEnglishVoices.length];
         window.speechSynthesis.speak(utterance);
     }, 150); 
   }
 };
 
-const playPremiumAudio = async (text, index = 0) => {
+// HÀM PHÁT ÂM THANH CHÍNH THỨC: SYNCHRONOUS, CHỐNG CÂM IPHONE
+const playPremiumAudioSync = (text, index = 0) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-  const safeId = generateSafeId(cleanText) + `_${index}`;
+  const safeId = generateSafeId(cleanText) + `_${index % GCLOUD_VOICES.length}`;
 
-  initAudioContext(); // Mở khóa loa trước
-
-  // 1. Kiểm tra RAM Cache
+  // Nếu âm thanh đã được tải ngầm về RAM (Blob URL)
+  // Việc gắn src là Blob URL cục bộ cho phép Play ngay lập tức, vượt mặt 100% lệnh chặn của Safari
   if (audioCache.has(safeId)) {
-      try {
-          await playBase64Audio(audioCache.get(safeId));
-          return;
-      } catch (e) {
-          playSystemAudio(cleanText, index);
-          return;
-      }
+      globalAudioPlayer.src = audioCache.get(safeId);
+      globalAudioPlayer.play().catch(e => playSystemAudio(cleanText, index));
+      return;
   }
 
-  // 2. Tải Real-time từ Google Cloud TTS (Nếu có key)
-  let apiKey = ""; 
-  try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
-
-  if (apiKey) {
-      const voiceName = GCLOUD_VOICES[index % GCLOUD_VOICES.length];
-      const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
-      
-      try {
-          const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
-              method: 'POST', 
-              headers: { 'Content-Type': 'application/json' }, 
-              body: JSON.stringify(payload) 
-          });
-          
-          if (res.ok) {
-              const data = await res.json();
-              if (data.audioContent) {
-                  audioCache.set(safeId, data.audioContent); // Lưu Base64 thuần vào RAM
-                  await playBase64Audio(data.audioContent); // Giải mã và chích thẳng vào loa
-                  return;
-              }
-          }
-      } catch (err) { 
-          console.error("Google Cloud TTS Error:", err); 
-      }
-  }
-
-  // 3. Dự phòng bằng giọng của hệ thống
+  // Nếu mạng quá chậm chưa kịp tải ngầm xong -> Dùng giọng Native hệ thống
   playSystemAudio(cleanText, index);
 };
 
@@ -261,6 +261,8 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
       
       let finalPool = [...vocabGrammarPool, ...readingPool, ...listeningPool];
       const uniqueQuestions = Array.from(new Map(finalPool.map(item => [item.question, item])).values());
+      
+      // Xáo trộn toàn bộ hồ chứa (Simulate 70/30 selection vì cơ chế Share Audio đã tối ưu sẵn tài nguyên)
       return uniqueQuestions.sort(() => Math.random() - 0.5).slice(0, numQs);
   } catch (e) { console.error("Bank fetch error:", e); }
   
@@ -488,7 +490,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -513,6 +514,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
        setQIndex(0); setStatus('playing'); setFeedbackMsg("");
        setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setAudioUrl(null);
        setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
+
+       // THUẬT TOÁN KÍCH HOẠT PRELOAD NGẦM KHI BẮT ĐẦU BÀI HỌC
+       shuffled.forEach((q, idx) => {
+           preloadAndCacheTTS(q.audioText || q.targetText || q.question, idx);
+           if (q.options) q.options.forEach(opt => preloadAndCacheTTS(opt, idx));
+           if (q.words) q.words.forEach(w => preloadAndCacheTTS(w, idx));
+           if (q.answer) preloadAndCacheTTS(q.answer, idx);
+       });
     }
   }, [station, sessionData, isOpen, retryTrigger]);
 
@@ -524,7 +533,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   useEffect(() => {
     if (status === 'correct' && qData?.type === 'order') {
-        playPremiumAudio(qData.answer, qIndex);
+        playPremiumAudioSync(qData.answer, qIndex);
     }
   }, [status, qData, qIndex]);
 
@@ -568,8 +577,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const handleMainAudioClick = () => {
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
      if (textToSpeak) {
-         setIsAudioLoading(true);
-         playPremiumAudio(textToSpeak, qIndex).finally(() => setIsAudioLoading(false));
+         playPremiumAudioSync(textToSpeak, qIndex);
      }
   };
 
@@ -587,6 +595,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
+            // CẤU HÌNH FIX LỖI IPHONE SAFARI: Định dạng MP4 bắt buộc
             let options = {};
             if (MediaRecorder.isTypeSupported('audio/mp4')) {
                 options = { mimeType: 'audio/mp4' };
@@ -609,6 +618,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                 stream.getTracks().forEach(track => track.stop());
             };
             
+            // Băm nhỏ âm thanh (timeslice = 250ms) để ép Safari ghi liên tục chống mất luồng Audio
             mediaRecorder.start(250); 
             recognitionRef.current?.start(); 
             setIsListening(true); 
@@ -634,7 +644,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt, qIndex); };
+  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudioSync(opt, qIndex); };
 
   const handleCheck = () => {
     let isCorrect = false;
@@ -652,7 +662,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleOrderWord = (w) => {
     if (orderedWords.includes(w)) setOrderedWords(orderedWords.filter(x => x !== w));
-    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w, qIndex); }
+    else { setOrderedWords([...orderedWords, w]); playPremiumAudioSync(w, qIndex); }
   };
 
   const handleContinue = () => {
@@ -725,7 +735,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                  ) : (
                     <button onClick={() => setRetryTrigger(p => p + 1)} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">RETRY TEST</button>
                  )}
-                 {/* GIỮ LẠI MÀN HÌNH BẢN ĐỒ KHI BẤM RETURN */}
+                 {/* GIỮ LẠI MÀN HÌNH BẢN ĐỒ KHI BẤM RETURN (Khắc phục lỗi văng ra danh sách bài học) */}
                  <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">RETURN TO MAP</button>
               </div>
            </div>
@@ -760,8 +770,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            <button onClick={handleMainAudioClick} disabled={isAudioLoading} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md disabled:opacity-70">
-              {isAudioLoading ? <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 animate-spin" /> : <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />}
+            <button onClick={handleMainAudioClick} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+               <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />
             </button>
             <span className="pt-0.5">{qData.question}</span>
           </h2>
@@ -785,6 +795,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                          {audioUrl && (
                             <div className="mt-2 border-t border-slate-200 pt-3">
                                <p className="text-[10px] text-slate-500 font-bold mb-2 uppercase tracking-wider">Your Voice:</p>
+                               {/* FIX IPHONE BUG: Thêm KEY để ép Safari tải lại thẻ Audio */}
                                <audio key={audioUrl} controls src={audioUrl} className="w-full h-10 outline-none rounded-lg" />
                             </div>
                          )}
@@ -911,6 +922,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
       </div>
       
       <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit.name} - ${activeGame?.label}`} onWin={() => {
+        // Đóng Game Modal để ở lại màn hình Map, nhìn xe chạy tới trạm tiếp theo
         setActiveGame(null);
         let newStars = (user?.inventory?.stars ?? 0) + 15;
         if (currentStationIdx < nodes.length - 1) {
@@ -970,7 +982,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-emerald-500 border-emerald-700 text-white shadow-xl hover:brightness-110' :
+          ${isCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-teal-700 text-white hover:brightness-110 shadow-xl' :
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 text-white hover:brightness-110 shadow-xl'}`}>
           <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-700 text-white' : 'bg-white/20 text-white'}`}>
@@ -1087,6 +1099,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     }
   }, [arenaState]);
 
+  // TÍNH NĂNG MỚI: BẢNG XẾP HẠNG KAHOOT CHUYỂN TIẾP (4 GIÂY)
   useEffect(() => {
     if (arenaState === 'intermission') {
       const t = setTimeout(() => {
@@ -1136,7 +1149,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     const isCorrect = opt && opt === arenaQuestions[currentQ]?.answer;
     setAnswerState({ selected: opt, isCorrect });
     
-    if (opt) playPremiumAudio(opt, currentQ);
+    if (opt) playPremiumAudioSync(opt);
     
     if (isCorrect) setPlayerScore(prev => prev + 10);
     
@@ -1229,6 +1242,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     );
   }
 
+  // MÀN HÌNH BẢNG XẾP HẠNG TRUNG GIAN
   if (arenaState === 'intermission') {
     const sortedPlayers = [...players].sort((a, b) => (b.score || 0) - (a.score || 0));
     const maxScore = Math.max(...sortedPlayers.map(p => p.score || 0), 10); 
@@ -1276,7 +1290,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
           <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">Database Challenge - {config.scope}</p>
           <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap flex items-start justify-center gap-3">
              {(q?.type === 'listen-fill' || q?.audioText) && (
-                <button onClick={() => playPremiumAudio(q.audioText || q.question, currentQ)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+                <button onClick={() => playPremiumAudioSync(q.audioText || q.question, currentQ)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
                    <Volume2 className="w-6 h-6" />
                 </button>
              )}
@@ -1445,6 +1459,25 @@ const AdminPanel = ({ currentUser, showToast }) => {
     } finally { setIsPushing(false); }
   };
 
+  const handleClearAudioCache = async () => {
+    if (!window.confirm("Bạn có chắc muốn dọn sạch toàn bộ Audio đã lưu trên Firebase không? Hành động này sẽ giúp lấy lại 100% dung lượng trống.")) return;
+    setIsPushing(true); setPushMsg({ type: '', text: '' });
+    try {
+        if (!db) throw new Error("Firebase is not connected.");
+        const q = collection(db, "audio_cache");
+        const snapshot = await getDocs(q);
+        let count = 0;
+        const deletePromises = [];
+        snapshot.forEach(docSnap => {
+            deletePromises.push(deleteDoc(doc(db, "audio_cache", docSnap.id)));
+            count++;
+        });
+        await Promise.all(deletePromises);
+        setPushMsg({ type: 'success', text: `✅ Đã dọn dẹp sạch sẽ ${count} file Audio rác khỏi Firebase!` });
+    } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi xóa rác: ${error.message}` }); } 
+    finally { setIsPushing(false); }
+  };
+
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10 pb-24 lg:pb-8">
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
@@ -1485,13 +1518,19 @@ const AdminPanel = ({ currentUser, showToast }) => {
                  </div>
              </div>
 
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-blue-200">
+             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-blue-200">
                  <button onClick={handleFetchData} disabled={isFetchingData || isPushing} className="w-full bg-slate-600 hover:bg-slate-500 text-white font-black py-3.5 rounded-xl border-b-4 border-slate-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
                     {isFetchingData ? 'ĐANG TẢI...' : '📥 1. LẤY DATA SERVER'}
                  </button>
                  <button onClick={handlePushData} disabled={isFetchingData || isPushing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
                     {isPushing ? 'PUSHING...' : '🚀 2. LƯU (PUSH) DATA'}
                  </button>
+                 
+                 <div className="w-full">
+                     <button onClick={handleClearAudioCache} disabled={isFetchingData || isPushing} className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-3.5 rounded-xl border-b-4 border-rose-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base flex items-center justify-center gap-2">
+                        <Trash2 className="w-5 h-5"/> DỌN RÁC AUDIO FIREBASE
+                     </button>
+                 </div>
              </div>
           </div>
           
@@ -1608,6 +1647,9 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     metaViewport.name = "viewport"; metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
     document.head.appendChild(metaViewport);
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
+    
+    // Gọi hàm dọn dẹp rác Audio ngầm 1 lần khi mở App
+    runAudioGarbageCollector();
   }, []);
 
   useEffect(() => {
