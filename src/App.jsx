@@ -37,14 +37,15 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ CROWD-SOURCING & PRELOAD AUDIO (CHỐNG LỖI CÂM TRÊN IPHONE 100%)
+// ĐỘNG CƠ ÂM THANH LÕI WEBAUDIO API (CHỐNG LỖI CÂM TRÊN IOS SAFARI 100%)
+// Thay thế thẻ <audio> bằng AudioContext để giải mã MP3 Base64 chích thẳng vào loa
 // ============================================================================
-const globalAudioPlayer = new Audio();
+let audioCtx = null;
 const audioCache = new Map(); 
 const pendingTTS = new Set(); 
 let isAudioUnlocked = false;
 
-let audioCtx = null;
+// Khởi tạo và Mở khóa AudioContext (Bắt buộc cho iOS)
 const initAudioContext = () => {
     if (!audioCtx) {
         const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -52,6 +53,31 @@ const initAudioContext = () => {
     }
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 };
+
+// Mở khóa bằng 1 âm thanh rỗng ngay lần chạm đầu tiên
+const unlockAudioEngine = () => {
+    if (isAudioUnlocked) return;
+    initAudioContext();
+    if (audioCtx) {
+        const buffer = audioCtx.createBuffer(1, 1, 22050);
+        const source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+        source.start(0);
+    }
+    if ('speechSynthesis' in window) {
+        const u = new SpeechSynthesisUtterance('');
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+    }
+    isAudioUnlocked = true;
+    document.removeEventListener('touchstart', unlockAudioEngine);
+    document.removeEventListener('click', unlockAudioEngine);
+};
+if (typeof document !== 'undefined') {
+    document.addEventListener('touchstart', unlockAudioEngine, { passive: true });
+    document.addEventListener('click', unlockAudioEngine, { passive: true });
+}
 
 const GCLOUD_VOICES = [
   "en-US-Neural2-A", "en-US-Neural2-C", "en-US-Neural2-D", "en-US-Neural2-E", 
@@ -83,8 +109,7 @@ const generateSafeId = (text) => {
   return `${text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}_${Math.abs(hash)}`;
 };
 
-const base64ToDataUri = (base64) => `data:audio/mp3;base64,${base64}`;
-
+// BỘ GIẢI MÃ VÀ PHÁT AUDIO SIÊU TỐC TRỊ LỖI IPHONE
 const playBase64Audio = async (base64) => {
     initAudioContext();
     if (!audioCtx) throw new Error("AudioContext not supported");
@@ -95,7 +120,7 @@ const playBase64Audio = async (base64) => {
     for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
     
     const audioBuffer = await new Promise((resolve, reject) => {
-        audioCtx.decodeAudioData(bytes.buffer, resolve, reject);
+        audioCtx.decodeAudioData(bytes.buffer.slice(0), resolve, reject);
     });
     
     const source = audioCtx.createBufferSource();
@@ -105,6 +130,7 @@ const playBase64Audio = async (base64) => {
     return new Promise(resolve => { source.onended = resolve; });
 };
 
+// CỖ MÁY NẠP ĐỆM NGẦM
 const preloadAndCacheTTS = async (text, index = 0) => {
     if (!text || !db) return;
     const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
@@ -143,6 +169,7 @@ const preloadAndCacheTTS = async (text, index = 0) => {
     } catch (err) { console.warn("Preload Error:", err); }
 };
 
+// DỌN RÁC THÔNG MINH
 const runAudioGarbageCollector = async () => {
     if (!db) return;
     try {
@@ -153,43 +180,33 @@ const runAudioGarbageCollector = async () => {
     } catch (e) {}
 };
 
-const unlockAudioEngine = () => {
-    if (isAudioUnlocked) return;
-    globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
-    globalAudioPlayer.play().then(() => { globalAudioPlayer.pause(); }).catch(()=>{});
-    initAudioContext();
-    isAudioUnlocked = true;
-    document.removeEventListener('touchstart', unlockAudioEngine);
-    document.removeEventListener('click', unlockAudioEngine);
-};
-if (typeof document !== 'undefined') {
-    document.addEventListener('touchstart', unlockAudioEngine);
-    document.addEventListener('click', unlockAudioEngine);
-}
-
-let fallbackTimeout = null;
+// GIỌNG ĐỌC DỰ PHÒNG CHUẨN IOS
 const playSystemAudio = (text, index = 0) => { 
   if ('speechSynthesis' in window) {
-    if (window.speechSynthesis.speaking || window.speechSynthesis.pending) window.speechSynthesis.cancel();
-    clearTimeout(fallbackTimeout);
-    fallbackTimeout = setTimeout(() => {
-        if (typeof text !== 'string') return;
-        let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
-        const utterance = new SpeechSynthesisUtterance(speakText);
-        utterance.lang = 'en-US'; utterance.rate = 0.85;
-        if (premiumVoices.length > 0) utterance.voice = premiumVoices[index % premiumVoices.length];
-        else if (fallbackEnglishVoices.length > 0) utterance.voice = fallbackEnglishVoices[index % fallbackEnglishVoices.length];
+    if (typeof text !== 'string') return;
+    let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
+    const utterance = new SpeechSynthesisUtterance(speakText);
+    utterance.lang = 'en-US'; utterance.rate = 0.85;
+    
+    if (premiumVoices.length > 0) utterance.voice = premiumVoices[index % premiumVoices.length];
+    else if (fallbackEnglishVoices.length > 0) utterance.voice = fallbackEnglishVoices[index % fallbackEnglishVoices.length];
+    
+    // Xử lý cẩn thận lệnh Cancel để iPhone không bị kẹt
+    if (window.speechSynthesis.speaking) {
+        window.speechSynthesis.cancel();
+        setTimeout(() => { window.speechSynthesis.speak(utterance); }, 50);
+    } else {
         window.speechSynthesis.speak(utterance);
-    }, 150); 
+    }
   }
 };
 
+// PHÁT ÂM THANH CHÍNH: CHỐNG CHẶN HOÀN TOÀN
 const playPremiumAudioSync = async (text, index = 0) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
   const safeId = generateSafeId(cleanText) + `_${index % GCLOUD_VOICES.length}`;
 
-  globalAudioPlayer.play().catch(()=>{});
   initAudioContext();
 
   if (audioCache.has(safeId)) {
@@ -230,7 +247,7 @@ const playPremiumAudioSync = async (text, index = 0) => {
 };
 
 // ============================================================================
-// HÀM TIỆN ÍCH GAME
+// HÀM TIỆN ÍCH GAME VÀ CHẤM ĐIỂM
 // ============================================================================
 const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
@@ -286,22 +303,54 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   return [{ question: "Không tìm thấy câu hỏi. Admin vui lòng Push thêm Data!", options: ["OK", "A", "B", "C"], answer: "OK" }];
 };
 
+// BỘ CHẤM ĐIỂM SPEAKING TỐI ƯU HÓA (XỬ LÝ DÍNH SỐ VÀ CHUYỂN SỐ THÀNH CHỮ)
 const evaluateSpeech = (transcript, target) => {
-  let cleanTranscript = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-  let cleanTarget = target.toLowerCase().replace(/[^a-z0-9 ]/g, '').trim();
-  cleanTranscript = cleanTranscript.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
-  cleanTarget = cleanTarget.replace(/favorite/g, 'favourite').replace(/color/g, 'colour');
-  const normalizationDict = {
-    '15': 'fifteen', '16': 'sixteen', '38': 'thirty eight', '81': 'eighty one', '93': 'ninety three', 
-    '116': 'one hundred and sixteen', '33': 'thirty three', '97': 'ninety seven', '67': 'sixty seven', 
-    '79': 'seventy nine', '23': 'twenty three', 'st': 'street', 'rd': 'road', 'ave': 'avenue'
+  const normalizeText = (text) => {
+    let t = text.toLowerCase();
+    
+    // 1. Tách số và chữ bị dính liền do API nhận diện (Vd: "5b" -> "5 b")
+    t = t.replace(/([0-9])([a-z])/g, '$1 $2').replace(/([a-z])([0-9])/g, '$1 $2');
+    
+    // 2. Loại bỏ các ký tự đặc biệt, chỉ giữ lại chữ, số và khoảng trắng
+    t = t.replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+    
+    // 3. Đồng nhất chính tả Anh-Anh / Anh-Mỹ
+    t = t.replace(/\bfavorite\b/g, 'favourite').replace(/\bcolor\b/g, 'colour');
+    
+    // 4. Từ điển chuẩn hóa số sang chữ
+    const dict = {
+      '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
+      '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
+      '10': 'ten', '11': 'eleven', '12': 'twelve', '13': 'thirteen',
+      '14': 'fourteen', '15': 'fifteen', '16': 'sixteen', '17': 'seventeen',
+      '18': 'eighteen', '19': 'nineteen', '20': 'twenty',
+      '30': 'thirty', '40': 'forty', '50': 'fifty',
+      '60': 'sixty', '70': 'seventy', '80': 'eighty', '90': 'ninety',
+      'st': 'street', 'rd': 'road', 'ave': 'avenue'
+    };
+
+    // Bổ sung xử lý các số ghép cụ thể có trong giáo trình
+    t = t.replace(/\b38\b/g, 'thirty eight')
+         .replace(/\b81\b/g, 'eighty one')
+         .replace(/\b93\b/g, 'ninety three')
+         .replace(/\b116\b/g, 'one hundred and sixteen')
+         .replace(/\b33\b/g, 'thirty three')
+         .replace(/\b97\b/g, 'ninety seven')
+         .replace(/\b67\b/g, 'sixty seven')
+         .replace(/\b79\b/g, 'seventy nine')
+         .replace(/\b23\b/g, 'twenty three');
+
+    // Chuyển đổi mọi số đơn lẻ thành chữ
+    let words = t.split(' ').map(w => dict[w] || w);
+    return words.join(' ').trim();
   };
-  const transcriptWords = cleanTranscript.split(' ').map(word => normalizationDict[word] || word);
-  cleanTranscript = transcriptWords.join(' ').replace(/\s+/g, ' ').trim();
-  cleanTarget = cleanTarget.replace(/\s+/g, ' ').trim();
+
+  const cleanTranscript = normalizeText(transcript);
+  const cleanTarget = normalizeText(target);
 
   if (cleanTranscript === cleanTarget) return { pass: true, msg: "Perfect pronunciation!" };
   if (cleanTranscript.includes('bag') && cleanTarget.includes('big')) return { pass: false, msg: "You pronounced 'bag' instead of 'big'." };
+  
   return { pass: false, msg: `Try again! Remember to speak clearly.` };
 };
 
@@ -507,6 +556,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -590,10 +640,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
-  const handleMainAudioClick = () => {
+  const handleMainAudioClick = async () => {
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
      if (textToSpeak) {
-         playPremiumAudioSync(textToSpeak, qIndex);
+         setIsAudioLoading(true);
+         await playPremiumAudioSync(textToSpeak, qIndex);
+         setIsAudioLoading(false);
      }
   };
 
@@ -610,6 +662,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
         audioChunksRef.current = [];
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            
             let options = {};
             if (MediaRecorder.isTypeSupported('audio/mp4')) {
                 options = { mimeType: 'audio/mp4' };
@@ -632,7 +685,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                 stream.getTracks().forEach(track => track.stop());
             };
             
-            mediaRecorder.start(250); 
+            mediaRecorder.start(); 
             recognitionRef.current?.start(); 
             setIsListening(true); 
         } catch (err) {
@@ -782,8 +835,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            <button onClick={handleMainAudioClick} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
-               <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />
+            <button onClick={handleMainAudioClick} disabled={isAudioLoading} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md disabled:opacity-70">
+               {isAudioLoading ? <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 animate-spin" /> : <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />}
             </button>
             <span className="pt-0.5">{qData.question}</span>
           </h2>
@@ -1504,10 +1557,10 @@ const AdminPanel = ({ currentUser, showToast }) => {
              <div className="w-full">
                 <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
                 <select value={dataType} onChange={e=>{setDataType(e.target.value); setJsonInput('');}} className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none">
-                  <option value="syllabus">6. Syllabus</option>
+                  <option value="syllabus">6. Syllabus (Khung chương trình)</option>
                   <option value="units">1. Standard Lesson</option>
-                  <option value="practice">2. Practice Hub</option>
-                  <option value="extra">3. Extra Exercises</option>
+                  <option value="practice">2. Practice Hub (Listen/Speak/Read)</option>
+                  <option value="extra">3. Extra Exercises (Arena Bank)</option>
                   <option value="tests">4. 45-Min Test</option>
                   <option value="cambridge">5. Cambridge Advanced</option>
                 </select>
@@ -1564,7 +1617,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
                <RotateCw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
              </button>
           </div>
-          
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -1584,16 +1636,8 @@ const AdminPanel = ({ currentUser, showToast }) => {
                        <span className="font-bold text-slate-800">{u.name}</span>
                     </td>
                     <td className="p-4 text-slate-500 font-medium text-sm">{u.email || 'N/A'}</td>
-                    <td className="p-4">
-                       <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                         {u.role}
-                       </span>
-                    </td>
-                    <td className="p-4">
-                       <span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.status === 'blocked' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                         {u.status || 'active'}
-                       </span>
-                    </td>
+                    <td className="p-4"><span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role}</span></td>
+                    <td className="p-4"><span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.status === 'blocked' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{u.status || 'active'}</span></td>
                     <td className="p-4 flex gap-2">
                        {currentUser?.uid !== u.id && (
                          <>
