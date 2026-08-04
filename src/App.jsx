@@ -37,53 +37,24 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH LÕI WEBAUDIO API (CHỐNG LỖI CÂM TRÊN IOS SAFARI 100%)
-// Thay thế thẻ <audio> bằng AudioContext để giải mã MP3 Base64 chích thẳng vào loa
+// ĐỘNG CƠ CROWD-SOURCING & PRELOAD AUDIO (CHỐNG LỖI CÂM TRÊN IPHONE 100%)
+// Kỹ thuật sử dụng Data URI và Synchronous Play để vượt mặt Apple Autoplay Policy
 // ============================================================================
-let audioCtx = null;
-const audioCache = new Map(); 
-const pendingTTS = new Set(); 
+const globalAudioPlayer = new Audio();
+const audioCache = new Map(); // Bộ đệm RAM (Lưu Data URI Base64 nội bộ)
+const pendingTTS = new Set(); // Chống gọi API trùng lặp
 let isAudioUnlocked = false;
 
-// Khởi tạo và Mở khóa AudioContext (Bắt buộc cho iOS)
-const initAudioContext = () => {
-    if (!audioCtx) {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        if (AudioContext) audioCtx = new AudioContext();
-    }
-    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-};
-
-// Mở khóa bằng 1 âm thanh rỗng ngay lần chạm đầu tiên
-const unlockAudioEngine = () => {
-    if (isAudioUnlocked) return;
-    initAudioContext();
-    if (audioCtx) {
-        const buffer = audioCtx.createBuffer(1, 1, 22050);
-        const source = audioCtx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(audioCtx.destination);
-        source.start(0);
-    }
-    if ('speechSynthesis' in window) {
-        const u = new SpeechSynthesisUtterance('');
-        u.volume = 0;
-        window.speechSynthesis.speak(u);
-    }
-    isAudioUnlocked = true;
-    document.removeEventListener('touchstart', unlockAudioEngine);
-    document.removeEventListener('click', unlockAudioEngine);
-};
-if (typeof document !== 'undefined') {
-    document.addEventListener('touchstart', unlockAudioEngine, { passive: true });
-    document.addEventListener('click', unlockAudioEngine, { passive: true });
-}
-
+// 8 Giọng Neural2 siêu thực của Google Cloud (Luân phiên Nam/Nữ)
 const GCLOUD_VOICES = [
   "en-US-Neural2-A", "en-US-Neural2-C", "en-US-Neural2-D", "en-US-Neural2-E", 
   "en-US-Neural2-F", "en-US-Neural2-H", "en-US-Neural2-I", "en-US-Neural2-J"
 ];
 
+// 4 Trọng âm (Mỹ, Anh, Úc, Ấn) dành cho Google Translate TTS (Miễn phí)
+const FREE_VOICES = ["en-US", "en-GB", "en-AU", "en-IN"];
+
+// Lấy giọng Native dự phòng có sẵn trên máy
 let premiumVoices = [];
 let fallbackEnglishVoices = [];
 const initVoices = () => {
@@ -94,7 +65,8 @@ const initVoices = () => {
       fallbackEnglishVoices = englishVoices;
       premiumVoices = englishVoices.filter(v => 
         v.name.includes('Natural') || v.name.includes('Premium') || 
-        v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel')
+        v.name.includes('Google') || v.name.includes('Samantha') ||
+        v.name.includes('Daniel')
       );
     }
   }
@@ -103,34 +75,14 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   initVoices(); window.speechSynthesis.onvoiceschanged = initVoices;
 }
 
+// BỘ TẠO MÃ HASH ĐỘC NHẤT
 const generateSafeId = (text) => {
   let hash = 0;
   for (let i = 0; i < text.length; i++) { hash = ((hash << 5) - hash) + text.charCodeAt(i); hash |= 0; }
   return `${text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}_${Math.abs(hash)}`;
 };
 
-// BỘ GIẢI MÃ VÀ PHÁT AUDIO SIÊU TỐC TRỊ LỖI IPHONE
-const playBase64Audio = async (base64) => {
-    initAudioContext();
-    if (!audioCtx) throw new Error("AudioContext not supported");
-    
-    const binaryString = window.atob(base64);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) bytes[i] = binaryString.charCodeAt(i);
-    
-    const audioBuffer = await new Promise((resolve, reject) => {
-        audioCtx.decodeAudioData(bytes.buffer.slice(0), resolve, reject);
-    });
-    
-    const source = audioCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(audioCtx.destination);
-    source.start(0);
-    return new Promise(resolve => { source.onended = resolve; });
-};
-
-// CỖ MÁY NẠP ĐỆM NGẦM
+// CỖ MÁY TỰ ĐỘNG CHẠY NGẦM: NẠP VÀ CHIA SẺ AUDIO (Giúp có Data URI sẵn trước khi click)
 const preloadAndCacheTTS = async (text, index = 0) => {
     if (!text || !db) return;
     const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
@@ -140,14 +92,16 @@ const preloadAndCacheTTS = async (text, index = 0) => {
     pendingTTS.add(safeId);
 
     try {
+        // 1. Tìm trong kho chia sẻ của người dùng khác trên Firebase
         const docRef = doc(db, "audio_cache", safeId);
         const snap = await getDoc(docRef);
         
         if (snap.exists()) {
-            audioCache.set(safeId, snap.data().audioBase64);
+            audioCache.set(safeId, snap.data().audioBase64); // Lưu Base64
             return;
         }
 
+        // 2. Nếu chưa ai tạo -> Gọi Google Cloud TTS
         let apiKey = ""; 
         try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
         if (!apiKey) return;
@@ -162,14 +116,15 @@ const preloadAndCacheTTS = async (text, index = 0) => {
         if (res.ok) {
             const data = await res.json();
             if (data.audioContent) {
-                audioCache.set(safeId, data.audioContent);
+                audioCache.set(safeId, data.audioContent); // Lưu Base64 vào RAM
+                // Chia sẻ lên Firebase cho người khác dùng chung, kèm Timestamp để dọn rác
                 await setDoc(docRef, { text: cleanText, audioBase64: data.audioContent, createdAt: Date.now() });
             }
         }
     } catch (err) { console.warn("Preload Error:", err); }
 };
 
-// DỌN RÁC THÔNG MINH
+// THUẬT TOÁN DỌN RÁC THÔNG MINH (Garbage Collector) - Chạy 1 lần khi mở Web
 const runAudioGarbageCollector = async () => {
     if (!db) return;
     try {
@@ -180,9 +135,24 @@ const runAudioGarbageCollector = async () => {
     } catch (e) {}
 };
 
-// GIỌNG ĐỌC DỰ PHÒNG CHUẨN IOS
+// Mở khóa Loa ban đầu (Hack Safari Autoplay)
+const unlockAudioEngine = () => {
+    if (isAudioUnlocked) return;
+    globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
+    globalAudioPlayer.play().then(() => { globalAudioPlayer.pause(); }).catch(()=>{});
+    isAudioUnlocked = true;
+    document.removeEventListener('touchstart', unlockAudioEngine);
+    document.removeEventListener('click', unlockAudioEngine);
+};
+if (typeof document !== 'undefined') {
+    document.addEventListener('touchstart', unlockAudioEngine, { passive: true });
+    document.addEventListener('click', unlockAudioEngine, { passive: true });
+}
+
+// BỘ PHÁT GIỌNG ĐỌC HỆ THỐNG (IOS FIX: BỎ SETTIMEOUT ĐỂ CHỐNG CÂM)
 const playSystemAudio = (text, index = 0) => { 
   if ('speechSynthesis' in window) {
+    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
     if (typeof text !== 'string') return;
     let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
     const utterance = new SpeechSynthesisUtterance(speakText);
@@ -191,49 +161,51 @@ const playSystemAudio = (text, index = 0) => {
     if (premiumVoices.length > 0) utterance.voice = premiumVoices[index % premiumVoices.length];
     else if (fallbackEnglishVoices.length > 0) utterance.voice = fallbackEnglishVoices[index % fallbackEnglishVoices.length];
     
-    // Xử lý cẩn thận lệnh Cancel để iPhone không bị kẹt
-    if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.cancel();
-        setTimeout(() => { window.speechSynthesis.speak(utterance); }, 50);
-    } else {
-        window.speechSynthesis.speak(utterance);
-    }
+    window.speechSynthesis.speak(utterance);
   }
 };
 
-// PHÁT ÂM THANH CHÍNH: CHỐNG CHẶN HOÀN TOÀN
+// HÀM PHÁT ÂM THANH CHÍNH THỨC: HACK SYNCHRONOUS CHỐNG IPHONE CHẶN
 const playPremiumAudioSync = async (text, index = 0) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
   const safeId = generateSafeId(cleanText) + `_${index % GCLOUD_VOICES.length}`;
 
-  initAudioContext();
+  // BÍ KÍP IOS: BẮT BUỘC PHẢI GỌI .PLAY() NGAY LẬP TỨC TRONG EVENT CLICK (SYNCHRONOUS).
+  globalAudioPlayer.play().catch(()=>{});
 
+  // NẾU ĐÃ CÓ SẴN BASE64 TRONG RAM -> Chích thẳng vào Loa (Hoàn toàn Synchronous)
   if (audioCache.has(safeId)) {
-      try {
-          await playBase64Audio(audioCache.get(safeId));
-          return;
-      } catch (e) {
-          playSystemAudio(cleanText, index);
-          return;
-      }
+      const cachedData = audioCache.get(safeId);
+      globalAudioPlayer.src = cachedData.startsWith('http') ? cachedData : `data:audio/mp3;base64,${cachedData}`;
+      globalAudioPlayer.play().catch(e => playSystemAudio(cleanText, index));
+      return;
   }
 
+  // NẾU CHƯA CÓ TRONG RAM VÀ PHẢI GỌI API (ASYNC)
   let apiKey = ""; 
   try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
 
   if (apiKey) {
       const voiceName = GCLOUD_VOICES[index % GCLOUD_VOICES.length];
       const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
+      
       try {
           const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
               method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
           });
+          
           if (res.ok) {
               const data = await res.json();
               if (data.audioContent) {
-                  audioCache.set(safeId, data.audioContent); 
-                  await playBase64Audio(data.audioContent);
+                  audioCache.set(safeId, data.audioContent); // Lưu RAM
+                  globalAudioPlayer.src = `data:audio/mp3;base64,${data.audioContent}`;
+                  
+                  // iPhone có thể sẽ chặn lệnh play() này vì nó xảy ra sau await (delay mạng).
+                  // Nếu chặn, nó sẽ nhảy thẳng về Siri (Catch error).
+                  globalAudioPlayer.play().catch(e => playSystemAudio(cleanText, index)); 
+                  
+                  // Đồng thời Share lên Firebase cho máy khác
                   if (db && !pendingTTS.has(safeId)) {
                       pendingTTS.add(safeId);
                       setDoc(doc(db, "audio_cache", safeId), { text: cleanText, audioBase64: data.audioContent, createdAt: Date.now() }).catch(()=>{});
@@ -242,12 +214,23 @@ const playPremiumAudioSync = async (text, index = 0) => {
               }
           }
       } catch (err) { console.warn("Google TTS Error, fallback to native"); }
+  } else {
+      // KHÔNG CÓ KEY -> Dùng URL Google Translate (Rất dễ bị iOS chặn do là URL mạng)
+      const freeLang = FREE_VOICES[index % FREE_VOICES.length];
+      const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=${freeLang}&client=tw-ob`;
+      audioCache.set(safeId, fallbackUrl);
+      globalAudioPlayer.src = fallbackUrl;
+      globalAudioPlayer.play().catch(e => playSystemAudio(cleanText, index));
+      return;
   }
+
+  // Dự phòng cuối cùng: Gọi giọng đọc của chính điện thoại
   playSystemAudio(cleanText, index);
 };
 
+
 // ============================================================================
-// HÀM TIỆN ÍCH GAME VÀ CHẤM ĐIỂM
+// KHU VỰC CÁC HÀM XỬ LÝ DỮ LIỆU & TIỆN ÍCH GAME
 // ============================================================================
 const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
@@ -255,11 +238,13 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   let vocabGrammarPool = [];
   let readingPool = [];
   let listeningPool = [];
+  
   let targetUnits = [];
   if (scope === 'Unit 1') targetUnits = ['1'];
   else if (scope === 'Unit 2') targetUnits = ['2'];
   else if (scope === 'Unit 3') targetUnits = ['3'];
   else targetUnits = ['1', '2', '3', '4', '5']; 
+  
   const gNum = gradeId.replace('g', ''); 
   
   try {
@@ -270,11 +255,13 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
               { coll: 'extra', doc: `grade${gNum}_extra${u}` },
               { coll: 'cambridge', doc: `grade${gNum}_cambridge${u}` } 
           ];
+
           for (const s of sources) {
               const snap = await getDoc(doc(db, s.coll, s.doc));
               if (snap.exists()) {
                   const data = snap.data();
                   const arraysToCheck = ['vocab', 'grammar', 'listen', 'read', 'questions', 'listening', 'reading', 'boss'];
+                  
                   arraysToCheck.forEach(key => {
                       if (data[key] && Array.isArray(data[key])) {
                           data[key].forEach(q => {
@@ -294,30 +281,25 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
               }
           }
       }
+
       readingPool = readingPool.sort(() => Math.random() - 0.5).slice(0, 2); 
       listeningPool = listeningPool.sort(() => Math.random() - 0.5).slice(0, 3); 
+      
       let finalPool = [...vocabGrammarPool, ...readingPool, ...listeningPool];
       const uniqueQuestions = Array.from(new Map(finalPool.map(item => [item.question, item])).values());
       return uniqueQuestions.sort(() => Math.random() - 0.5).slice(0, numQs);
   } catch (e) { console.error("Bank fetch error:", e); }
+  
   return [{ question: "Không tìm thấy câu hỏi. Admin vui lòng Push thêm Data!", options: ["OK", "A", "B", "C"], answer: "OK" }];
 };
 
-// BỘ CHẤM ĐIỂM SPEAKING TỐI ƯU HÓA (XỬ LÝ DÍNH SỐ VÀ CHUYỂN SỐ THÀNH CHỮ)
 const evaluateSpeech = (transcript, target) => {
   const normalizeText = (text) => {
     let t = text.toLowerCase();
-    
-    // 1. Tách số và chữ bị dính liền do API nhận diện (Vd: "5b" -> "5 b")
     t = t.replace(/([0-9])([a-z])/g, '$1 $2').replace(/([a-z])([0-9])/g, '$1 $2');
-    
-    // 2. Loại bỏ các ký tự đặc biệt, chỉ giữ lại chữ, số và khoảng trắng
     t = t.replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
-    
-    // 3. Đồng nhất chính tả Anh-Anh / Anh-Mỹ
     t = t.replace(/\bfavorite\b/g, 'favourite').replace(/\bcolor\b/g, 'colour');
     
-    // 4. Từ điển chuẩn hóa số sang chữ
     const dict = {
       '0': 'zero', '1': 'one', '2': 'two', '3': 'three', '4': 'four',
       '5': 'five', '6': 'six', '7': 'seven', '8': 'eight', '9': 'nine',
@@ -329,18 +311,12 @@ const evaluateSpeech = (transcript, target) => {
       'st': 'street', 'rd': 'road', 'ave': 'avenue'
     };
 
-    // Bổ sung xử lý các số ghép cụ thể có trong giáo trình
-    t = t.replace(/\b38\b/g, 'thirty eight')
-         .replace(/\b81\b/g, 'eighty one')
-         .replace(/\b93\b/g, 'ninety three')
-         .replace(/\b116\b/g, 'one hundred and sixteen')
-         .replace(/\b33\b/g, 'thirty three')
-         .replace(/\b97\b/g, 'ninety seven')
-         .replace(/\b67\b/g, 'sixty seven')
-         .replace(/\b79\b/g, 'seventy nine')
+    t = t.replace(/\b38\b/g, 'thirty eight').replace(/\b81\b/g, 'eighty one')
+         .replace(/\b93\b/g, 'ninety three').replace(/\b116\b/g, 'one hundred and sixteen')
+         .replace(/\b33\b/g, 'thirty three').replace(/\b97\b/g, 'ninety seven')
+         .replace(/\b67\b/g, 'sixty seven').replace(/\b79\b/g, 'seventy nine')
          .replace(/\b23\b/g, 'twenty three');
 
-    // Chuyển đổi mọi số đơn lẻ thành chữ
     let words = t.split(' ').map(w => dict[w] || w);
     return words.join(' ').trim();
   };
@@ -432,9 +408,6 @@ const MAP_THEMES = {
   forest: { bg: "from-[#14532d] to-[#064e3b]", vehicle: "🚙", pathColor: "rgba(255,255,255,0.3)" }
 };
 
-// ============================================================================
-// COMPONENTS
-// ============================================================================
 const TopMetricsBar = ({ user }) => (
   <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-3 sm:p-4 flex justify-between items-center z-40 relative shadow-lg shrink-0">
     <div className="flex gap-2 sm:gap-3">
@@ -556,7 +529,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -582,6 +554,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
        setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setAudioUrl(null);
        setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
 
+       // THUẬT TOÁN KÍCH HOẠT PRELOAD NGẦM KHI BẮT ĐẦU BÀI HỌC
        shuffled.forEach((q, idx) => {
            preloadAndCacheTTS(q.audioText || q.targetText || q.question, idx);
            if (q.options) q.options.forEach(opt => preloadAndCacheTTS(opt, idx));
@@ -642,11 +615,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleMainAudioClick = async () => {
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
-     if (textToSpeak) {
-         setIsAudioLoading(true);
-         await playPremiumAudioSync(textToSpeak, qIndex);
-         setIsAudioLoading(false);
-     }
+     if (textToSpeak) playPremiumAudioSync(textToSpeak, qIndex);
   };
 
   const toggleListen = async () => {
@@ -663,14 +632,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
-            let options = {};
-            if (MediaRecorder.isTypeSupported('audio/mp4')) {
-                options = { mimeType: 'audio/mp4' };
-            } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-                options = { mimeType: 'audio/webm' };
-            }
-
-            const mediaRecorder = new MediaRecorder(stream, options);
+            // CẤU HÌNH GHI ÂM TỐI ƯU IPHONE: Không dùng Timeslice để chống lỗi rỗng
+            const mediaRecorder = new MediaRecorder(stream);
             mediaRecorderRef.current = mediaRecorder;
             
             mediaRecorder.ondataavailable = (e) => { 
@@ -678,7 +641,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
             };
             
             mediaRecorder.onstop = () => {
-                const mimeType = mediaRecorder.mimeType || options.mimeType || 'audio/mp4';
+                const mimeType = mediaRecorder.mimeType || 'audio/mp4';
                 const audioBlob = new Blob(audioChunksRef.current, { type: mimeType }); 
                 const url = URL.createObjectURL(audioBlob);
                 setAudioUrl(url); 
@@ -835,8 +798,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            <button onClick={handleMainAudioClick} disabled={isAudioLoading} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md disabled:opacity-70">
-               {isAudioLoading ? <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 animate-spin" /> : <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />}
+            <button onClick={handleMainAudioClick} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+               <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />
             </button>
             <span className="pt-0.5">{qData.question}</span>
           </h2>
@@ -1045,7 +1008,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-emerald-500 border-emerald-700 text-white shadow-xl hover:brightness-110' :
+          ${isCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-teal-700 text-white shadow-xl hover:brightness-110' :
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 text-white hover:brightness-110 shadow-xl'}`}>
           <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-700 text-white' : 'bg-white/20 text-white'}`}>
@@ -1053,7 +1016,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
           </div>
           <div className="flex-1">
             <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
-            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
+            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-200 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-200"/> Mastered</p>}
             {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
           </div>
         </button>
