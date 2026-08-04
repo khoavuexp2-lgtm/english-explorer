@@ -37,21 +37,43 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH CLOUD TTS ĐỒNG NHẤT 100% THIẾT BỊ (REAL-TIME NO FIREBASE)
+// ĐỘNG CƠ ÂM THANH VÀ QUẢN LÝ FIX LỖI APPLE IOS SAFARI
 // ============================================================================
 const globalAudioPlayer = new Audio();
-const audioCache = new Map(); // Chỉ lưu tạm trên RAM để không tốn data mạng
+const audioCache = new Map(); 
+let isAudioUnlocked = false;
 
-// 8 Giọng đọc Siêu thực (Neural2) của Google Cloud (Mix Nam/Nữ)
+let premiumVoices = [];
+let fallbackEnglishVoices = [];
+
+const initVoices = () => {
+  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      let englishVoices = voices.filter(v => v.lang.startsWith('en'));
+      fallbackEnglishVoices = englishVoices;
+      premiumVoices = englishVoices.filter(v => 
+        v.name.includes('Natural') || 
+        v.name.includes('Premium') || 
+        v.name.includes('Google') || 
+        v.name.includes('Samantha') || 
+        v.name.includes('Daniel')
+      );
+    }
+  }
+};
+
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+  initVoices();
+  window.speechSynthesis.onvoiceschanged = initVoices;
+}
+
 const GCLOUD_VOICES = [
   "en-US-Neural2-A", "en-US-Neural2-C", "en-US-Neural2-D", "en-US-Neural2-E", 
   "en-US-Neural2-F", "en-US-Neural2-H", "en-US-Neural2-I", "en-US-Neural2-J"
 ];
-
-// 4 Trọng âm (Mỹ, Anh, Úc, Ấn) dành cho Google Translate TTS (Miễn phí)
 const FREE_VOICES = ["en-US", "en-GB", "en-AU", "en-IN"];
 
-// BỘ TẠO MÃ HASH ĐỘC NHẤT
 const generateSafeId = (text) => {
   let hash = 0;
   for (let i = 0; i < text.length; i++) {
@@ -62,77 +84,89 @@ const generateSafeId = (text) => {
   return `${cleanStr}_${Math.abs(hash)}`;
 };
 
-// Giọng Robot System (Dự phòng khẩn cấp khi mất mạng hoàn toàn)
-const playSystemAudio = (text) => { 
+const unlockAudioEngine = () => {
+    if (isAudioUnlocked) return;
+    globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
+    globalAudioPlayer.play().then(() => { globalAudioPlayer.pause(); }).catch(()=>{});
+    
+    if ('speechSynthesis' in window) {
+        const u = new SpeechSynthesisUtterance('');
+        u.volume = 0;
+        window.speechSynthesis.speak(u);
+    }
+    isAudioUnlocked = true;
+    document.removeEventListener('touchstart', unlockAudioEngine);
+    document.removeEventListener('click', unlockAudioEngine);
+};
+if (typeof document !== 'undefined') {
+    document.addEventListener('touchstart', unlockAudioEngine);
+    document.addEventListener('click', unlockAudioEngine);
+}
+
+// BỘ PHÁT GIỌNG ĐỌC HỆ THỐNG TRỊ LỖI IPHONE
+let currentUtterance = null;
+const playSystemAudio = (text, index = 0) => { 
   if ('speechSynthesis' in window) {
     window.speechSynthesis.cancel();
-    if (typeof text !== 'string') return;
-    let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
-    const utterance = new SpeechSynthesisUtterance(speakText);
-    utterance.lang = 'en-US'; utterance.rate = 0.9;
-    window.speechSynthesis.speak(utterance);
+    
+    setTimeout(() => {
+        if (typeof text !== 'string') return;
+        let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
+        currentUtterance = new SpeechSynthesisUtterance(speakText);
+        currentUtterance.lang = 'en-US'; 
+        currentUtterance.rate = 0.85;
+        
+        if (premiumVoices.length > 0) {
+            currentUtterance.voice = premiumVoices[index % premiumVoices.length];
+        } else if (fallbackEnglishVoices.length > 0) {
+            currentUtterance.voice = fallbackEnglishVoices[index % fallbackEnglishVoices.length];
+        }
+        
+        window.speechSynthesis.speak(currentUtterance);
+    }, 50); // Timeout cứu cánh giúp iPhone không bị kẹt luồng câm
   }
 };
 
-// PHÁT MP3 TỪ CLOUD (CÓ CƠ CHẾ BYPASS SAFARI/IPHONE AUTOPLAY BLOCK)
 const playPremiumAudio = async (text, index = 0) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
   const safeId = generateSafeId(cleanText) + `_${index}`;
 
-  // TRICK: Phát ngay 1 âm thanh rỗng đồng bộ với click để "xin phép" iPhone/Safari
-  globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
+  // Kích hoạt loa trực tiếp từ sự kiện click để Bypass Safari Block
   globalAudioPlayer.play().catch(()=>{});
 
-  // Nếu có sẵn trong RAM -> Phát ngay
   if (audioCache.has(safeId)) {
       globalAudioPlayer.src = audioCache.get(safeId);
-      globalAudioPlayer.play().catch(e => playSystemAudio(cleanText));
+      globalAudioPlayer.play().catch(e => playSystemAudio(cleanText, index));
       return;
   }
 
   let apiKey = ""; 
   try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
 
-  // NẾU CÓ KEY GOOGLE CLOUD TTS -> DÙNG GIỌNG NEURAL2 XỊN
   if (apiKey) {
       const voiceName = GCLOUD_VOICES[index % GCLOUD_VOICES.length];
-      const payload = {
-          input: { text: cleanText },
-          voice: { languageCode: 'en-US', name: voiceName },
-          audioConfig: { audioEncoding: 'MP3' }
-      };
-
+      const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
       try {
-          const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
-          });
-          
+          const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
           if (res.ok) {
               const data = await res.json();
               const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
               audioCache.set(safeId, audioUrl);
               globalAudioPlayer.src = audioUrl;
-              globalAudioPlayer.play().catch(e => playSystemAudio(cleanText));
+              globalAudioPlayer.play().catch(e => playSystemAudio(cleanText, index));
               return;
           }
       } catch (err) { console.error("Google Cloud TTS Error:", err); }
   }
 
-  // NẾU KHÔNG CÓ KEY -> DÙNG GOOGLE TRANSLATE MP3 MIỄN PHÍ VỚI NHIỀU TRỌNG ÂM
-  const freeLang = FREE_VOICES[index % FREE_VOICES.length];
-  const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=${freeLang}&client=tw-ob`;
-  
-  audioCache.set(safeId, fallbackUrl);
-  globalAudioPlayer.src = fallbackUrl;
-  globalAudioPlayer.play().catch((err) => {
-      console.warn("Lỗi tải MP3 Cloud, dùng giọng hệ thống dự phòng:", err);
-      playSystemAudio(cleanText); 
-  });
+  // Dùng giọng máy Native nếu không có key Google Cloud (Trị dứt điểm độ trễ mạng)
+  playSystemAudio(cleanText, index);
 };
 
+
 // ============================================================================
-// KHU VỰC CÁC HÀM XỬ LÝ DỮ LIỆU GAME
+// KHU VỰC CÁC HÀM XỬ LÝ DỮ LIỆU & TIỆN ÍCH GAME
 // ============================================================================
 const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
@@ -171,10 +205,8 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
                               if (q.options && q.answer && q.question) {
                                   let finalQ = q.question;
                                   let qObj = { ...q, question: finalQ };
-                                  
                                   if (q.type === 'listen-fill') qObj.question += `\n[ ${q.textBefore} ___ ${q.textAfter} ]`;
                                   else if (q.passage) qObj.question = `Read:\n${q.passage}\n\nQ: ${q.question}`;
-
                                   if (key === 'read' || key === 'reading' || q.passage) readingPool.push(qObj);
                                   else if (key === 'listen' || key === 'listening' || q.audioText) listeningPool.push(qObj);
                                   else vocabGrammarPool.push(qObj);
@@ -492,11 +524,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
-  const handleMainAudioClick = () => {
-     const textToSpeak = qData.audioText || qData.targetText || qData.question;
-     if (textToSpeak) playPremiumAudio(textToSpeak, qIndex);
-  };
-
   const toggleListen = async () => {
     if (isListening) { 
         recognitionRef.current?.stop(); 
@@ -534,7 +561,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                 stream.getTracks().forEach(track => track.stop());
             };
             
-            // Băm nhỏ âm thanh (timeslice = 250ms) để ép Safari ghi liên tục
+            // Băm nhỏ âm thanh (timeslice = 250ms) để ép Safari ghi liên tục chống mất luồng Audio
             mediaRecorder.start(250); 
             recognitionRef.current?.start(); 
             setIsListening(true); 
@@ -651,6 +678,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                  ) : (
                     <button onClick={() => setRetryTrigger(p => p + 1)} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">RETRY TEST</button>
                  )}
+                 {/* FIX LỖI NHẢY RA NGOÀI BÀI HỌC: Chỉ đóng GameModal để về Map */}
                  <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">RETURN</button>
               </div>
            </div>
@@ -685,7 +713,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            <button onClick={handleMainAudioClick} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+            {/* SỬ DỤNG HÀM ẨN DANH ĐỂ FIX LỖI IPHONE CHẶN CLICK SỰ KIỆN */}
+            <button onClick={() => playPremiumAudio(qData.audioText || qData.targetText || qData.question, qIndex)} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
               <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />
             </button>
             <span className="pt-0.5">{qData.question}</span>
@@ -837,6 +866,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
       </div>
       
       <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit.name} - ${activeGame?.label}`} onWin={() => {
+        // Đóng Game Modal để ở lại màn hình Map, nhìn xe chạy tới trạm tiếp theo
         setActiveGame(null);
         let newStars = (user?.inventory?.stars ?? 0) + 15;
         if (currentStationIdx < nodes.length - 1) {
@@ -853,7 +883,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
                let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
                updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted, unitProgress: {...(user.unitProgress || {}), [unit.id]: nodes.length - 1}});
            }
-           onBack();
+           // Xóa onBack() ở đây để người dùng không bị văng thẳng ra danh sách bài học
         }
       }} />
     </div>
@@ -897,7 +927,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-teal-700 text-white shadow-xl hover:brightness-110' :
+          ${isCompleted ? 'bg-emerald-500 border-emerald-700 text-white hover:brightness-110 shadow-xl' :
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 text-white hover:brightness-110 shadow-xl'}`}>
           <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-700 text-white' : 'bg-white/20 text-white'}`}>
@@ -905,7 +935,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
           </div>
           <div className="flex-1">
             <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
-            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-200 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-200"/> Mastered</p>}
+            {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-100 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-100"/> Mastered</p>}
             {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
           </div>
         </button>
@@ -1007,12 +1037,31 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
         const bots = ["Alex_99", "Sarah_Pro", "JohnDoe", "Emma_Star", "Mike_Gamer"];
         setPlayers(prev => {
           if (prev.length >= 5) return prev;
-          return [...prev, { name: bots[prev.length], avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${bots[prev.length]}` }];
+          return [...prev, { name: bots[prev.length], avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${bots[prev.length]}`, score: 0 }];
         });
       }, 2000);
       return () => clearInterval(interval);
     }
   }, [arenaState]);
+
+  // TÍNH NĂNG MỚI: BẢNG XẾP HẠNG KAHOOT CHUYỂN TIẾP
+  useEffect(() => {
+    if (arenaState === 'intermission') {
+      const t = setTimeout(() => {
+          if (currentQ < arenaQuestions.length - 1) {
+              setCurrentQ(prev => prev + 1); 
+              setTimer(10); 
+              setAnswerState(null);
+              setArenaState('battle');
+          } else {
+              setArenaState('result'); 
+              setRewardClaimed(false); 
+              setAnswerState(null);
+          }
+      }, 4000); // Dừng lại ở bảng điểm 4 giây trước khi sang câu mới
+      return () => clearTimeout(t);
+    }
+  }, [arenaState, currentQ, arenaQuestions.length]);
 
   useEffect(() => {
     if (arenaState === 'battle' && timer > 0 && !answerState) {
@@ -1025,7 +1074,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
 
   const handleGenerateRoom = () => {
     setPin(Math.floor(10000 + Math.random() * 90000).toString());
-    setPlayers([{ name: user?.name || "Host", avatar: user?.avatar, isHost: true }]);
+    setPlayers([{ name: user?.name || "Host", avatar: user?.avatar, isHost: true, score: 0 }]);
     setArenaState('hosting');
   };
 
@@ -1044,15 +1093,22 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     if (answerState) return;
     const isCorrect = opt && opt === arenaQuestions[currentQ]?.answer;
     setAnswerState({ selected: opt, isCorrect });
-    if (opt) playPremiumAudio(opt);
+    
+    if (opt) playPremiumAudio(opt, currentQ);
+    
     if (isCorrect) setPlayerScore(prev => prev + 10);
+    
+    // Cập nhật điểm ngay cho Bot để Lên bảng xếp hạng
+    setPlayers(prev => prev.map(p => {
+        if (p.isHost) return { ...p, score: isCorrect ? (p.score || 0) + 10 : (p.score || 0) };
+        const botCorrect = Math.random() > 0.4; // 60% Bot trả lời đúng
+        return { ...p, score: botCorrect ? (p.score || 0) + 10 : (p.score || 0) };
+    }));
+
+    // Chuyển sang màn hình Intermission (Bảng Điểm) sau khi hiện đúng sai
     setTimeout(() => {
-        if (currentQ < arenaQuestions.length - 1) {
-            setCurrentQ(prev => prev + 1); setTimer(10); setAnswerState(null);
-        } else {
-            setArenaState('result'); setRewardClaimed(false); setAnswerState(null);
-        }
-    }, 500);
+        setArenaState('intermission');
+    }, 1500);
   };
 
   if (arenaState === 'setup') {
@@ -1133,6 +1189,38 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     );
   }
 
+  // TÍNH NĂNG MỚI: BẢNG XẾP HẠNG TRUNG GIAN (KAHOOT STYLE)
+  if (arenaState === 'intermission') {
+    const sortedPlayers = [...players].sort((a, b) => (b.score || 0) - (a.score || 0));
+    const maxScore = Math.max(...sortedPlayers.map(p => p.score || 0), 10); 
+    
+    return (
+      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col justify-center relative z-10 pb-24 lg:pb-4">
+          <h2 className="text-4xl font-black text-white text-center mb-8 drop-shadow-lg">Scoreboard</h2>
+          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 sm:p-8 shadow-2xl flex flex-col gap-4">
+              {sortedPlayers.map((p, idx) => (
+                  <div key={idx} className="flex items-center gap-4 animate-slide-up" style={{ animationDelay: `${idx * 0.1}s` }}>
+                      <span className={`text-xl font-black w-6 text-center ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-orange-400' : 'text-slate-500'}`}>{idx + 1}</span>
+                      <div className="w-10 h-10 rounded-full bg-slate-700 overflow-hidden shrink-0 border-2 border-white/20">
+                          <img src={p.avatar} alt="avatar" />
+                      </div>
+                      <div className="flex-1">
+                          <div className="flex justify-between text-white font-bold text-sm mb-1">
+                              <span>{p.name} {p.isHost && <span className="text-blue-400">(You)</span>}</span>
+                              <span className="text-yellow-400">{p.score || 0} pts</span>
+                          </div>
+                          <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all duration-1000 ${p.isHost ? 'bg-blue-500' : 'bg-emerald-500'}`} style={{ width: `${((p.score || 0) / maxScore) * 100}%` }}></div>
+                          </div>
+                      </div>
+                  </div>
+              ))}
+          </div>
+          <p className="text-center text-slate-400 font-bold mt-6 animate-pulse">Get ready for the next question...</p>
+      </div>
+    );
+  }
+
   if (arenaState === 'battle') {
     const q = arenaQuestions[currentQ];
     return (
@@ -1149,7 +1237,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
           <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">Database Challenge - {config.scope}</p>
           <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap flex items-start justify-center gap-3">
              {(q?.type === 'listen-fill' || q?.audioText) && (
-                <button onClick={() => playPremiumAudio(q.audioText || q.question)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+                <button onClick={() => playPremiumAudio(q.audioText || q.question, currentQ)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
                    <Volume2 className="w-6 h-6" />
                 </button>
              )}
