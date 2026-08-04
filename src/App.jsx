@@ -13,7 +13,7 @@ import {
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc } from "firebase/firestore";
 
 let firebaseConfig = {};
 try {
@@ -37,57 +37,35 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH REAL-TIME (KHÔNG DÙNG FIREBASE CACHE NỮA)
-// Ưu tiên dùng giọng Natural/Premium có sẵn. Dự phòng bằng Google MP3 Cloud.
+// ĐỘNG CƠ ÂM THANH CLOUD TTS ĐỒNG NHẤT 100% THIẾT BỊ (REAL-TIME NO FIREBASE)
 // ============================================================================
 const globalAudioPlayer = new Audio();
-let isAudioUnlocked = false;
-let premiumVoices = [];
+const audioCache = new Map(); // Chỉ lưu tạm trên RAM để không tốn data mạng
 
-const initVoices = () => {
-  if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      let englishVoices = voices.filter(v => v.lang.startsWith('en'));
-      premiumVoices = englishVoices.filter(v => 
-        v.name.includes('Natural') || 
-        v.name.includes('Premium') || 
-        v.name.includes('Google') || 
-        v.name.includes('Samantha')
-      );
-    }
+// 8 Giọng đọc Siêu thực (Neural2) của Google Cloud (Mix Nam/Nữ)
+const GCLOUD_VOICES = [
+  "en-US-Neural2-A", "en-US-Neural2-C", "en-US-Neural2-D", "en-US-Neural2-E", 
+  "en-US-Neural2-F", "en-US-Neural2-H", "en-US-Neural2-I", "en-US-Neural2-J"
+];
+
+// 4 Trọng âm (Mỹ, Anh, Úc, Ấn) dành cho Google Translate TTS (Miễn phí)
+const FREE_VOICES = ["en-US", "en-GB", "en-AU", "en-IN"];
+
+// BỘ TẠO MÃ HASH ĐỘC NHẤT
+const generateSafeId = (text) => {
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) {
+    hash = ((hash << 5) - hash) + text.charCodeAt(i);
+    hash |= 0;
   }
+  const cleanStr = text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20);
+  return `${cleanStr}_${Math.abs(hash)}`;
 };
 
-if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-  initVoices();
-  window.speechSynthesis.onvoiceschanged = initVoices;
-}
-
-// Mở khóa Audio trên thiết bị Apple
-const unlockAudioEngine = () => {
-    if (isAudioUnlocked) return;
-    globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
-    globalAudioPlayer.play().then(() => { globalAudioPlayer.pause(); }).catch(()=>{});
-    
-    if ('speechSynthesis' in window) {
-        const u = new SpeechSynthesisUtterance('');
-        u.volume = 0;
-        window.speechSynthesis.speak(u);
-    }
-    isAudioUnlocked = true;
-    document.removeEventListener('touchstart', unlockAudioEngine);
-    document.removeEventListener('click', unlockAudioEngine);
-};
-if (typeof document !== 'undefined') {
-    document.addEventListener('touchstart', unlockAudioEngine);
-    document.addEventListener('click', unlockAudioEngine);
-}
-
-// Giọng Robot System (Chỉ dùng khi mất mạng hoàn toàn)
+// Giọng Robot System (Dự phòng khẩn cấp khi mất mạng hoàn toàn)
 const playSystemAudio = (text) => { 
   if ('speechSynthesis' in window) {
-    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+    window.speechSynthesis.cancel();
     if (typeof text !== 'string') return;
     let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
     const utterance = new SpeechSynthesisUtterance(speakText);
@@ -96,42 +74,60 @@ const playSystemAudio = (text) => {
   }
 };
 
-// PHÁT AUDIO: KẾT HỢP GIỌNG NATIVE XỊN VÀ GOOGLE MP3 (REAL-TIME)
-const playPremiumAudio = (text) => {
+// PHÁT MP3 TỪ CLOUD (CÓ CƠ CHẾ BYPASS SAFARI/IPHONE AUTOPLAY BLOCK)
+const playPremiumAudio = async (text, index = 0) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
+  const safeId = generateSafeId(cleanText) + `_${index}`;
 
-  if (globalAudioPlayer.src === "" || globalAudioPlayer.src === window.location.href) {
-      globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
-      globalAudioPlayer.play().catch(()=>{});
-  }
+  // TRICK: Phát ngay 1 âm thanh rỗng đồng bộ với click để "xin phép" iPhone/Safari
+  globalAudioPlayer.src = "data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4LjI5LjEwMAAAAAAAAAAAAAAA//OEAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAAEAAABIAD+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+/v7+AAAAAElOR08AAAAQAAAABAAAAAA=";
+  globalAudioPlayer.play().catch(()=>{});
 
-  // Ưu tiên 1: Giọng có sẵn (Natural Edge / Premium)
-  if (premiumVoices.length > 0 && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.rate = 0.85;
-      const voiceIndex = cleanText.length % premiumVoices.length; 
-      utterance.voice = premiumVoices[voiceIndex];
-      window.speechSynthesis.speak(utterance);
+  // Nếu có sẵn trong RAM -> Phát ngay
+  if (audioCache.has(safeId)) {
+      globalAudioPlayer.src = audioCache.get(safeId);
+      globalAudioPlayer.play().catch(e => playSystemAudio(cleanText));
       return;
   }
 
-  // Ưu tiên 2: Fallback tạo MP3 Realtime từ Google (Bỏ luôn Firebase)
-  const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=en-US&client=tw-ob`;
+  let apiKey = ""; 
+  try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
+
+  // NẾU CÓ KEY GOOGLE CLOUD TTS -> DÙNG GIỌNG NEURAL2 XỊN
+  if (apiKey) {
+      const voiceName = GCLOUD_VOICES[index % GCLOUD_VOICES.length];
+      const payload = {
+          input: { text: cleanText },
+          voice: { languageCode: 'en-US', name: voiceName },
+          audioConfig: { audioEncoding: 'MP3' }
+      };
+
+      try {
+          const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
+          });
+          
+          if (res.ok) {
+              const data = await res.json();
+              const audioUrl = `data:audio/mp3;base64,${data.audioContent}`;
+              audioCache.set(safeId, audioUrl);
+              globalAudioPlayer.src = audioUrl;
+              globalAudioPlayer.play().catch(e => playSystemAudio(cleanText));
+              return;
+          }
+      } catch (err) { console.error("Google Cloud TTS Error:", err); }
+  }
+
+  // NẾU KHÔNG CÓ KEY -> DÙNG GOOGLE TRANSLATE MP3 MIỄN PHÍ VỚI NHIỀU TRỌNG ÂM
+  const freeLang = FREE_VOICES[index % FREE_VOICES.length];
+  const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=${freeLang}&client=tw-ob`;
   
-  globalAudioPlayer.src = url;
-  globalAudioPlayer.load();
+  audioCache.set(safeId, fallbackUrl);
+  globalAudioPlayer.src = fallbackUrl;
   globalAudioPlayer.play().catch((err) => {
       console.warn("Lỗi tải MP3 Cloud, dùng giọng hệ thống dự phòng:", err);
-      if ('speechSynthesis' in window) {
-          window.speechSynthesis.cancel();
-          setTimeout(() => {
-              const utterance = new SpeechSynthesisUtterance(cleanText);
-              utterance.lang = 'en-US';
-              window.speechSynthesis.speak(utterance);
-          }, 50); 
-      }
+      playSystemAudio(cleanText); 
   });
 };
 
@@ -440,8 +436,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
        
        const isLongTest = fullList.length > 10;
        const limit = isLongTest ? fullList.length : Math.min(5, fullList.length);
-       const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, limit);
        
+       const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, limit);
        setSessionQList(shuffled);
        setQIndex(0); setStatus('playing'); setFeedbackMsg("");
        setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setAudioUrl(null);
@@ -453,11 +449,11 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   useEffect(() => {
     if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
-  }, [qData, qIndex]);
+  }, [qData]);
 
   useEffect(() => {
-    if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer);
-  }, [status, qData, qIndex]);
+    if (status === 'correct' && qData?.type === 'order') playPremiumAudio(qData.answer, qIndex);
+  }, [status, qData]);
 
   useEffect(() => {
     if (qData?.type === 'speak') {
@@ -498,7 +494,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleMainAudioClick = () => {
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
-     if (textToSpeak) playPremiumAudio(textToSpeak);
+     if (textToSpeak) playPremiumAudio(textToSpeak, qIndex);
   };
 
   const toggleListen = async () => {
@@ -515,14 +511,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
-            // Cấu hình tối ưu cho iPhone/Safari ghi âm không bị rỗng
+            // CẤU HÌNH FIX LỖI IPHONE SAFARI: Định dạng MP4 bắt buộc
             let options = {};
-            if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
-                options = { mimeType: 'audio/webm;codecs=opus' };
+            if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                options = { mimeType: 'audio/mp4' };
             } else if (MediaRecorder.isTypeSupported('audio/webm')) {
                 options = { mimeType: 'audio/webm' };
-            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
-                options = { mimeType: 'audio/mp4' };
             }
 
             const mediaRecorder = new MediaRecorder(stream, options);
@@ -540,7 +534,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                 stream.getTracks().forEach(track => track.stop());
             };
             
-            // FIX IPHONE BỊ MẤT FILE GHI ÂM: Băm nhỏ âm thanh (timeslice = 250ms) để ép Safari lưu liên tục
+            // Băm nhỏ âm thanh (timeslice = 250ms) để ép Safari ghi liên tục
             mediaRecorder.start(250); 
             recognitionRef.current?.start(); 
             setIsListening(true); 
@@ -566,7 +560,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt); };
+  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudio(opt, qIndex); };
 
   const handleCheck = () => {
     let isCorrect = false;
@@ -584,7 +578,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleOrderWord = (w) => {
     if (orderedWords.includes(w)) setOrderedWords(orderedWords.filter(x => x !== w));
-    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w); }
+    else { setOrderedWords([...orderedWords, w]); playPremiumAudio(w, qIndex); }
   };
 
   const handleContinue = () => {
@@ -716,7 +710,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                          {audioUrl && (
                             <div className="mt-2 border-t border-slate-200 pt-3">
                                <p className="text-[10px] text-slate-500 font-bold mb-2 uppercase tracking-wider">Your Voice:</p>
-                               {/* FIX BỊ MẤT PLAYER TRÊN IPHONE */}
+                               {/* FIX IPHONE BUG: Thêm KEY để ép Safari tải lại thẻ Audio */}
                                <audio key={audioUrl} controls src={audioUrl} className="w-full h-10 outline-none rounded-lg" />
                             </div>
                          )}
@@ -903,7 +897,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
         return (
         <button key={unit.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
-          ${isCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-teal-800 text-white shadow-xl hover:brightness-110' :
+          ${isCompleted ? 'bg-gradient-to-r from-emerald-500 to-teal-600 border-teal-700 text-white shadow-xl hover:brightness-110' :
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 text-white hover:brightness-110 shadow-xl'}`}>
           <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-700 text-white' : 'bg-white/20 text-white'}`}>
@@ -1326,32 +1320,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
     } finally { setIsPushing(false); }
   };
 
-  // NÚT DỌN RÁC AUDIO
-  const handleClearAudioCache = async () => {
-    if (!window.confirm("Bạn có chắc muốn dọn sạch toàn bộ Audio đã lưu trên Firebase không? Hành động này sẽ giúp lấy lại 100% dung lượng trống.")) return;
-    
-    setIsPushing(true); setPushMsg({ type: '', text: '' });
-    try {
-        if (!db) throw new Error("Firebase is not connected.");
-        const q = collection(db, "audio_cache");
-        const snapshot = await getDocs(q);
-        let count = 0;
-        
-        const deletePromises = [];
-        snapshot.forEach(docSnap => {
-            deletePromises.push(deleteDoc(doc(db, "audio_cache", docSnap.id)));
-            count++;
-        });
-        
-        await Promise.all(deletePromises);
-        setPushMsg({ type: 'success', text: `✅ Đã dọn dẹp sạch sẽ ${count} file Audio rác khỏi Firebase!` });
-    } catch (error) {
-        setPushMsg({ type: 'error', text: `❌ Lỗi xóa rác: ${error.message}` });
-    } finally {
-        setIsPushing(false);
-    }
-  };
-
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10 pb-24 lg:pb-8">
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
@@ -1393,19 +1361,13 @@ const AdminPanel = ({ currentUser, showToast }) => {
                  </div>
              </div>
 
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 border-t border-blue-200">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-blue-200">
                  <button onClick={handleFetchData} disabled={isFetchingData || isPushing} className="w-full bg-slate-600 hover:bg-slate-500 text-white font-black py-3.5 rounded-xl border-b-4 border-slate-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
                     {isFetchingData ? 'ĐANG TẢI...' : '📥 1. LẤY DATA SERVER'}
                  </button>
                  <button onClick={handlePushData} disabled={isFetchingData || isPushing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
                     {isPushing ? 'PUSHING...' : '🚀 2. LƯU (PUSH) DATA'}
                  </button>
-                 
-                 <div className="w-full">
-                     <button onClick={handleClearAudioCache} disabled={isFetchingData || isPushing} className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-3.5 rounded-xl border-b-4 border-rose-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base flex items-center justify-center gap-2">
-                        <Trash2 className="w-5 h-5"/> DỌN RÁC AUDIO FIREBASE
-                     </button>
-                 </div>
              </div>
 
           </div>
