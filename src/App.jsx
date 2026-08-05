@@ -551,7 +551,7 @@ const ProfileShopView = ({ user, updateUser, showToast }) => {
   );
 };
 
-const LeaderboardView = ({ showToast }) => {
+const LeaderboardView = ({ showToast, user }) => {
   const [topUsers, setTopUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -563,12 +563,24 @@ const LeaderboardView = ({ showToast }) => {
         const users = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
+          // Chỉ lấy học sinh vào bảng xếp hạng
           if (data.role !== 'admin') {
-             users.push({ id: doc.id, name: data.name, avatar: data.avatar, stars: data.inventory?.stars || 0, streak: data.streak || 0 });
+             const stars = data.inventory?.stars || 0;
+             const level = Math.floor(stars / 50) + 1; // Công thức tính Level
+             users.push({ 
+                 id: doc.id, 
+                 name: data.name, 
+                 avatar: data.avatar, 
+                 stars: stars, 
+                 streak: data.streak || 0,
+                 level: level,
+                 badges: data.badges || [] // Lấy mảng huy hiệu
+             });
           }
         });
+        // Sắp xếp theo số Sao giảm dần
         users.sort((a, b) => b.stars - a.stars);
-        setTopUsers(users.slice(0, 10));
+        setTopUsers(users.slice(0, 10)); // Lấy top 10
       } catch (e) {
         showToast("Cannot fetch leaderboard data.");
       }
@@ -591,20 +603,40 @@ const LeaderboardView = ({ showToast }) => {
         ) : topUsers.length === 0 ? (
            <div className="text-center p-8 text-slate-400 font-bold">No explorers found yet!</div>
         ) : (
-           <div className="flex flex-col gap-2 sm:gap-3">
+           <div className="flex flex-col gap-3">
              {topUsers.map((u, i) => (
-               <div key={u.id} className={`flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-white/10 transition-transform hover:-translate-y-1 ${i===0 ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/10' : i===1 ? 'bg-gradient-to-r from-slate-300/20 to-slate-400/10' : i===2 ? 'bg-gradient-to-r from-orange-400/20 to-orange-500/10' : 'bg-slate-800/50'}`}>
-                 <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-black text-sm sm:text-base shrink-0 ${i===0 ? 'bg-yellow-400 text-yellow-900 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : i===1 ? 'bg-slate-300 text-slate-800' : i===2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-700 text-slate-300'}`}>{i+1}</div>
-                 <img src={u.avatar} alt="avatar" className="w-10 h-10 sm:w-12 sm:h-12 rounded-full border-2 border-white/20 bg-slate-700"/>
-                 <div className="flex-1 min-w-0">
-                    <h3 className="text-white font-bold text-sm sm:text-lg truncate">{u.name}</h3>
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className="text-xs sm:text-sm text-slate-400 flex items-center gap-1"><Flame className="w-3 h-3 text-orange-500"/> {u.streak} Days</span>
-                    </div>
+               <div key={u.id} className={`flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 rounded-3xl border border-white/10 transition-transform hover:-translate-y-1 ${u.id === user?.uid ? 'bg-blue-900/60 border-blue-400' : i===0 ? 'bg-gradient-to-r from-yellow-500/20 to-amber-500/10' : i===1 ? 'bg-gradient-to-r from-slate-300/20 to-slate-400/10' : i===2 ? 'bg-gradient-to-r from-orange-400/20 to-orange-500/10' : 'bg-slate-800/50'}`}>
+                 
+                 {/* Hạng & Avatar */}
+                 <div className="flex items-center gap-3">
+                     <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-full flex items-center justify-center font-black text-sm sm:text-base shrink-0 ${i===0 ? 'bg-yellow-400 text-yellow-900 shadow-[0_0_15px_rgba(250,204,21,0.5)]' : i===1 ? 'bg-slate-300 text-slate-800' : i===2 ? 'bg-orange-400 text-orange-900' : 'bg-slate-700 text-slate-300'}`}>{i+1}</div>
+                     <img src={u.avatar} alt="avatar" className="w-12 h-12 rounded-full border-2 border-white/20 bg-slate-700 object-cover"/>
                  </div>
-                 <div className="flex items-center gap-1.5 sm:gap-2 bg-slate-900/50 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl border border-white/5">
-                    <Star className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400 fill-yellow-400" />
-                    <span className="text-white font-black text-sm sm:text-xl">{u.stars}</span>
+
+                 {/* Thông tin: Tên, Level, Badges */}
+                 <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                        <h3 className="text-white font-bold text-lg truncate">{u.name}</h3>
+                        {u.id === user?.uid && <span className="bg-blue-500 text-white text-[10px] px-2 py-0.5 rounded-md font-black uppercase tracking-wider shadow-sm">You</span>}
+                    </div>
+                    <p className="text-emerald-400 font-bold text-xs mt-0.5">Level {u.level} Explorer</p>
+                    
+                    {/* Hiển thị danh sách Huy Hiệu */}
+                    {u.badges && u.badges.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                            {u.badges.map((b, idx) => (
+                                <span key={idx} className="text-[10px] bg-slate-900/80 border border-white/10 px-2 py-1 rounded-md text-slate-200 truncate max-w-[150px]" title={b}>{b}</span>
+                            ))}
+                        </div>
+                    )}
+                 </div>
+
+                 {/* Cột Điểm Số */}
+                 <div className="flex flex-row sm:flex-col items-center sm:items-end justify-between sm:justify-center gap-2 mt-2 sm:mt-0 bg-slate-900/50 sm:bg-transparent p-2 sm:p-0 rounded-xl shrink-0">
+                    <div className="flex items-center gap-1.5 bg-slate-900/80 px-3 py-1.5 rounded-xl border border-white/5 shadow-inner">
+                       <Star className="w-4 h-4 sm:w-5 sm:h-5 text-yellow-400 fill-yellow-400" />
+                       <span className="text-white font-black text-sm sm:text-lg">{u.stars}</span>
+                    </div>
                  </div>
                </div>
              ))}
@@ -2028,6 +2060,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
     { id: 'arena', label: "Arena", icon: Swords, color: 'text-orange-400' },
+    { id: 'leaderboard', label: "Ranks", icon: Trophy, color: 'text-yellow-400' }, // Đã thêm lại Leaderboard
     { id: 'profile', label: "Profile", icon: User, color: 'text-yellow-400' } // Thay thế Leaderboard bằng Profile
   ];
 
@@ -2069,8 +2102,9 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       case 'practice': 
           if (!selectedGrade) return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('practice'); }} />;
           return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => { setPracticeCategory(cat); setCurrentView('listSelector'); }} />;
-     case 'arena': return <RealtimeArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
+      case 'arena': return <RealtimeArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
       case 'profile': return <ProfileShopView user={user} updateUser={updateUser} showToast={showToast} />;
+      case 'leaderboard': return <LeaderboardView showToast={showToast} user={user} />; // Bổ sung dòng này
       case 'listSelector':
           let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
           let itemsList = syllabusConfig?.units || [];
