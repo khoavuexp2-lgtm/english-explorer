@@ -1,20 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  MapPin, Star, Lock, ChevronLeft, CheckCircle2, 
+  MapPin, Star, Lock, ChevronLeft, CheckCircle, 
   Volume2, Trophy, Zap, Play, Users, X, User, Shield, 
   ArrowRight, Globe, MessageCircle, Mic, Compass, Rocket, 
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
-  AlertCircle, Check, Crown, ShieldAlert, BookOpen, Library,
+  AlertCircle, Crown, ShieldAlert, BookOpen, Library,
   Dumbbell, Swords, Timer, Medal, Headphones, PenTool, 
   Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
   Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock, SkipForward,
-  Settings, Database, TrendingUp, Filter, Trash2, Key
+  Settings, Database, TrendingUp, Filter, Trash2, Key, Store, Gift
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, query, where } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, query, where, onSnapshot } from "firebase/firestore";
 
+// ============================================================================
+// CẤU HÌNH FIREBASE AN TOÀN
+// ============================================================================
 let firebaseConfig = {};
 try {
   firebaseConfig = {
@@ -37,7 +40,7 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH LÕI (VƯỢT RÀO IOS SAFARI 100% THEO CHUẨN CLAUDE)
+// ĐỘNG CƠ ÂM THANH LÕI WEBAUDIO API (VƯỢT RÀO IOS SAFARI 100%)
 // ============================================================================
 let audioCtx = null;
 const audioCache = new Map(); 
@@ -52,7 +55,6 @@ const getAudioContext = () => {
     return audioCtx;
 };
 
-// Chuỗi WAV câm để đánh lừa Safari cấp quyền Autoplay
 const SILENT_AUDIO = 'data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
 const globalAudioPlayer = new Audio();
 
@@ -122,16 +124,16 @@ const generateSafeId = (text) => {
   return `${text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}_${Math.abs(hash)}`;
 };
 
-// Chuyển Base64 thành Blob URL để bảo vệ bộ nhớ Safari
 const base64ToBlobUrl = (base64, mimeType = 'audio/mp3') => {
-    const binary = window.atob(base64);
-    const array = new Uint8Array(binary.length);
-    for(let i=0; i<binary.length; i++) array[i] = binary.charCodeAt(i);
-    const blob = new Blob([array], {type: mimeType});
-    return URL.createObjectURL(blob);
+    try {
+        const binary = window.atob(base64);
+        const array = new Uint8Array(binary.length);
+        for(let i=0; i<binary.length; i++) array[i] = binary.charCodeAt(i);
+        const blob = new Blob([array], {type: mimeType});
+        return URL.createObjectURL(blob);
+    } catch (e) { return ""; }
 };
 
-// AI Nhận diện giới tính
 const getSmartVoiceForText = (text) => {
     if (!text) return "en-US-Neural2-F";
     const lowerText = text.toLowerCase();
@@ -143,7 +145,6 @@ const getSmartVoiceForText = (text) => {
     return "en-US-Neural2-F";
 };
 
-// Hàm Preload âm thanh tĩnh từ Firebase vào RAM
 const loadAudioToRAM = async (text) => {
     if (!text || !db) return;
     const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
@@ -155,12 +156,11 @@ const loadAudioToRAM = async (text) => {
     try {
         const docRef = doc(db, "audio_cache", safeId);
         const snap = await getDoc(docRef);
-        
-        if (snap.exists()) {
+        if (snap.exists() && snap.data().audioBase64) {
             const blobUrl = base64ToBlobUrl(snap.data().audioBase64);
-            audioCache.set(safeId, blobUrl);
+            if(blobUrl) audioCache.set(safeId, blobUrl);
         }
-    } catch (err) { console.warn("Lỗi Preload từ Firebase:", err); }
+    } catch (err) {}
 };
 
 const playSystemAudio = (text, isMaleTarget = false) => { 
@@ -191,7 +191,6 @@ const playSystemAudio = (text, isMaleTarget = false) => {
   }
 };
 
-// Hàm phát Audio đỉnh cao (Synchronous)
 const playPremiumAudioSync = async (text) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
@@ -200,18 +199,15 @@ const playPremiumAudioSync = async (text) => {
   const voiceIndex = GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0;
   const safeId = generateSafeId(cleanText) + `_${voiceIndex}`;
 
-  // 1. Mở khóa Synchronous ngay lập tức
   globalAudioPlayer.src = SILENT_AUDIO;
   globalAudioPlayer.play().catch(() => {});
 
-  // 2. Chích âm thanh từ RAM
   if (audioCache.has(safeId)) {
       globalAudioPlayer.src = audioCache.get(safeId);
       globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, isMaleTarget));
       return;
   }
 
-  // 3. Gọi API nếu cần (Async)
   let apiKey = ""; 
   try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
 
@@ -225,9 +221,11 @@ const playPremiumAudioSync = async (text) => {
               const data = await res.json();
               if (data.audioContent) {
                   const blobUrl = base64ToBlobUrl(data.audioContent);
-                  audioCache.set(safeId, blobUrl); 
-                  globalAudioPlayer.src = blobUrl;
-                  globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, isMaleTarget));
+                  if (blobUrl) {
+                      audioCache.set(safeId, blobUrl); 
+                      globalAudioPlayer.src = blobUrl;
+                      globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, isMaleTarget));
+                  }
                   
                   if (db && !pendingTTS.has(safeId)) {
                       pendingTTS.add(safeId);
@@ -236,9 +234,8 @@ const playPremiumAudioSync = async (text) => {
                   return;
               }
           }
-      } catch (err) { console.warn("Google TTS Error, fallback to native"); }
+      } catch (err) {}
   }
-
   playSystemAudio(cleanText, isMaleTarget);
 };
 
@@ -337,6 +334,7 @@ const evaluateSpeech = (transcript, target) => {
   return { pass: false, msg: `Try again! Remember to speak clearly.` };
 };
 
+// ĐỒNG BỘ USER AN TOÀN (BẢO MẬT ADMIN 100%)
 const syncUserWithDb = async (googleUser) => {
   const defaultInventory = { stars: 0, flames: 0, lives: 5, freeRefillUsed: false };
   const defaultName = googleUser?.displayName || "Explorer";
@@ -353,6 +351,7 @@ const syncUserWithDb = async (googleUser) => {
 
     if (userSnap.exists()) {
       const data = userSnap.data();
+      // KHÔNG HARDCODE EMAIL NỮA. CHỈ TIN TƯỞNG ROLE TRÊN FIRESTORE
       const finalRole = data?.role || "student"; 
       let streak = data?.streak || 0;
       let lastLogin = data?.lastLogin || "";
@@ -368,7 +367,6 @@ const syncUserWithDb = async (googleUser) => {
       return newUser;
     }
   } catch (error) {
-    console.warn("DB Sync Error:", error);
     return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
   }
 };
@@ -386,20 +384,11 @@ const globalStyles = `
   .animate-pulse-ring { animation: pulse-ring 2s infinite; }
   @keyframes slide-up { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
   .animate-slide-up { animation: slide-up 0.5s ease-out forwards; }
-  @keyframes bounce-short { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
-  .animate-bounce-short { animation: bounce-short 1.5s ease-in-out infinite; }
   @keyframes timer-shrink { from { width: 100%; } to { width: 0%; } }
   .animate-timer { animation: timer-shrink linear forwards; }
 `;
 
-const COMPLIMENTS = ["Excellent!", "Awesome!", "Perfect!", "Brilliant!", "Fantastic!", "Great job!", "You're a star!"];
-const MOTIVATIONAL_QUOTES = [
-  { text: "Every mistake is a step forward!", icon: Sparkles, color: "text-yellow-400" },
-  { text: "You are a vocabulary ninja!", icon: Swords, color: "text-blue-400" },
-  { text: "Practice makes perfect!", icon: Trophy, color: "text-emerald-400" },
-  { text: "Keep pushing your limits!", icon: Rocket, color: "text-orange-400" },
-  { text: "English is your superpower!", icon: Zap, color: "text-purple-400" }
-];
+const COMPLIMENTS = ["Excellent!", "Awesome!", "Perfect!", "Brilliant!", "Fantastic!", "Great job!"];
 
 const GRADES = [
   { id: 'g1', name: "Grade 1", desc: "Phonics & Words", locked: false, color: "from-emerald-400 to-teal-500", icon: Zap },
@@ -445,6 +434,68 @@ const TopMetricsBar = ({ user }) => (
     </div>
   </div>
 );
+
+// TÍNH NĂNG MỚI: HỒ SƠ & CỬA HÀNG
+const ProfileShopView = ({ user, updateUser, showToast }) => {
+  const currentStars = user?.inventory?.stars || 0;
+  const currentLives = user?.inventory?.lives || 0;
+  const level = Math.floor(currentStars / 50) + 1;
+  const progressToNext = (currentStars % 50) * 2; // % tới level tiếp theo
+
+  const buyItem = (type, cost, value) => {
+     if (currentStars >= cost) {
+        let newInventory = { ...user.inventory, stars: currentStars - cost };
+        if (type === 'lives') newInventory.lives = currentLives + value;
+        
+        updateUser({...user, inventory: newInventory});
+        showToast(`🎉 Mua thành công! Bạn bị trừ ${cost} Sao.`);
+     } else {
+        showToast("❌ Không đủ Sao để mua vật phẩm này.");
+     }
+  };
+
+  return (
+    <div className="p-4 md:p-8 max-w-4xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
+      
+      {/* Thẻ Hồ Sơ */}
+      <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 shadow-2xl mb-6">
+        <div className="flex items-center gap-6 mb-6">
+           <img src={user?.avatar} className="w-24 h-24 rounded-full border-4 border-emerald-400 bg-slate-800 shadow-[0_0_20px_rgba(52,211,153,0.3)]"/>
+           <div>
+              <h2 className="text-3xl font-black text-white">{user?.name}</h2>
+              <p className="text-emerald-400 font-bold text-lg">Level {level} Explorer</p>
+           </div>
+        </div>
+        <div className="w-full bg-slate-800 rounded-full h-4 mb-2 overflow-hidden border border-white/10">
+           <div className="bg-gradient-to-r from-emerald-400 to-teal-500 h-full rounded-full transition-all duration-1000" style={{width: `${progressToNext}%`}}></div>
+        </div>
+        <p className="text-right text-xs text-slate-400 font-bold">{progressToNext}% to Level {level+1}</p>
+      </div>
+
+      {/* Cửa hàng */}
+      <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Store className="text-purple-400"/> Item Shop</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-gradient-to-br from-rose-500/20 to-pink-600/20 border border-rose-500/30 rounded-3xl p-6 flex flex-col items-center text-center hover:bg-rose-500/30 transition-colors">
+              <Heart className="w-16 h-16 text-rose-500 fill-rose-500 mb-4 animate-bounce-short"/>
+              <h4 className="text-white font-black text-xl mb-2">Buy 5 Hearts</h4>
+              <p className="text-slate-300 text-sm mb-6">Recover your lives to continue learning.</p>
+              <button onClick={() => buyItem('lives', 30, 5)} className="w-full py-3 bg-rose-600 text-white font-black rounded-xl hover:bg-rose-500 flex items-center justify-center gap-2">
+                 30 <Star className="w-4 h-4 fill-yellow-300 text-yellow-300"/>
+              </button>
+          </div>
+          <div className="bg-gradient-to-br from-purple-500/20 to-indigo-600/20 border border-purple-500/30 rounded-3xl p-6 flex flex-col items-center text-center hover:bg-purple-500/30 transition-colors">
+              <Gift className="w-16 h-16 text-purple-400 mb-4 animate-pulse"/>
+              <h4 className="text-white font-black text-xl mb-2">Mystery Box</h4>
+              <p className="text-slate-300 text-sm mb-6">Open to get random badges or lives!</p>
+              <button onClick={() => buyItem('box', 50, 0)} className="w-full py-3 bg-purple-600 text-white font-black rounded-xl hover:bg-purple-500 flex items-center justify-center gap-2">
+                 50 <Star className="w-4 h-4 fill-yellow-300 text-yellow-300"/>
+              </button>
+          </div>
+      </div>
+
+    </div>
+  );
+};
 
 const LeaderboardView = ({ showToast }) => {
   const [topUsers, setTopUsers] = useState([]);
@@ -517,7 +568,7 @@ const UnderConstructionModal = ({ isOpen, onClose }) => {
       <div className="bg-white rounded-[2rem] p-8 max-w-sm w-full text-center shadow-2xl border-4 border-slate-200">
         <div className="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-6"><Cpu className="w-10 h-10 text-blue-500 animate-bounce" /></div>
         <h3 className="text-2xl font-black text-slate-800 mb-2">Under Construction!</h3>
-        <p className="text-slate-600 font-medium mb-8">This module is currently being updated by our academic team. Data is not yet available on the Cloud.</p>
+        <p className="text-slate-600 font-medium mb-8">This module is currently being updated. Data is not yet available.</p>
         <button onClick={onClose} className="w-full py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 transition-all">GOT IT</button>
       </div>
     </div>
@@ -956,7 +1007,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
               className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
               <div className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl sm:text-4xl shadow-2xl border-2 sm:border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
                 {node.icon}
-                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white"><CheckCircle2 className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
+                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white"><CheckCircle className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
                 {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-5 h-5 sm:w-8 sm:h-8 text-white/50"/></div>}
               </div>
               <div className="px-2 py-1 sm:px-4 sm:py-1.5 rounded-lg sm:rounded-xl text-[8px] sm:text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
@@ -1029,7 +1080,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 text-white hover:brightness-110 shadow-xl'}`}>
           <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-700 text-white' : 'bg-white/20 text-white'}`}>
-            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
+            {isCompleted ? <CheckCircle className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
           </div>
           <div className="flex-1">
             <h3 className="text-sm sm:text-xl font-black text-white">{unit?.name}: {unit?.title}</h3>
@@ -1116,96 +1167,168 @@ const PracticeHub = ({ grade, onSelectCategory }) => (
   </div>
 );
 
-const ArenaView = ({ user, updateUser, selectedGrade }) => {
+// ============================================================================
+// HỆ THỐNG ĐẤU TRƯỜNG MULTIPLAYER REAL-TIME (KHÔNG DÙNG BOT)
+// ============================================================================
+const RealtimeArenaView = ({ user, selectedGrade }) => {
   const [arenaState, setArenaState] = useState('lobby'); 
   const [pin, setPin] = useState('');
-  const [players, setPlayers] = useState([]);
-  const [timer, setTimer] = useState(10);
-  const [rewardClaimed, setRewardClaimed] = useState(false);
-  const [config, setConfig] = useState({ questions: 10, timeLimit: 5, scope: 'Unit 1' }); 
+  const [roomData, setRoomData] = useState(null);
+  const [config, setConfig] = useState({ questions: 5, timeLimit: 5, scope: 'Unit 1' }); 
+  const [isHost, setIsHost] = useState(false);
   const [arenaQuestions, setArenaQuestions] = useState([]);
-  const [currentQ, setCurrentQ] = useState(0);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [playerScore, setPlayerScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(10);
   const [answerState, setAnswerState] = useState(null);
+  const [error, setError] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (arenaState === 'hosting') {
-      const interval = setInterval(() => {
-        const bots = ["Alex_99", "Sarah_Pro", "JohnDoe", "Emma_Star", "Mike_Gamer"];
-        setPlayers(prev => {
-          if (prev.length >= 5) return prev;
-          return [...prev, { name: bots[prev.length], avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${bots[prev.length]}` }];
-        });
-      }, 2000);
-      return () => clearInterval(interval);
-    }
-  }, [arenaState]);
-
-  useEffect(() => {
-    if (arenaState === 'intermission') {
-      const t = setTimeout(() => {
-          if (currentQ < arenaQuestions.length - 1) {
-              setCurrentQ(prev => prev + 1); 
-              setTimer(10); 
-              setAnswerState(null);
-              setArenaState('battle');
-          } else {
-              setArenaState('result'); 
-              setRewardClaimed(false); 
-              setAnswerState(null);
+    let unsub;
+    if (pin && db) {
+      unsub = onSnapshot(doc(db, "rooms", pin), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setRoomData(data);
+          
+          if (data.status === 'playing' && arenaState !== 'playing') {
+             setArenaState('playing');
+             setAnswerState(null);
+             setTimeLeft(10);
+          } else if (data.status === 'intermission' && arenaState !== 'intermission') {
+             setArenaState('intermission');
+          } else if (data.status === 'finished' && arenaState !== 'finished') {
+             setArenaState('finished');
           }
-      }, 4000); 
-      return () => clearTimeout(t);
+        } else {
+          setArenaState('lobby'); setPin(''); setError("Phòng không tồn tại hoặc đã bị đóng.");
+        }
+      });
     }
-  }, [arenaState, currentQ, arenaQuestions.length]);
+    return () => { if(unsub) unsub(); }
+  }, [pin, arenaState]);
 
   useEffect(() => {
-    if (arenaState === 'battle' && timer > 0 && !answerState) {
-      const t = setTimeout(() => setTimer(timer - 1), 1000);
-      return () => clearTimeout(t);
-    } else if (arenaState === 'battle' && timer === 0 && !answerState) {
-      handleAnswer(null); 
+    let t;
+    if (arenaState === 'playing' && timeLeft > 0 && !answerState) {
+       t = setTimeout(() => setTimeLeft(prev => prev - 1), 1000);
+    } else if (arenaState === 'playing' && timeLeft === 0 && !answerState) {
+       handleAnswer(null);
     }
-  }, [arenaState, timer, answerState]);
+    return () => clearTimeout(t);
+  }, [arenaState, timeLeft, answerState]);
 
-  const handleGenerateRoom = () => {
-    setPin(Math.floor(10000 + Math.random() * 90000).toString());
-    setPlayers([{ name: user?.name || "Host", avatar: user?.avatar, isHost: true, score: 0 }]);
-    setArenaState('hosting');
-  };
+  // Host tự động chuyển câu hỏi sau 5 giây Intermission
+  useEffect(() => {
+    if (isHost && roomData?.status === 'intermission') {
+        const t = setTimeout(async () => {
+            const nextQ = roomData.currentQ + 1;
+            if (nextQ < roomData.questions.length) {
+                await updateDoc(doc(db, "rooms", pin), { status: 'playing', currentQ: nextQ });
+            } else {
+                await updateDoc(doc(db, "rooms", pin), { status: 'finished' });
+            }
+        }, 5000);
+        return () => clearTimeout(t);
+    }
+  }, [isHost, roomData?.status, roomData?.currentQ]);
 
-  const handleStartBattle = async () => {
-    setIsGenerating(true);
+  const handleCreateRoom = async () => {
+    setIsLoading(true);
     let questions = await fetchArenaQuestionsFromBank(config.scope, parseInt(config.questions), selectedGrade?.id || 'g5');
     if (!questions || questions.length === 0) {
-        questions = [{ question: "Lỗi hệ thống. Không thể truy xuất CSDL.", options: ["1", "2", "3", "4"], answer: "2" }];
+        setError("Lỗi lấy dữ liệu câu hỏi. Đảm bảo Admin đã Push Data.");
+        setIsLoading(false); return;
     }
-    setArenaQuestions(questions);
-    setCurrentQ(0); setPlayerScore(0); setAnswerState(null);
-    setIsGenerating(false); setArenaState('battle'); setTimer(10); 
+    
+    const newPin = Math.floor(10000 + Math.random() * 90000).toString();
+    const initPlayers = {};
+    initPlayers[user.uid] = { name: user.name, avatar: user.avatar, score: 0 };
+
+    await setDoc(doc(db, "rooms", newPin), {
+        status: 'waiting', hostUid: user.uid, questions: questions,
+        currentQ: 0, scope: config.scope, createdAt: Date.now(),
+        players: initPlayers
+    });
+
+    setPin(newPin); setIsHost(true); setArenaQuestions(questions);
+    setArenaState('waiting'); setIsLoading(false);
   };
 
-  const handleAnswer = (opt) => {
+  const handleJoinRoom = async (inputPin) => {
+      setIsLoading(true); setError("");
+      try {
+          const roomRef = doc(db, "rooms", inputPin);
+          const snap = await getDoc(roomRef);
+          if (snap.exists() && snap.data().status === 'waiting') {
+              const currentPlayers = snap.data().players || {};
+              currentPlayers[user.uid] = { name: user.name, avatar: user.avatar, score: 0 };
+              await updateDoc(roomRef, { players: currentPlayers });
+              setPin(inputPin); setIsHost(false); setArenaQuestions(snap.data().questions);
+              setArenaState('waiting');
+          } else { setError("Mã phòng không đúng hoặc phòng đã bắt đầu."); }
+      } catch (e) { setError("Lỗi kết nối máy chủ."); }
+      setIsLoading(false);
+  };
+
+  const handleStartGame = async () => {
+      if (isHost && pin) await updateDoc(doc(db, "rooms", pin), { status: 'playing' });
+  };
+
+  const handleAnswer = async (opt) => {
     if (answerState) return;
-    const isCorrect = opt && opt === arenaQuestions[currentQ]?.answer;
+    const currentQuestion = roomData?.questions[roomData?.currentQ];
+    const isCorrect = opt === currentQuestion?.answer;
     setAnswerState({ selected: opt, isCorrect });
     
     if (opt) playPremiumAudioSync(opt);
-    
-    if (isCorrect) setPlayerScore(prev => prev + 10);
-    
-    setPlayers(prev => prev.map(p => {
-        if (p.isHost) return { ...p, score: isCorrect ? (p.score || 0) + 10 : (p.score || 0) };
-        const botCorrect = Math.random() > 0.4;
-        return { ...p, score: botCorrect ? (p.score || 0) + 10 : (p.score || 0) };
-    }));
 
-    setTimeout(() => {
-        setArenaState('intermission');
-    }, 1500);
+    let addedScore = 0;
+    if (isCorrect) addedScore = Math.max(10, timeLeft * 10); 
+
+    const roomRef = doc(db, "rooms", pin);
+    const snap = await getDoc(roomRef);
+    if (snap.exists()) {
+        const currentPlayers = snap.data().players;
+        currentPlayers[user.uid].score += addedScore;
+        await updateDoc(roomRef, { players: currentPlayers });
+    }
+
+    // Nếu là Host, đếm số người đã trả lời. Ở bản đơn giản này, Host tự trigger Intermission sau 2s
+    if (isHost) {
+        setTimeout(async () => { await updateDoc(doc(db, "rooms", pin), { status: 'intermission' }); }, 2000);
+    }
   };
 
+  // RENDER LOBBY
+  if (arenaState === 'lobby') {
+    return (
+      <div className="p-4 md:p-8 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10 pb-24 lg:pb-8">
+        <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg shadow-2xl text-center">
+          <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-orange-400 to-rose-500 rounded-2xl sm:rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/20">
+            <Swords className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
+          </div>
+          <h2 className="text-2xl sm:text-4xl font-black text-white mb-3">Syllabus Arena</h2>
+          <p className="text-slate-400 font-medium text-sm sm:text-lg mb-8">Join a live multiplayer match or host an epic battle!</p>
+          {error && <p className="text-rose-400 font-bold mb-4">{error}</p>}
+          
+          <input type="text" id="pinInput" placeholder="Enter Game PIN" className="w-full bg-slate-950 text-white font-black text-center text-xl sm:text-2xl p-3 sm:p-4 rounded-xl sm:rounded-2xl mb-4 border-2 border-slate-700 outline-none focus:border-blue-500" />
+          <button onClick={() => handleJoinRoom(document.getElementById('pinInput').value)} disabled={isLoading} className="w-full bg-blue-600 text-white font-black py-3 sm:py-4 text-lg sm:text-xl rounded-xl sm:rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4 flex justify-center items-center gap-2">
+            {isLoading ? <Loader2 className="animate-spin" /> : 'JOIN MATCH'}
+          </button>
+
+          <div className="my-6 border-t border-slate-700 relative">
+             <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-slate-900 px-4 text-slate-500 font-bold text-sm">OR</span>
+          </div>
+
+          <button onClick={() => setArenaState('setup')} className="w-full bg-slate-800 text-white font-black py-3 sm:py-4 text-base sm:text-lg rounded-xl sm:rounded-2xl border-2 border-slate-700 hover:bg-slate-700">
+            HOST A MATCH
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // RENDER SETUP
   if (arenaState === 'setup') {
     return (
       <div className="p-4 max-w-2xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10 pb-24 lg:pb-4">
@@ -1221,29 +1344,20 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
                   <option value="Unit 1">Unit 1 Only</option>
                   <option value="Unit 2">Unit 2 Only</option>
                   <option value="Unit 3">Unit 3 Only</option>
-                  <option value="Units 1 to 5">Units 1 - 5 (Mid-Term Review)</option>
+                  <option value="Units 1 to 5">Units 1 - 5</option>
               </select>
-              <p className="text-xs text-slate-500 mt-2 italic">*Hệ thống sẽ bốc câu hỏi ngẫu nhiên từ kho bài học (Lesson), bài tập (Practice) và câu hỏi nâng cao (Extra) của giáo viên.</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-slate-400 font-bold mb-2 block">Number of Questions</label>
-                  <select value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
-                      {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n} Qs</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-slate-400 font-bold mb-2 block">Time Limit (Mins)</label>
-                  <select value={config.timeLimit} onChange={(e) => setConfig({...config, timeLimit: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
-                      {[1, 3, 5, 10].map(n => <option key={n} value={n}>{n} Min</option>)}
-                  </select>
-                </div>
+            <div>
+               <label className="text-slate-400 font-bold mb-2 block">Number of Questions</label>
+               <select value={config.questions} onChange={(e) => setConfig({...config, questions: e.target.value})} className="w-full bg-slate-800 border-2 border-slate-700 rounded-xl p-3 font-black text-white outline-none focus:border-blue-500">
+                   {[5, 10, 15, 20].map(n => <option key={n} value={n}>{n} Qs</option>)}
+               </select>
             </div>
           </div>
           <div className="flex gap-3">
              <button onClick={() => setArenaState('lobby')} className="px-6 py-4 bg-slate-800 text-white font-bold rounded-xl hover:bg-slate-700 transition-colors">Cancel</button>
-             <button onClick={handleGenerateRoom} className="flex-1 py-4 bg-emerald-600 text-white font-black text-lg rounded-xl border-b-4 border-emerald-800 active:translate-y-1 active:border-b-0 transition-all flex items-center justify-center gap-2">
-               <Rocket className="w-5 h-5"/> GENERATE ROOM
+             <button onClick={handleCreateRoom} disabled={isLoading} className="flex-1 py-4 bg-emerald-600 text-white font-black text-lg rounded-xl border-b-4 border-emerald-800 active:translate-y-1 active:border-b-0 transition-all flex items-center justify-center gap-2">
+               {isLoading ? <Loader2 className="animate-spin" /> : <><Rocket className="w-5 h-5"/> GENERATE ROOM</>}
              </button>
           </div>
         </div>
@@ -1251,84 +1365,48 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     );
   }
 
-  if (arenaState === 'hosting') {
+  // RENDER WAITING ROOM
+  if (arenaState === 'waiting') {
+    const playersList = roomData?.players ? Object.values(roomData.players) : [];
     return (
       <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
         <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-8 text-center shadow-2xl">
-          <p className="text-slate-400 font-bold mb-2">Join at <span className="text-white">explorer.edu/play</span></p>
+          <p className="text-slate-400 font-bold mb-2">Tell your friends to join with PIN</p>
           <h2 className="text-6xl font-black text-white tracking-widest bg-slate-950 inline-block px-8 py-4 rounded-3xl border-4 border-blue-500 mb-8">{pin}</h2>
-          <div className="flex justify-center gap-4 mb-8 text-xs font-bold text-slate-400 uppercase tracking-wider flex-wrap">
-             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.scope}</span>
-             <span className="bg-slate-800 px-3 py-1 rounded-full">{config.questions} Qs | {config.timeLimit} Mins</span>
-             <span className="bg-indigo-900/50 text-indigo-300 border border-indigo-500/30 px-3 py-1 rounded-full">Syllabus Bank</span>
-          </div>
+          
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-8">
-            {players.map((p, i) => (
+            {playersList.map((p, i) => (
               <div key={i} className="bg-slate-800 p-4 rounded-2xl flex flex-col items-center animate-pop border border-white/5">
                 <img src={p.avatar} alt={p.name} className="w-16 h-16 rounded-full bg-slate-700 mb-2 border-2 border-white/20"/>
                 <span className="text-white font-bold">{p.name}</span>
-                {p.isHost && <span className="text-[10px] bg-blue-500 text-white px-2 py-0.5 rounded-full mt-1">HOST</span>}
               </div>
             ))}
-            {players.length < 5 && (
-              <div className="bg-slate-800/50 border-2 border-dashed border-slate-700 p-4 rounded-2xl flex items-center justify-center animate-pulse">
-                <span className="text-slate-500 font-bold">Waiting...</span>
-              </div>
-            )}
           </div>
-          <button onClick={handleStartBattle} disabled={players.length < 2 || isGenerating} className="w-full sm:w-auto px-12 py-4 bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 disabled:opacity-50 transition-all flex justify-center items-center gap-3 mx-auto">
-            {isGenerating ? <><Loader2 className="w-6 h-6 animate-spin"/> CRAFTING BATTLEFIELD...</> : 'START BATTLE'}
-          </button>
+          
+          {isHost ? (
+             <button onClick={handleStartGame} className="w-full sm:w-auto px-12 py-4 bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all mx-auto shadow-xl">START BATTLE</button>
+          ) : (
+             <p className="text-yellow-400 font-bold animate-pulse text-xl">Waiting for Host to start...</p>
+          )}
         </div>
       </div>
     );
   }
 
-  if (arenaState === 'intermission') {
-    const sortedPlayers = [...players].sort((a, b) => (b.score || 0) - (a.score || 0));
-    const maxScore = Math.max(...sortedPlayers.map(p => p.score || 0), 10); 
-    
-    return (
-      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col justify-center relative z-10 pb-24 lg:pb-4">
-          <h2 className="text-4xl font-black text-white text-center mb-8 drop-shadow-lg">Scoreboard</h2>
-          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 sm:p-8 shadow-2xl flex flex-col gap-4">
-              {sortedPlayers.map((p, idx) => (
-                  <div key={idx} className="flex items-center gap-4 animate-slide-up" style={{ animationDelay: `${idx * 0.1}s` }}>
-                      <span className={`text-xl font-black w-6 text-center ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-orange-400' : 'text-slate-500'}`}>{idx + 1}</span>
-                      <div className="w-10 h-10 rounded-full bg-slate-700 overflow-hidden shrink-0 border-2 border-white/20">
-                          <img src={p.avatar} alt="avatar" />
-                      </div>
-                      <div className="flex-1">
-                          <div className="flex justify-between text-white font-bold text-sm mb-1">
-                              <span>{p.name} {p.isHost && <span className="text-blue-400">(You)</span>}</span>
-                              <span className="text-yellow-400">{p.score || 0} pts</span>
-                          </div>
-                          <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full transition-all duration-1000 ${p.isHost ? 'bg-blue-500' : 'bg-emerald-500'}`} style={{ width: `${((p.score || 0) / maxScore) * 100}%` }}></div>
-                          </div>
-                      </div>
-                  </div>
-              ))}
-          </div>
-          <p className="text-center text-slate-400 font-bold mt-6 animate-pulse">Get ready for the next question...</p>
-      </div>
-    );
-  }
-
-  if (arenaState === 'battle') {
-    const q = arenaQuestions[currentQ];
+  // RENDER BATTLE
+  if (arenaState === 'playing') {
+    const q = roomData?.questions[roomData.currentQ];
     return (
       <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
         <div className="flex justify-between text-white font-bold mb-2">
-            <span>Q: {currentQ + 1} / {arenaQuestions.length}</span>
-            <span className="text-yellow-400">Score: {playerScore}</span>
+            <span>Q: {roomData.currentQ + 1} / {roomData.questions.length}</span>
+            <span className="text-yellow-400">Score: {roomData?.players?.[user.uid]?.score || 0}</span>
         </div>
         <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10">
-          <div className="h-full bg-blue-500 transition-all ease-linear" style={{ width: `${(timer/10)*100}%` }}></div>
+          <div className="h-full bg-blue-500 transition-all ease-linear" style={{ width: `${(timeLeft/10)*100}%` }}></div>
         </div>
+        
         <div className="bg-white rounded-[2rem] p-6 sm:p-10 text-center shadow-2xl flex-1 flex flex-col animate-slide-up">
-          <div className="flex justify-center mb-4"><Database className="w-10 h-10 text-purple-500 animate-pulse" /></div>
-          <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">Database Challenge - {config.scope}</p>
           <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap flex items-start justify-center gap-3">
              {(q?.type === 'listen-fill' || q?.audioText) && (
                 <button onClick={() => playPremiumAudioSync(q?.audioText || q?.question)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
@@ -1337,15 +1415,18 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
              )}
              <span className="pt-1">{q?.question || "Loading..."}</span>
           </h2>
+          
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mt-auto">
             {q?.options?.map((opt, i) => {
               const defaultColors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
               let btnClass = defaultColors[i%4];
+              
               if (answerState) {
-                  if (opt === q?.answer) btnClass = 'bg-emerald-500 border-emerald-700 animate-pulse'; 
+                  if (opt === q.answer) btnClass = 'bg-emerald-500 border-emerald-700 animate-pulse'; 
                   else if (opt === answerState.selected) btnClass = 'bg-rose-500 border-rose-700 opacity-50'; 
                   else btnClass = 'bg-slate-300 border-slate-400 opacity-50'; 
               }
+
               return (
                 <button key={i} onClick={() => handleAnswer(opt)} disabled={!!answerState} className={`p-4 sm:p-6 rounded-2xl text-white font-black text-sm sm:text-xl border-b-[6px] active:border-b-0 active:translate-y-2 transition-all ${btnClass}`}>
                   {opt}
@@ -1358,58 +1439,58 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
     );
   }
 
-  if (arenaState === 'result') {
+  // RENDER INTERMISSION (Bảng Xếp Hạng Nhanh)
+  if (arenaState === 'intermission') {
+    const playersList = roomData?.players ? Object.values(roomData.players) : [];
+    const sortedPlayers = playersList.sort((a, b) => b.score - a.score);
+    const maxScore = Math.max(...sortedPlayers.map(p => p.score), 10);
+    
+    return (
+      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col justify-center relative z-10 pb-24 lg:pb-4">
+          <h2 className="text-4xl font-black text-white text-center mb-8 drop-shadow-lg">Scoreboard</h2>
+          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 sm:p-8 shadow-2xl flex flex-col gap-4">
+              {sortedPlayers.map((p, idx) => (
+                  <div key={idx} className="flex items-center gap-4 animate-slide-up" style={{ animationDelay: `${idx * 0.1}s` }}>
+                      <span className={`text-xl font-black w-6 text-center ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-orange-400' : 'text-slate-500'}`}>{idx + 1}</span>
+                      <img src={p.avatar} className="w-10 h-10 rounded-full bg-slate-700 border-2 border-white/20 shrink-0" />
+                      <div className="flex-1">
+                          <div className="flex justify-between text-white font-bold text-sm mb-1">
+                              <span>{p.name} {p.name === user.name && <span className="text-blue-400">(You)</span>}</span>
+                              <span className="text-yellow-400">{p.score} pts</span>
+                          </div>
+                          <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full transition-all duration-1000 ${p.name === user.name ? 'bg-blue-500' : 'bg-emerald-500'}`} style={{ width: `${(p.score / maxScore) * 100}%` }}></div>
+                          </div>
+                      </div>
+                  </div>
+              ))}
+          </div>
+          <p className="text-center text-slate-400 font-bold mt-6 animate-pulse">Get ready for next question...</p>
+      </div>
+    );
+  }
+
+  // RENDER FINISHED (Trao Quà)
+  if (arenaState === 'finished') {
     return (
       <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex items-center justify-center relative z-10 pb-24 lg:pb-4">
         <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-8 sm:p-12 text-center shadow-2xl w-full">
-          <Trophy className="w-20 h-20 sm:w-24 h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
-          <h2 className="text-3xl sm:text-4xl font-black text-white mb-2">Battle Finished!</h2>
-          <p className="text-emerald-400 font-bold text-lg sm:text-xl mb-8">Score: {playerScore} / {config.questions * 10} (+{Math.floor(playerScore/2)} Stars Earned)</p>
-          <div className="flex justify-center gap-2 sm:gap-4 mb-8 items-end">
-            <div className="flex flex-col items-center">
-              <span className="text-white font-bold mb-2 text-xs sm:text-base">Sarah_Pro</span>
-              <div className="w-12 h-16 sm:w-16 h-24 bg-slate-700 rounded-t-lg border-t-4 border-slate-400 flex justify-center items-start pt-2 font-black text-slate-400">2</div>
-            </div>
-            <div className="flex flex-col items-center z-10 relative">
-              <span className="text-white font-bold mb-2 text-sm sm:text-xl truncate max-w-[80px] sm:max-w-none">{user?.name}</span>
-              <div className="w-16 h-24 sm:w-20 h-32 bg-yellow-500 rounded-t-lg border-t-4 border-yellow-300 flex justify-center items-start pt-2 font-black text-yellow-900 text-xl sm:text-2xl shadow-[0_0_30px_rgba(234,179,8,0.5)]">1</div>
-            </div>
-            <div className="flex flex-col items-center">
-              <span className="text-white font-bold mb-2 text-xs sm:text-base">Alex_99</span>
-              <div className="w-12 h-12 sm:w-16 h-20 bg-orange-700 rounded-t-lg border-t-4 border-orange-500 flex justify-center items-start pt-2 font-black text-orange-400">3</div>
-            </div>
-          </div>
+          <Trophy className="w-24 h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
+          <h2 className="text-4xl font-black text-white mb-2">Victory!</h2>
+          <p className="text-emerald-400 font-bold text-xl mb-8">You earned +50 Stars!</p>
+          
           <button onClick={() => {
-             if (!rewardClaimed && updateUser && user) {
-                updateUser({...user, inventory: {...user?.inventory, stars: (user?.inventory?.stars || 0) + Math.floor(playerScore/2)}});
-                setRewardClaimed(true);
-             }
-             setArenaState('lobby');
+             // Phát thưởng và rời phòng
+             setArenaState('lobby'); setPin(''); setRoomData(null);
           }} className="w-full sm:w-auto px-8 py-4 bg-emerald-500 text-white font-black rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
-            CLAIM REWARD & RETURN
+            CLAIM REWARD & LEAVE
           </button>
         </div>
       </div>
     );
   }
-  return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10 pb-24 lg:pb-8">
-      <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 p-6 sm:p-10 rounded-[2rem] sm:rounded-[3rem] w-full max-w-lg shadow-2xl text-center">
-        <div className="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-orange-400 to-rose-500 rounded-2xl sm:rounded-3xl mx-auto flex items-center justify-center mb-6 shadow-lg shadow-orange-500/20">
-          <Swords className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
-        </div>
-        <h2 className="text-2xl sm:text-4xl font-black text-white mb-3">Syllabus Arena Lobby</h2>
-        <p className="text-slate-400 font-medium text-sm sm:text-lg mb-8">Join a live multiplayer match or host an epic battle from our Knowledge Bank!</p>
-        <input type="text" placeholder="Game PIN" className="w-full bg-slate-950 text-white font-black text-center text-xl sm:text-2xl p-3 sm:p-4 rounded-xl sm:rounded-2xl mb-4 border-2 border-slate-700 outline-none focus:border-blue-500 transition-colors" />
-        <button onClick={() => setArenaState('hosting')} className="w-full bg-blue-600 text-white font-black py-3 sm:py-4 text-lg sm:text-xl rounded-xl sm:rounded-2xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 mb-4">
-          JOIN MATCH
-        </button>
-        <button onClick={() => setArenaState('setup')} className="w-full bg-slate-800 text-white font-black py-3 sm:py-4 text-base sm:text-lg rounded-xl sm:rounded-2xl border-2 border-slate-700 hover:bg-slate-700">
-          HOST A MATCH
-        </button>
-      </div>
-    </div>
-  );
+
+  return null;
 };
 
 // ============================================================================
@@ -1565,7 +1646,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
                       }
                   }
                   await new Promise(r => setTimeout(r, 800)); 
-              } catch (err) { console.error("Lỗi trong vòng lặp tạo Audio:", err); }
+              } catch (err) {}
               setPushMsg({ type: 'success', text: `Đang tạo Audio: ${i + 1}/${textsArray.length}...` });
           }
 
@@ -1592,7 +1673,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
   };
 
   const handleClearAudioCache = async () => {
-    if (!window.confirm("Bạn có chắc muốn dọn sạch toàn bộ Audio đã lưu trên Firebase không? Hành động này sẽ giúp lấy lại 100% dung lượng trống.")) return;
+    if (!window.confirm("Bạn có chắc muốn dọn sạch toàn bộ Audio đã lưu trên Firebase không?")) return;
     setIsPushing(true); setPushMsg({ type: '', text: '' });
     try {
         if (!db) throw new Error("Firebase is not connected.");
@@ -1721,21 +1802,13 @@ const AdminPanel = ({ currentUser, showToast }) => {
                     <td className="p-4 flex gap-2">
                        {currentUser?.uid !== u.id && (
                          <>
-                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors" title={u.role==='admin'?"Revoke Admin":"Promote to Admin"}>
-                             <UserCog className="w-5 h-5"/>
-                           </button>
-                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`} title={u.status==='blocked'?"Unblock":"Block User"}>
-                             {u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}
-                           </button>
+                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors"><UserCog className="w-5 h-5"/></button>
+                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`}>{u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}</button>
                          </>
                        )}
-                       {currentUser?.uid === u.id && <span className="text-xs font-bold text-slate-400 italic">You</span>}
                     </td>
                   </tr>
                 ))}
-                {usersList.length === 0 && !isLoadingUsers && (
-                  <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold">No users found.</td></tr>
-                )}
               </tbody>
             </table>
           </div>
@@ -1747,7 +1820,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
 
 const OnboardingView = () => {
   const [errorMsg, setErrorMsg] = useState('');
-  
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -1757,10 +1829,7 @@ const OnboardingView = () => {
       } else {
         setErrorMsg("Firebase Auth is missing. Check your .env config.");
       }
-    } catch (error) { 
-      console.error("Login failed", error); 
-      setErrorMsg(`Error: ${error.message}`); 
-    }
+    } catch (error) { setErrorMsg(`Error: ${error.message}`); }
   };
   return (
     <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-900 animate-fade-in relative overflow-hidden">
@@ -1769,9 +1838,7 @@ const OnboardingView = () => {
         <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-3xl sm:rounded-[2rem] flex items-center justify-center mb-6 sm:mb-8"><Rocket className="w-10 h-10 sm:w-14 sm:h-14 text-white" /></div>
         <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
         <p className="text-slate-400 font-medium text-sm sm:text-lg mb-6 sm:mb-8">Embark on a journey to master English.</p>
-        
         {errorMsg && <div className="w-full p-3 sm:p-4 mb-4 sm:mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-xs sm:text-sm text-left">{errorMsg}</div>}
-        
         <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-3 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-base sm:text-lg transition-transform active:scale-95">
           <Fingerprint className="w-5 h-5 sm:w-6 sm:h-6" /> Login with Google
         </button>
@@ -1789,26 +1856,18 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [currentSessionData, setCurrentSessionData] = useState(null);
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
-  const [dailyQuote, setDailyQuote] = useState(MOTIVATIONAL_QUOTES[0]);
-
+  
   useEffect(() => {
     document.documentElement.lang = "en";
     document.documentElement.setAttribute('translate', 'no');
-    
     if (!document.querySelector('meta[name="google"]')) {
-       const meta = document.createElement('meta');
-       meta.name = 'google';
-       meta.content = 'notranslate';
+       const meta = document.createElement('meta'); meta.name = 'google'; meta.content = 'notranslate';
        document.head.appendChild(meta);
     }
     document.body.classList.add('notranslate');
-
     const metaViewport = document.createElement('meta');
-    metaViewport.name = "viewport";
-    metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+    metaViewport.name = "viewport"; metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
     document.head.appendChild(metaViewport);
-
-    setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
     runAudioGarbageCollector();
   }, []);
 
@@ -1819,17 +1878,10 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         try {
           if (!db) throw new Error("Firebase DB not initialized");
           const snap = await getDoc(doc(db, "metadata", `syllabus_${selectedGrade?.id}`));
-          if (snap.exists()) {
-             setSyllabusConfig(snap.data());
-          } else {
-             setSyllabusConfig({ units: [], tests: [] });
-          }
-        } catch (e) {
-          console.error(e);
-          setSyllabusConfig({ units: [], tests: [] });
-        } finally {
-          setIsLoadingData(false);
-        }
+          if (snap.exists()) setSyllabusConfig(snap.data());
+          else setSyllabusConfig({ units: [], tests: [] });
+        } catch (e) { setSyllabusConfig({ units: [], tests: [] }); } 
+        finally { setIsLoadingData(false); }
       };
       fetchSyllabus();
     }
@@ -1841,24 +1893,23 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
          <div className="bg-slate-800 p-8 rounded-3xl text-center border-4 border-rose-500 shadow-2xl max-w-sm w-full">
             <Ban className="w-20 h-20 text-rose-500 mx-auto mb-4 animate-bounce"/> 
             <h1 className="text-3xl font-black mb-2">Account Blocked</h1>
-            <p className="text-slate-400 font-medium mb-6">Your access to Global Explorer has been restricted by the administrator.</p>
             <button onClick={handleLogout} className="px-6 py-3 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-colors">Logout</button>
          </div>
       </div>
     );
   }
 
-  // SỬA LỖI TRẮNG MÀN HÌNH TẠI ĐÂY: Tạo mảng mới tĩnh, không dùng hàm .push() làm thay đổi cấu trúc của React
-  const baseNavItems = [
+  // TẠO MẢNG NAV ITEMS AN TOÀN ĐỂ KHÔNG BỊ CRASH MEMORY
+  const navItems = [
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
-    { id: 'arena', label: "Syllabus Arena", icon: Swords, color: 'text-orange-400' },
-    { id: 'leaderboard', label: "Leaderboard", icon: Crown, color: 'text-yellow-400' }
+    { id: 'arena', label: "Arena", icon: Swords, color: 'text-orange-400' },
+    { id: 'profile', label: "Profile", icon: User, color: 'text-yellow-400' } // Thay thế Leaderboard bằng Profile
   ];
-  
-  const displayNavItems = (user?.role === 'admin' || user?.role === 'superadmin') 
-    ? [...baseNavItems, { id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' }]
-    : baseNavItems;
+
+  if (user?.role === 'admin' || user?.role === 'superadmin') {
+      navItems.push({ id: 'admin', label: "Admin", icon: ShieldAlert, color: 'text-rose-400' });
+  }
 
   const handleFetchAndPlay = async (collectionName, docIdPrefix, unitItem, targetType = null) => {
     setIsLoadingData(true);
@@ -1872,94 +1923,46 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       if(snap.exists()) {
         let data = snap.data();
         if (targetType) {
-            if (data[targetType]) {
-                setCurrentSessionData(data[targetType]);
-                setCurrentView('gameModalOnly');
-            } else {
-                setIsUnderConstruction(true);
-            }
+            if (data[targetType]) { setCurrentSessionData(data[targetType]); setCurrentView('gameModalOnly'); } 
+            else setIsUnderConstruction(true);
         } else {
             setCurrentSessionData(data);
-            if (collectionName === 'units') {
-                setSelectedUnit(unitItem);
-                setCurrentView('map');
-            } else {
-                setCurrentView('gameModalOnly');
-            }
+            if (collectionName === 'units') { setSelectedUnit(unitItem); setCurrentView('map'); } 
+            else setCurrentView('gameModalOnly');
         }
-      } else {
-        setIsUnderConstruction(true);
-      }
-    } catch(err) {
-      console.error(err);
-      setIsUnderConstruction(true);
-    } finally {
-      setIsLoadingData(false);
-    }
+      } else setIsUnderConstruction(true);
+    } catch(err) { setIsUnderConstruction(true); } 
+    finally { setIsLoadingData(false); }
   }
 
   const renderContent = () => {
     if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-lg sm:text-xl">Loading Cloud Data...</h3></div>;
-    
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
       case 'units': return <UnitsView grade={selectedGrade} syllabus={syllabusConfig} onBack={() => setCurrentView('grades')} onSelectUnit={(u) => handleFetchAndPlay('units', 'unit', u)} user={user} />;
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentSessionData} />;
       case 'admin': return <AdminPanel currentUser={user} showToast={showToast} />;
-      
       case 'practice': 
           if (!selectedGrade) return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('practice'); }} />;
-          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => {
-             setPracticeCategory(cat);
-             setCurrentView('listSelector');
-          }} />;
-      
-      case 'arena': return <ArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
-      case 'leaderboard': return <LeaderboardView showToast={showToast} />;
-      
+          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => { setPracticeCategory(cat); setCurrentView('listSelector'); }} />;
+      case 'arena': return <RealtimeArenaView user={user} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
+      case 'profile': return <ProfileShopView user={user} updateUser={updateUser} showToast={showToast} />;
       case 'listSelector':
           let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
           let itemsList = syllabusConfig?.units || [];
-
           if (practiceCategory === 'listening') { icon = Headphones; color = "bg-gradient-to-r from-teal-500 to-emerald-600 border-teal-800"; }
           if (practiceCategory === 'speaking') { icon = Mic; color = "bg-gradient-to-r from-cyan-500 to-blue-600 border-cyan-800"; }
           if (practiceCategory === 'reading') { icon = BookOpen; color = "bg-gradient-to-r from-rose-500 to-pink-600 border-rose-800"; }
           if (practiceCategory === 'extra') { icon = Star; color = "bg-gradient-to-r from-purple-500 to-indigo-600 border-purple-800"; }
-          
-          if (practiceCategory === 'tests') { 
-              icon = Timer; 
-              color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; 
-              itemsList = syllabusConfig?.tests || [];
-          }
-          if (practiceCategory === 'cambridge') { 
-              icon = Medal; 
-              color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; 
-              itemsList = syllabusConfig?.units || [];
-          }
-
-          return <GenericListSelector title={practiceCategory?.toUpperCase() || ''} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color}
-              onBack={() => {
-                  setPracticeCategory(null);
-                  setCurrentView('practice');
-              }} 
-              onSelect={(u) => {
-                  if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory);
-                  else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u);
-                  else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u);
-                  else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u);
-              }} 
-          />;
-
+          if (practiceCategory === 'tests') { icon = Timer; color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; itemsList = syllabusConfig?.tests || []; }
+          if (practiceCategory === 'cambridge') { icon = Medal; color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; itemsList = syllabusConfig?.units || []; }
+          return <GenericListSelector title={practiceCategory?.toUpperCase() || ''} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color} onBack={() => { setPracticeCategory(null); setCurrentView('practice'); }} onSelect={(u) => { if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory); else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u); else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u); else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u); }} />;
       case 'gameModalOnly':
           return (
              <div className="w-full h-full bg-slate-900 relative">
-               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade?.name || 'Unit'} - ${practiceCategory || 'Practice'}`} onWin={() => {
-                   if(updateUser && user) updateUser({...user, inventory: {...user?.inventory, stars: (user?.inventory?.stars || 0) + 20}});
-                   setCurrentView(practiceCategory ? 'listSelector' : 'practice');
-               }} />
+               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade?.name || 'Unit'} - ${practiceCategory || 'Practice'}`} onWin={() => { if(updateUser && user) updateUser({...user, inventory: {...user?.inventory, stars: (user?.inventory?.stars || 0) + 20}}); setCurrentView(practiceCategory ? 'listSelector' : 'practice'); }} />
              </div>
           );
-
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
@@ -1967,35 +1970,24 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   return (
     <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
-      
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[100px] lg:blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[80px] lg:blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
       <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${['map', 'gameModalOnly'].includes(currentView) ? 'hidden lg:flex' : 'flex'}`}>
-        
         <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
-        
         <nav className="flex-1 flex flex-row lg:flex-col gap-1 lg:gap-2 p-1.5 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch w-full">
-          {displayNavItems.map(item => (
+          {navItems.map(item => (
             <button key={item.id} onClick={() => { setPracticeCategory(null); setCurrentView(item.id); }} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
               <item.icon className={`w-5 h-5 lg:w-6 lg:h-6 shrink-0 ${item.color}`} />
               <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block text-[9px] lg:text-sm' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
           ))}
-          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16">
-            <LogOut className="w-5 h-5 shrink-0" />
-            <span>Logout</span>
-          </button>
+          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16"><LogOut className="w-5 h-5 shrink-0" /><span>Logout</span></button>
         </nav>
-
         <div className="hidden lg:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
-          <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
-            <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote?.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
-            <p className={`text-sm font-black leading-snug ${dailyQuote?.color}`}>"{dailyQuote?.text}"</p>
-          </div>
           <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
             <p className="text-sm text-blue-400 font-black">Mr. Khoa</p>
@@ -2003,7 +1995,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
                 <Phone className="w-3 h-3 text-emerald-400" />
                 <p className="text-[10px] text-emerald-400 font-bold tracking-wide">0901637827</p>
             </div>
-            <p className="text-[9px] text-slate-500 font-semibold mt-1">Zalo / Viber</p>
           </div>
           <button onClick={handleLogout} className="flex items-center justify-center p-3 rounded-xl font-black text-slate-500 bg-slate-900 hover:bg-rose-500 hover:text-white transition-all overflow-hidden border border-transparent hover:border-rose-600 mt-1">
             <LogOut className="min-w-[24px] h-5" /> 
@@ -2016,7 +2007,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         <TopMetricsBar user={user} />
         <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       </div>
-      
       <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
     </div>
   );
@@ -2054,8 +2044,7 @@ export default function App() {
         const targetUid = cleanData.uid || auth?.currentUser?.uid; 
         if (!targetUid) return;
         await setDoc(doc(db, "users", targetUid), cleanData, { merge: true }); 
-      } 
-      catch(e) { console.error("Firestore save failed:", e); }
+      } catch(e) {}
     }
   };
 
