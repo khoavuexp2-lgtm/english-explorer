@@ -134,15 +134,19 @@ const base64ToBlobUrl = (base64, mimeType = 'audio/mp3') => {
     } catch (e) { return ""; }
 };
 
-const getSmartVoiceForText = (text) => {
-    if (!text) return "en-US-Neural2-F";
+const getSmartVoiceForText = (text, index = 0) => {
+    if (!text) return "en-US-Neural2-F"; // Nữ mặc định
     const lowerText = text.toLowerCase();
-    const isMale = /\b(he|his|him|boy|man|father|dad|brother|uncle|peter|nam|tom|david|tony|john|mr)\b/.test(lowerText);
+    
+    // Nhận diện giới tính qua đại từ
+    const isMale = /\b(he|his|him|boy|man|father|dad|brother|uncle|peter|nam|tom|david|tony|john|mr|ben)\b/.test(lowerText);
     const isFemale = /\b(she|her|girl|woman|mother|mom|sister|aunt|mary|linda|hoa|lan|helen|mai|mrs|miss)\b/.test(lowerText);
     
-    if (isMale && !isFemale) return "en-US-Neural2-D";
-    if (isFemale) return "en-US-Neural2-F";
-    return "en-US-Neural2-F";
+    if (isMale && !isFemale) return "en-US-Neural2-D"; // Giọng Nam
+    if (isFemale && !isMale) return "en-US-Neural2-F"; // Giọng Nữ
+    
+    // Nếu câu trung tính, luân phiên Nam/Nữ theo số thứ tự (index)
+    return index % 2 === 0 ? "en-US-Neural2-F" : "en-US-Neural2-D";
 };
 
 const loadAudioToRAM = async (text) => {
@@ -175,11 +179,19 @@ const playSystemAudio = (text, isMaleTarget = false) => {
     let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
     const utterance = new SpeechSynthesisUtterance(speakText);
     utterance.lang = 'en-US'; 
-    utterance.rate = 0.85;
+    utterance.rate = 0.9;
     utterance.volume = 1; 
     
     let selectedVoice = null;
-    if (premiumVoices.length > 0) {
+    const voices = window.speechSynthesis.getVoices();
+    
+    // Lọc ưu tiên các giọng Siri/Apple chuẩn mực trên hệ sinh thái Apple
+    const appleVoices = voices.filter(v => v.name.includes('Siri') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Aaron') || v.name.includes('Nicky'));
+
+    if (appleVoices.length > 0) {
+        if (isMaleTarget) selectedVoice = appleVoices.find(v => v.name.includes('Male') || v.name.includes('Daniel') || v.name.includes('Aaron')) || appleVoices[0];
+        else selectedVoice = appleVoices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Siri')) || appleVoices[0];
+    } else if (premiumVoices.length > 0) {
         if (isMaleTarget) selectedVoice = premiumVoices.find(v => v.name?.includes('Daniel') || v.name?.includes('Male')) || premiumVoices[0];
         else selectedVoice = premiumVoices.find(v => v.name?.includes('Samantha') || v.name?.includes('Female')) || premiumVoices[0];
     } else if (fallbackEnglishVoices.length > 0) {
@@ -442,10 +454,39 @@ const ProfileShopView = ({ user, updateUser, showToast }) => {
   const buyItem = (type, cost, value) => {
      if (currentStars >= cost) {
         let newInventory = { ...user.inventory, stars: currentStars - cost };
-        if (type === 'lives') newInventory.lives = currentLives + value;
+        let newBadges = [...(user?.badges || [])];
         
-        updateUser({...user, inventory: newInventory});
-        showToast(`🎉 Mua thành công! Bạn bị trừ ${cost} Sao.`);
+        if (type === 'lives') {
+           newInventory.lives = currentLives + value;
+           showToast(`🎉 Mua thành công! Bạn nhận được ${value} Trái tim.`);
+        } else if (type === 'box') {
+           // Logic Mở Hộp Quà Bí Ẩn
+           const roll = Math.random();
+           if (roll < 0.3) {
+               // 30% ra 3 Trái tim
+               newInventory.lives = currentLives + 3;
+               showToast(`🎁 Mở hộp ra: +3 Trái tim! ❤️`);
+           } else if (roll < 0.8) {
+               // 50% ra 100 Sao (Lãi 50 Sao)
+               newInventory.stars += 100; 
+               showToast(`🎁 Trúng mánh! Mở hộp được 100 Sao! ⭐`);
+           } else {
+               // 20% ra Huy hiệu (Badge)
+               const rareBadges = ['🍀 Lucky Explorer', '💎 Diamond Brain', '🚀 Speed Runner', '🦄 Unicorn Rarity'];
+               const randomBadge = rareBadges[Math.floor(Math.random() * rareBadges.length)];
+               
+               if (!newBadges.includes(randomBadge)) {
+                   newBadges.push(randomBadge);
+                   showToast(`🎁 Tuyệt vời! Bạn mở trúng HUY HIỆU: ${randomBadge}`);
+               } else {
+                   // Nếu trùng huy hiệu đã có, quy đổi thành 150 Sao
+                   newInventory.stars += 150;
+                   showToast(`🎁 Bạn mở ra huy hiệu đã có, quy đổi thành +150 Sao!`);
+               }
+           }
+        }
+        
+        updateUser({...user, inventory: newInventory, badges: newBadges});
      } else {
         showToast("❌ Không đủ Sao để mua vật phẩm này.");
      }
@@ -454,9 +495,10 @@ const ProfileShopView = ({ user, updateUser, showToast }) => {
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
       
-      <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 shadow-2xl mb-6">
+      {/* Thẻ Hồ Sơ */}
+      <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 shadow-2xl mb-8">
         <div className="flex items-center gap-6 mb-6">
-           <img src={user?.avatar} className="w-24 h-24 rounded-full border-4 border-emerald-400 bg-slate-800 shadow-[0_0_20px_rgba(52,211,153,0.3)]"/>
+           <img src={user?.avatar} className="w-24 h-24 rounded-full border-4 border-emerald-400 bg-slate-800 shadow-[0_0_20px_rgba(52,211,153,0.3)] object-cover"/>
            <div>
               <h2 className="text-3xl font-black text-white">{user?.name}</h2>
               <p className="text-emerald-400 font-bold text-lg">Level {level} Explorer</p>
@@ -468,6 +510,23 @@ const ProfileShopView = ({ user, updateUser, showToast }) => {
         <p className="text-right text-xs text-slate-400 font-bold">{progressToNext}% to Level {level+1}</p>
       </div>
 
+      {/* Tủ Huy Hiệu */}
+      <div className="mb-8">
+         <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Medal className="text-yellow-400"/> My Badges</h3>
+         <div className="flex flex-wrap gap-3 p-6 bg-slate-900/50 rounded-[2rem] border border-white/10">
+            {user?.badges?.length > 0 ? (
+               user.badges.map((b, i) => (
+                  <div key={i} className="bg-slate-800 border border-white/20 px-4 py-2 rounded-xl text-white font-bold animate-pop shadow-md hover:-translate-y-1 transition-transform cursor-default">
+                     {b}
+                  </div>
+               ))
+            ) : (
+               <p className="text-slate-500 font-medium text-sm">Chưa có huy hiệu nào. Hãy mở Mystery Box hoặc vô địch Arena để thu thập nhé!</p>
+            )}
+         </div>
+      </div>
+
+      {/* Cửa hàng */}
       <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Store className="text-purple-400"/> Item Shop</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-gradient-to-br from-rose-500/20 to-pink-600/20 border border-rose-500/30 rounded-3xl p-6 flex flex-col items-center text-center hover:bg-rose-500/30 transition-colors">
@@ -478,10 +537,11 @@ const ProfileShopView = ({ user, updateUser, showToast }) => {
                  30 <Star className="w-4 h-4 fill-yellow-300 text-yellow-300"/>
               </button>
           </div>
-          <div className="bg-gradient-to-br from-purple-500/20 to-indigo-600/20 border border-purple-500/30 rounded-3xl p-6 flex flex-col items-center text-center hover:bg-purple-500/30 transition-colors">
-              <Gift className="w-16 h-16 text-purple-400 mb-4 animate-pulse"/>
+          <div className="bg-gradient-to-br from-purple-500/20 to-indigo-600/20 border border-purple-500/30 rounded-3xl p-6 flex flex-col items-center text-center hover:bg-purple-500/30 transition-colors relative overflow-hidden group">
+              <Sparkles className="absolute top-2 right-2 w-6 h-6 text-purple-300 animate-pulse"/>
+              <Gift className="w-16 h-16 text-purple-400 mb-4 group-hover:animate-shake"/>
               <h4 className="text-white font-black text-xl mb-2">Mystery Box</h4>
-              <p className="text-slate-300 text-sm mb-6">Open to get random badges or lives!</p>
+              <p className="text-slate-300 text-sm mb-6">Mở để nhận Sao, Tim hoặc Huy Hiệu Hiếm!</p>
               <button onClick={() => buyItem('box', 50, 0)} className="w-full py-3 bg-purple-600 text-white font-black rounded-xl hover:bg-purple-500 flex items-center justify-center gap-2">
                  50 <Star className="w-4 h-4 fill-yellow-300 text-yellow-300"/>
               </button>
@@ -1163,7 +1223,7 @@ const PracticeHub = ({ grade, onSelectCategory }) => (
 // ============================================================================
 // HỆ THỐNG ĐẤU TRƯỜNG MULTIPLAYER REAL-TIME (KHÔNG DÙNG BOT)
 // ============================================================================
-const RealtimeArenaView = ({ user, selectedGrade }) => {
+const RealtimeArenaView = ({ user, updateUser, selectedGrade }) => {
   const [arenaState, setArenaState] = useState('lobby'); 
   const [pin, setPin] = useState('');
   const [roomData, setRoomData] = useState(null);
@@ -1210,7 +1270,6 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
     return () => clearTimeout(t);
   }, [arenaState, timeLeft, answerState]);
 
-  // Host tự động chuyển câu hỏi sau 5 giây Intermission
   useEffect(() => {
     if (isHost && roomData?.status === 'intermission') {
         const t = setTimeout(async () => {
@@ -1220,7 +1279,7 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
             } else {
                 await updateDoc(doc(db, "rooms", pin), { status: 'finished' });
             }
-        }, 5000);
+        }, 5000); // 5 giây xem bảng điểm
         return () => clearTimeout(t);
     }
   }, [isHost, roomData?.status, roomData?.currentQ]);
@@ -1286,13 +1345,12 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
         await updateDoc(roomRef, { players: currentPlayers });
     }
 
-    // Nếu là Host, đếm số người đã trả lời. Ở bản đơn giản này, Host tự trigger Intermission sau 2s
     if (isHost) {
-        setTimeout(async () => { await updateDoc(doc(db, "rooms", pin), { status: 'intermission' }); }, 2000);
+        // Tăng lên 4 giây để học sinh xem đáp án đúng sai
+        setTimeout(async () => { await updateDoc(doc(db, "rooms", pin), { status: 'intermission' }); }, 4000); 
     }
   };
 
-  // RENDER LOBBY
   if (arenaState === 'lobby') {
     return (
       <div className="p-4 md:p-8 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10 pb-24 lg:pb-8">
@@ -1321,7 +1379,6 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
     );
   }
 
-  // RENDER SETUP
   if (arenaState === 'setup') {
     return (
       <div className="p-4 max-w-2xl mx-auto animate-fade-in w-full h-full flex flex-col items-center justify-center relative z-10 pb-24 lg:pb-4">
@@ -1358,7 +1415,6 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
     );
   }
 
-  // RENDER WAITING ROOM
   if (arenaState === 'waiting') {
     const playersList = roomData?.players ? Object.values(roomData.players) : [];
     return (
@@ -1386,20 +1442,27 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
     );
   }
 
-  // RENDER BATTLE
   if (arenaState === 'playing') {
     const q = roomData?.questions[roomData.currentQ];
     return (
       <div className="p-4 max-w-5xl mx-auto animate-fade-in w-full h-full flex flex-col relative z-10 pb-24 lg:pb-4">
-        <div className="flex justify-between text-white font-bold mb-2">
+        
+        {/* HIỂU ỨNG ĐÚNG/SAI CHÀ BÁ KHI CHỌN */}
+        {answerState && (
+           <div className={`absolute top-1/4 left-1/2 -translate-x-1/2 z-[100] px-10 py-6 rounded-[2rem] font-black text-3xl sm:text-5xl text-white shadow-2xl animate-pop border-4 flex flex-col items-center ${answerState.isCorrect ? 'bg-emerald-500 border-emerald-300' : 'bg-rose-500 border-rose-300'}`}>
+              {answerState.isCorrect ? <><CheckCircle className="w-16 h-16 mb-2"/> PERFECT!</> : <><X className="w-16 h-16 mb-2"/> WRONG!</>}
+           </div>
+        )}
+
+        <div className="flex justify-between text-white font-bold mb-2 z-10">
             <span>Q: {roomData.currentQ + 1} / {roomData.questions.length}</span>
             <span className="text-yellow-400">Score: {roomData?.players?.[user.uid]?.score || 0}</span>
         </div>
-        <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10">
+        <div className="w-full bg-slate-800 h-4 rounded-full mb-6 overflow-hidden border border-white/10 z-10">
           <div className="h-full bg-blue-500 transition-all ease-linear" style={{ width: `${(timeLeft/10)*100}%` }}></div>
         </div>
         
-        <div className="bg-white rounded-[2rem] p-6 sm:p-10 text-center shadow-2xl flex-1 flex flex-col animate-slide-up">
+        <div className="bg-white rounded-[2rem] p-6 sm:p-10 text-center shadow-2xl flex-1 flex flex-col animate-slide-up relative z-10">
           <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap flex items-start justify-center gap-3">
              {(q?.type === 'listen-fill' || q?.audioText) && (
                 <button onClick={() => playPremiumAudioSync(q?.audioText || q?.question)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
@@ -1415,7 +1478,8 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
               let btnClass = defaultColors[i%4];
               
               if (answerState) {
-                  if (opt === q.answer) btnClass = 'bg-emerald-500 border-emerald-700 animate-pulse'; 
+                  // Làm nổi bật đáp án đúng
+                  if (opt === q.answer) btnClass = 'bg-emerald-500 border-emerald-700 ring-4 ring-emerald-300 animate-pulse'; 
                   else if (opt === answerState.selected) btnClass = 'bg-rose-500 border-rose-700 opacity-50'; 
                   else btnClass = 'bg-slate-300 border-slate-400 opacity-50'; 
               }
@@ -1432,51 +1496,108 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
     );
   }
 
-  // RENDER INTERMISSION (Bảng Xếp Hạng Nhanh)
+  // RENDER BẢNG ĐIỂM KAHOOT STYLE
   if (arenaState === 'intermission') {
     const playersList = roomData?.players ? Object.values(roomData.players) : [];
     const sortedPlayers = playersList.sort((a, b) => b.score - a.score);
-    const maxScore = Math.max(...sortedPlayers.map(p => p.score), 10);
-    
+    const podiumOrder = [sortedPlayers[1], sortedPlayers[0], sortedPlayers[2]].filter(Boolean); // Thứ tự: 2 - 1 - 3
+    const restPlayers = sortedPlayers.slice(3);
+
     return (
-      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col justify-center relative z-10 pb-24 lg:pb-4">
-          <h2 className="text-4xl font-black text-white text-center mb-8 drop-shadow-lg">Scoreboard</h2>
-          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 sm:p-8 shadow-2xl flex flex-col gap-4">
-              {sortedPlayers.map((p, idx) => (
-                  <div key={idx} className="flex items-center gap-4 animate-slide-up" style={{ animationDelay: `${idx * 0.1}s` }}>
-                      <span className={`text-xl font-black w-6 text-center ${idx === 0 ? 'text-yellow-400' : idx === 1 ? 'text-slate-300' : idx === 2 ? 'text-orange-400' : 'text-slate-500'}`}>{idx + 1}</span>
-                      <img src={p.avatar} className="w-10 h-10 rounded-full bg-slate-700 border-2 border-white/20 shrink-0" />
-                      <div className="flex-1">
-                          <div className="flex justify-between text-white font-bold text-sm mb-1">
-                              <span>{p.name} {p.name === user.name && <span className="text-blue-400">(You)</span>}</span>
-                              <span className="text-yellow-400">{p.score} pts</span>
-                          </div>
-                          <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full transition-all duration-1000 ${p.name === user.name ? 'bg-blue-500' : 'bg-emerald-500'}`} style={{ width: `${(p.score / maxScore) * 100}%` }}></div>
-                          </div>
-                      </div>
-                  </div>
-              ))}
+      <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex flex-col justify-start pt-10 relative z-10 pb-24 lg:pb-4 overflow-y-auto hide-scrollbar">
+          <h2 className="text-4xl sm:text-5xl font-black text-white text-center mb-8 drop-shadow-lg animate-pulse">Top Explorers</h2>
+          
+          {/* KAHOOT PODIUM */}
+          <div className="flex justify-center items-end gap-2 sm:gap-6 mb-10 h-56 mt-4">
+             {podiumOrder.map((p, i) => {
+                 const isRank1 = p === sortedPlayers[0];
+                 const isRank2 = p === sortedPlayers[1];
+                 const isRank3 = p === sortedPlayers[2];
+                 const heightClass = isRank1 ? 'h-48' : isRank2 ? 'h-36' : 'h-28';
+                 const colorClass = isRank1 ? 'from-yellow-400 to-amber-600' : isRank2 ? 'from-slate-300 to-slate-500' : 'from-orange-400 to-orange-700';
+                 
+                 return (
+                     <div key={p.name} className="flex flex-col items-center animate-slide-up" style={{animationDelay: `${i*0.2}s`}}>
+                         <div className="mb-2 relative">
+                             {isRank1 && <Crown className="absolute -top-8 left-1/2 -translate-x-1/2 text-yellow-300 w-10 h-10 animate-bounce"/>}
+                             <img src={p.avatar} className="w-12 h-12 sm:w-16 sm:h-16 rounded-full border-4 border-white/20 bg-slate-800 shadow-xl" />
+                         </div>
+                         <div className={`w-24 sm:w-32 ${heightClass} bg-gradient-to-t ${colorClass} rounded-t-2xl flex flex-col items-center justify-start pt-4 shadow-2xl relative overflow-hidden`}>
+                             <div className="absolute inset-0 bg-white/10 w-full h-1/2 skew-y-12"></div>
+                             <span className="text-white font-black text-3xl drop-shadow-md relative z-10">{isRank1 ? '1' : isRank2 ? '2' : '3'}</span>
+                             <span className="text-white/90 font-bold text-xs sm:text-sm truncate w-full text-center px-1 mt-1 relative z-10">{p.name}</span>
+                             <span className="text-white font-black text-sm sm:text-base mt-1 bg-black/20 px-2 py-0.5 rounded-lg relative z-10">{p.score}</span>
+                         </div>
+                     </div>
+                 )
+             })}
           </div>
-          <p className="text-center text-slate-400 font-bold mt-6 animate-pulse">Get ready for next question...</p>
+
+          {/* DÁNH SÁCH NGƯỜI CHƠI CÒN LẠI */}
+          {restPlayers.length > 0 && (
+             <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 shadow-2xl flex flex-col gap-3">
+                 {restPlayers.map((p, idx) => (
+                     <div key={idx} className="flex items-center gap-4 bg-slate-800/50 p-3 rounded-xl border border-white/5">
+                         <span className="text-lg font-black w-6 text-center text-slate-500">{idx + 4}</span>
+                         <img src={p.avatar} className="w-8 h-8 rounded-full bg-slate-700 border border-white/20 shrink-0" />
+                         <div className="flex-1 flex justify-between text-white font-bold text-sm">
+                             <span>{p.name} {p.name === user.name && <span className="text-blue-400">(You)</span>}</span>
+                             <span className="text-yellow-400">{p.score} pts</span>
+                         </div>
+                     </div>
+                 ))}
+             </div>
+          )}
       </div>
     );
   }
 
-  // RENDER FINISHED (Trao Quà)
+  // RENDER FINISHED VỚI HỆ THỐNG TRAO THƯỞNG CHI TIẾT
   if (arenaState === 'finished') {
+    const playersList = roomData?.players ? Object.values(roomData.players) : [];
+    const sortedPlayers = playersList.sort((a, b) => b.score - a.score);
+    const myRank = sortedPlayers.findIndex(p => p.name === user.name) + 1;
+    
+    // Thuật toán trao thưởng
+    let rewardStars = myRank === 1 ? 100 : myRank === 2 ? 50 : myRank === 3 ? 30 : 10;
+    let rewardBadge = myRank === 1 ? '🏆 Arena Champion' : null;
+
+    const handleClaim = () => {
+        if (updateUser && user) {
+            let newInventory = { ...user.inventory, stars: (user.inventory.stars || 0) + rewardStars };
+            let newBadges = [...(user.badges || [])];
+            
+            if (rewardBadge && !newBadges.includes(rewardBadge)) {
+                newBadges.push(rewardBadge);
+            }
+            updateUser({...user, inventory: newInventory, badges: newBadges});
+        }
+        setArenaState('lobby'); setPin(''); setRoomData(null);
+    };
+
     return (
       <div className="p-4 max-w-4xl mx-auto animate-fade-in w-full h-full flex items-center justify-center relative z-10 pb-24 lg:pb-4">
-        <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-8 sm:p-12 text-center shadow-2xl w-full">
-          <Trophy className="w-24 h-24 text-yellow-400 mx-auto mb-6 animate-bounce" />
-          <h2 className="text-4xl font-black text-white mb-2">Victory!</h2>
-          <p className="text-emerald-400 font-bold text-xl mb-8">You earned +50 Stars!</p>
+        <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 rounded-[3rem] p-8 sm:p-12 text-center shadow-2xl w-full max-w-md">
+          {myRank === 1 ? <Crown className="w-24 h-24 text-yellow-400 mx-auto mb-6 animate-bounce" /> : <Medal className="w-20 h-20 text-slate-300 mx-auto mb-6 animate-pulse" />}
           
-          <button onClick={() => {
-             // Phát thưởng và rời phòng
-             setArenaState('lobby'); setPin(''); setRoomData(null);
-          }} className="w-full sm:w-auto px-8 py-4 bg-emerald-500 text-white font-black rounded-xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
-            CLAIM REWARD & LEAVE
+          <h2 className="text-4xl font-black text-white mb-2">Rank {myRank}!</h2>
+          <p className="text-slate-400 font-bold mb-6">Trận đấu đã kết thúc.</p>
+          
+          <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 mb-8 flex flex-col gap-3">
+             <div className="flex items-center justify-between font-bold text-lg text-white">
+                <span>Phần thưởng Sao:</span>
+                <span className="text-yellow-400 flex items-center gap-1">+{rewardStars} <Star className="w-4 h-4 fill-yellow-400"/></span>
+             </div>
+             {rewardBadge && (
+                <div className="flex items-center justify-between font-bold text-lg text-white pt-3 border-t border-white/10">
+                   <span>Huy hiệu:</span>
+                   <span className="text-emerald-400 text-sm bg-emerald-900/30 px-2 py-1 rounded-lg border border-emerald-500/30">{rewardBadge}</span>
+                </div>
+             )}
+          </div>
+          
+          <button onClick={handleClaim} className="w-full px-8 py-4 bg-emerald-500 text-white font-black text-xl rounded-2xl border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
+            NHẬN THƯỞNG VÀ RỜI PHÒNG
           </button>
         </div>
       </div>
@@ -1575,7 +1696,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
       return textsSet;
   };
 
-  const handlePushAndBuild = async () => {
+const handlePushAndBuild = async () => {
     setIsPushing(true); setPushMsg({ type: '', text: 'Đang xử lý...' });
     try {
       if (!jsonInput.trim()) throw new Error("JSON data is empty!");
@@ -1612,7 +1733,9 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   if(!currentText || typeof currentText !== 'string') continue;
                   
                   const cleanText = currentText.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-                  const voiceName = getSmartVoiceForText(cleanText); 
+                  
+                  // TRUYỀN INDEX VÀO ĐỂ LUÂN PHIÊN NAM/NỮ
+                  const voiceName = getSmartVoiceForText(cleanText, i); 
                   const safeId = generateSafeId(cleanText) + `_${GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0}`;
                   
                   currentValidHashIds.push(safeId);
@@ -1630,15 +1753,23 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
                       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
                   });
+                  
+                  // BẮT LỖI TỪ GOOGLE ĐỂ HIỂN THỊ LÊN MÀN HÌNH
                   if (response.ok) {
                       const data = await response.json();
                       if (data.audioContent) {
                           await setDoc(docRef, { text: cleanText, voice: voiceName, audioBase64: data.audioContent, sourceDoc: docId, createdAt: Date.now() });
                           successCount++;
                       }
+                  } else {
+                      const errorData = await response.json();
+                      throw new Error(`Google API: ${errorData?.error?.message || "Lỗi không xác định"}`);
                   }
                   await new Promise(r => setTimeout(r, 800)); 
-              } catch (err) {}
+              } catch (err) {
+                  // Dừng vòng lặp và ném lỗi ra ngoài để Admin biết API Key sai chỗ nào
+                  throw err; 
+              }
               setPushMsg({ type: 'success', text: `Đang tạo Audio: ${i + 1}/${textsArray.length}...` });
           }
 
@@ -1660,7 +1791,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
 
     } catch (error) {
       if (error instanceof SyntaxError) setPushMsg({ type: 'error', text: `❌ Lỗi: Sai định dạng JSON.` });
-      else setPushMsg({ type: 'error', text: `❌ Lỗi: ${error.message}` });
+      else setPushMsg({ type: 'error', text: `❌ ${error.message}` });
     } finally { setIsPushing(false); }
   };
 
@@ -1938,7 +2069,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       case 'practice': 
           if (!selectedGrade) return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('practice'); }} />;
           return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => { setPracticeCategory(cat); setCurrentView('listSelector'); }} />;
-      case 'arena': return <RealtimeArenaView user={user} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
+     case 'arena': return <RealtimeArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
       case 'profile': return <ProfileShopView user={user} updateUser={updateUser} showToast={showToast} />;
       case 'listSelector':
           let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
