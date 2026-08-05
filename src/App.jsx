@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  MapPin, Star, Lock, ChevronLeft, CheckCircle, Check,
+  MapPin, Star, Lock, ChevronLeft, CheckCircle, Check, 
   Volume2, Trophy, Zap, Play, Users, X, User, Shield, 
   ArrowRight, Globe, MessageCircle, Mic, Compass, Rocket, 
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
@@ -40,7 +40,7 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH LÕI WEBAUDIO API (VƯỢT RÀO IOS SAFARI 100%)
+// ĐỘNG CƠ ÂM THANH LÕI WEBAUDIO API
 // ============================================================================
 let audioCtx = null;
 const audioCache = new Map(); 
@@ -333,7 +333,6 @@ const evaluateSpeech = (transcript, target) => {
   
   return { pass: false, msg: `Try again! Remember to speak clearly.` };
 };
-
 // ĐỒNG BỘ USER AN TOÀN (BẢO MẬT ADMIN 100%)
 const syncUserWithDb = async (googleUser) => {
   const defaultInventory = { stars: 0, flames: 0, lives: 5, freeRefillUsed: false };
@@ -351,7 +350,6 @@ const syncUserWithDb = async (googleUser) => {
 
     if (userSnap.exists()) {
       const data = userSnap.data();
-      // KHÔNG HARDCODE EMAIL NỮA. CHỈ TIN TƯỞNG ROLE TRÊN FIRESTORE
       const finalRole = data?.role || "student"; 
       let streak = data?.streak || 0;
       let lastLogin = data?.lastLogin || "";
@@ -435,12 +433,11 @@ const TopMetricsBar = ({ user }) => (
   </div>
 );
 
-// TÍNH NĂNG MỚI: HỒ SƠ & CỬA HÀNG
 const ProfileShopView = ({ user, updateUser, showToast }) => {
   const currentStars = user?.inventory?.stars || 0;
   const currentLives = user?.inventory?.lives || 0;
   const level = Math.floor(currentStars / 50) + 1;
-  const progressToNext = (currentStars % 50) * 2; // % tới level tiếp theo
+  const progressToNext = (currentStars % 50) * 2; 
 
   const buyItem = (type, cost, value) => {
      if (currentStars >= cost) {
@@ -457,7 +454,6 @@ const ProfileShopView = ({ user, updateUser, showToast }) => {
   return (
     <div className="p-4 md:p-8 max-w-4xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
       
-      {/* Thẻ Hồ Sơ */}
       <div className="bg-slate-900/80 backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 shadow-2xl mb-6">
         <div className="flex items-center gap-6 mb-6">
            <img src={user?.avatar} className="w-24 h-24 rounded-full border-4 border-emerald-400 bg-slate-800 shadow-[0_0_20px_rgba(52,211,153,0.3)]"/>
@@ -472,7 +468,6 @@ const ProfileShopView = ({ user, updateUser, showToast }) => {
         <p className="text-right text-xs text-slate-400 font-bold">{progressToNext}% to Level {level+1}</p>
       </div>
 
-      {/* Cửa hàng */}
       <h3 className="text-2xl font-black text-white mb-4 flex items-center gap-2"><Store className="text-purple-400"/> Item Shop</h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div className="bg-gradient-to-br from-rose-500/20 to-pink-600/20 border border-rose-500/30 rounded-3xl p-6 flex flex-col items-center text-center hover:bg-rose-500/30 transition-colors">
@@ -492,7 +487,6 @@ const ProfileShopView = ({ user, updateUser, showToast }) => {
               </button>
           </div>
       </div>
-
     </div>
   );
 };
@@ -967,7 +961,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     </div>
   );
 };
-
 const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
   const theme = MAP_THEMES[unit?.theme] || MAP_THEMES.ocean;
   const isUnitCompleted = user?.completedUnits?.includes(unit?.id);
@@ -1492,7 +1485,6 @@ const RealtimeArenaView = ({ user, selectedGrade }) => {
 
   return null;
 };
-
 // ============================================================================
 // ADMIN PANEL
 // ============================================================================
@@ -1857,7 +1849,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   
-useEffect(() => {
+  useEffect(() => {
     document.documentElement.lang = "en";
     document.documentElement.setAttribute('translate', 'no');
     if (!document.querySelector('meta[name="google"]')) {
@@ -1869,8 +1861,7 @@ useEffect(() => {
     metaViewport.name = "viewport"; metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
     document.head.appendChild(metaViewport);
     
-    // XÓA HOẶC COMMENT DÒNG DƯỚI ĐÂY NẾU BẠN CHƯA ĐỊNH NGHĨA HÀM NÀY
-    //runAudioGarbageCollector(); 
+    // Đã xóa hoàn toàn hàm runAudioGarbageCollector(); lỗi.
   }, []);
 
   useEffect(() => {
