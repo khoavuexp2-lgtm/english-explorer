@@ -37,11 +37,10 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ CROWD-SOURCING & AUDIO HACK TRỊ LỖI IPHONE SAFARI (CHUẨN CLAUDE)
+// ĐỘNG CƠ ÂM THANH: PRELOAD RAM & SYNCHRONOUS PLAY (TRỊ DỨT ĐIỂM IPHONE)
 // ============================================================================
 const globalAudioPlayer = new Audio();
-const audioCache = new Map(); // Lưu trữ Blob URL thay vì Data URI dài
-const pendingTTS = new Set();
+const audioCache = new Map(); // Lưu Base64 nội bộ trên RAM
 let isAudioUnlocked = false;
 
 // Âm thanh im lặng (WAV) để hack quyền Autoplay của Apple
@@ -50,18 +49,12 @@ const SILENT_AUDIO = 'data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8A
 // Hàm mở khóa hệ thống chung ở lần chạm đầu tiên
 const unlockAudioEngine = () => {
     if (isAudioUnlocked) return;
-    
     globalAudioPlayer.src = SILENT_AUDIO;
-    globalAudioPlayer.play().then(() => {
-        isAudioUnlocked = true;
-    }).catch(() => {});
-    
+    globalAudioPlayer.play().then(() => { isAudioUnlocked = true; }).catch(() => {});
     if ('speechSynthesis' in window) {
         const u = new SpeechSynthesisUtterance('');
-        u.volume = 0;
-        window.speechSynthesis.speak(u);
+        u.volume = 0; window.speechSynthesis.speak(u);
     }
-    
     document.removeEventListener('touchstart', unlockAudioEngine);
     document.removeEventListener('click', unlockAudioEngine);
 };
@@ -70,12 +63,6 @@ if (typeof document !== 'undefined') {
     document.addEventListener('touchstart', unlockAudioEngine, { passive: true });
     document.addEventListener('click', unlockAudioEngine, { passive: true });
 }
-
-const GCLOUD_VOICES = [
-  "en-US-Neural2-A", "en-US-Neural2-C", "en-US-Neural2-D", "en-US-Neural2-E", 
-  "en-US-Neural2-F", "en-US-Neural2-H", "en-US-Neural2-I", "en-US-Neural2-J"
-];
-const FREE_VOICES = ["en-US", "en-GB", "en-AU", "en-IN"];
 
 let premiumVoices = [];
 let fallbackEnglishVoices = [];
@@ -102,71 +89,52 @@ const generateSafeId = (text) => {
   return `${text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}_${Math.abs(hash)}`;
 };
 
-// HÀM CHUYỂN ĐỔI BASE64 SANG BLOB URL (Giúp Safari không bị crash bộ nhớ)
-const base64ToBlobUrl = (base64, mimeType = 'audio/mp3') => {
-    const binary = window.atob(base64);
-    const array = new Uint8Array(binary.length);
-    for(let i=0; i<binary.length; i++) array[i] = binary.charCodeAt(i);
-    const blob = new Blob([array], {type: mimeType});
-    return URL.createObjectURL(blob);
+// THUẬT TOÁN NHẬN DIỆN GIỚI TÍNH ĐỂ CHỌN GIỌNG PHÙ HỢP
+const getSmartVoiceForText = (text) => {
+    const lowerText = text.toLowerCase();
+    // Keywords nhận diện Nam giới
+    const isMale = /\b(he|his|him|boy|man|father|dad|brother|uncle|peter|nam|tom|david|tony|john)\b/.test(lowerText);
+    // Keywords nhận diện Nữ giới
+    const isFemale = /\b(she|her|girl|woman|mother|mom|sister|aunt|mary|linda|hoa|lan|helen|mai)\b/.test(lowerText);
+    
+    // Google Cloud Neural2 Voices
+    // en-US-Neural2-D: Giọng Nam chuẩn, rõ ràng.
+    // en-US-Neural2-F: Giọng Nữ nhẹ nhàng, giống trẻ em/cô giáo.
+    
+    if (isMale && !isFemale) return "en-US-Neural2-D";
+    if (isFemale) return "en-US-Neural2-F";
+    
+    // Mặc định trả về giọng Nữ dễ nghe nếu không có dấu hiệu giới tính
+    return "en-US-Neural2-F";
 };
 
-// HỆ THỐNG PRELOAD
-const preloadAndCacheTTS = async (text, index = 0) => {
+// ============================================================================
+// HÀM PRELOAD TỪ FIREBASE VÀO RAM CỦA HỌC SINH (KHI MỞ BÀI)
+// ============================================================================
+const loadAudioToRAM = async (text) => {
     if (!text || !db) return;
     const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-    const safeId = generateSafeId(cleanText) + `_${index % GCLOUD_VOICES.length}`;
+    const safeId = generateSafeId(cleanText);
 
-    if (audioCache.has(safeId) || pendingTTS.has(safeId)) return;
-    pendingTTS.add(safeId);
+    if (audioCache.has(safeId)) return; // Đã có trong RAM thì thôi
 
     try {
         const docRef = doc(db, "audio_cache", safeId);
         const snap = await getDoc(docRef);
         
         if (snap.exists()) {
-            const blobUrl = base64ToBlobUrl(snap.data().audioBase64);
-            audioCache.set(safeId, blobUrl);
-            return;
+            const base64Data = snap.data().audioBase64;
+            // Lưu Data URI vào RAM để chích thẳng vào Loa
+            audioCache.set(safeId, `data:audio/mp3;base64,${base64Data}`);
         }
-
-        let apiKey = ""; 
-        try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
-        if (!apiKey) return;
-
-        const voiceName = GCLOUD_VOICES[index % GCLOUD_VOICES.length];
-        const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
-        
-        const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
-        });
-        
-        if (res.ok) {
-            const data = await res.json();
-            if (data.audioContent) {
-                const blobUrl = base64ToBlobUrl(data.audioContent);
-                audioCache.set(safeId, blobUrl);
-                await setDoc(docRef, { text: cleanText, audioBase64: data.audioContent, createdAt: Date.now() });
-            }
-        }
-    } catch (err) { console.warn("Preload Error:", err); }
-};
-
-const runAudioGarbageCollector = async () => {
-    if (!db) return;
-    try {
-        const sixHoursAgo = Date.now() - (6 * 60 * 60 * 1000);
-        const q = query(collection(db, "audio_cache"), where("createdAt", "<", sixHoursAgo));
-        const snapshot = await getDocs(q);
-        snapshot.forEach(docSnap => { deleteDoc(doc(db, "audio_cache", docSnap.id)).catch(()=>{}); });
-    } catch (e) {}
+    } catch (err) { console.warn("Lỗi Preload từ Firebase:", err); }
 };
 
 // ============================================================================
-// HỆ THỐNG PHÁT ÂM THANH
+// HỆ THỐNG PHÁT ÂM THANH CHO HỌC SINH (SYNCHRONOUS 100% ĐỂ TRỊ IPHONE)
 // ============================================================================
 let fallbackTimeout = null;
-const playSystemAudio = (text, index = 0) => { 
+const playSystemAudio = (text) => { 
   if ('speechSynthesis' in window) {
     if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
     clearTimeout(fallbackTimeout);
@@ -176,74 +144,46 @@ const playSystemAudio = (text, index = 0) => {
         let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
         const utterance = new SpeechSynthesisUtterance(speakText);
         utterance.lang = 'en-US'; utterance.rate = 0.85;
-        if (premiumVoices.length > 0) utterance.voice = premiumVoices[index % premiumVoices.length];
-        else if (fallbackEnglishVoices.length > 0) utterance.voice = fallbackEnglishVoices[index % fallbackEnglishVoices.length];
+        
+        // Tự động phân luồng giọng hệ thống dựa trên giới tính
+        const voiceType = getSmartVoiceForText(speakText);
+        const isMaleTarget = voiceType === "en-US-Neural2-D";
+        
+        let selectedVoice = null;
+        if (premiumVoices.length > 0) {
+            // Tìm giọng Nam/Nữ tương ứng nếu có
+            if (isMaleTarget) selectedVoice = premiumVoices.find(v => v.name.includes('Daniel') || v.name.includes('Male')) || premiumVoices[0];
+            else selectedVoice = premiumVoices.find(v => v.name.includes('Samantha') || v.name.includes('Female')) || premiumVoices[0];
+        } else if (fallbackEnglishVoices.length > 0) {
+            selectedVoice = fallbackEnglishVoices[0];
+        }
+        
+        if (selectedVoice) utterance.voice = selectedVoice;
         window.speechSynthesis.speak(utterance);
     }, 50); 
   }
 };
 
-const playPremiumAudioSync = async (text, index = 0) => {
+const playPremiumAudioSync = (text) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-  const safeId = generateSafeId(cleanText) + `_${index % GCLOUD_VOICES.length}`;
+  const safeId = generateSafeId(cleanText);
 
-  // 1. TRICK QUAN TRỌNG NHẤT: Bắt buộc gọi play() đồng bộ (Synchronous) ngay tại đây
-  // Việc này "mở khóa" thẻ audio trong phiên làm việc hiện tại của Safari
+  // 1. TRICK QUAN TRỌNG: Gọi play() đồng bộ (Synchronous) ngay lập tức
   globalAudioPlayer.src = SILENT_AUDIO;
   globalAudioPlayer.play().catch(() => {});
 
-  // 2. Nếu đã có trong RAM (Blob URL), phát luôn
+  // 2. Lấy Audio từ RAM (Đã được preload khi mở Modal)
   if (audioCache.has(safeId)) {
       globalAudioPlayer.src = audioCache.get(safeId);
-      // Phát lần 2, Safari vẫn cho phép vì ở Bước 1 thẻ Audio đã được kích hoạt
-      globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, index));
+      // Phát lần 2 ngay lập tức. Safari không chặn vì lệnh Play số 1 đã mở khóa.
+      globalAudioPlayer.play().catch(() => playSystemAudio(cleanText));
       return;
   }
 
-  // 3. Nếu chưa có, gọi API bất đồng bộ
-  let apiKey = ""; 
-  try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
-
-  if (apiKey) {
-      const voiceName = GCLOUD_VOICES[index % GCLOUD_VOICES.length];
-      const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
-      try {
-          const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
-          });
-          if (res.ok) {
-              const data = await res.json();
-              if (data.audioContent) {
-                  // Chuyển Base64 sang Blob để Safari không bị tràn bộ nhớ
-                  const blobUrl = base64ToBlobUrl(data.audioContent);
-                  audioCache.set(safeId, blobUrl); 
-                  
-                  // Gán src mới và Play. Sẽ không bị Safari chặn nữa.
-                  globalAudioPlayer.src = blobUrl;
-                  globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, index));
-                  
-                  if (db && !pendingTTS.has(safeId)) {
-                      pendingTTS.add(safeId);
-                      setDoc(doc(db, "audio_cache", safeId), { text: cleanText, audioBase64: data.audioContent, createdAt: Date.now() }).catch(()=>{});
-                  }
-                  return;
-              }
-          }
-      } catch (err) { console.warn("Google TTS Error, fallback to native"); }
-  } else {
-      // Dùng URL Google Translate nếu không có API Key
-      const freeLang = FREE_VOICES[index % FREE_VOICES.length];
-      const fallbackUrl = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanText)}&tl=${freeLang}&client=tw-ob`;
-      audioCache.set(safeId, fallbackUrl);
-      globalAudioPlayer.src = fallbackUrl;
-      globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, index));
-      return;
-  }
-
-  playSystemAudio(cleanText, index);
+  // 3. Nếu mạng chậm chưa kịp Preload xong, lập tức dùng Siri đọc
+  playSystemAudio(cleanText);
 };
-
 
 // ============================================================================
 // HÀM TIỆN ÍCH GAME
@@ -417,6 +357,9 @@ const MAP_THEMES = {
   forest: { bg: "from-[#14532d] to-[#064e3b]", vehicle: "🚙", pathColor: "rgba(255,255,255,0.3)" }
 };
 
+// ============================================================================
+// COMPONENTS
+// ============================================================================
 const TopMetricsBar = ({ user }) => (
   <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-3 sm:p-4 flex justify-between items-center z-40 relative shadow-lg shrink-0">
     <div className="flex gap-2 sm:gap-3">
@@ -538,7 +481,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -564,11 +506,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
        setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setAudioUrl(null);
        setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
 
+       // THUẬT TOÁN KÍCH HOẠT PRELOAD NGẦM KHI BẮT ĐẦU BÀI HỌC VÀO RAM
        shuffled.forEach((q, idx) => {
-           preloadAndCacheTTS(q.audioText || q.targetText || q.question, idx);
-           if (q.options) q.options.forEach(opt => preloadAndCacheTTS(opt, idx));
-           if (q.words) q.words.forEach(w => preloadAndCacheTTS(w, idx));
-           if (q.answer) preloadAndCacheTTS(q.answer, idx);
+           loadAudioToRAM(q.audioText || q.targetText || q.question);
+           if (q.options) q.options.forEach(opt => loadAudioToRAM(opt));
+           if (q.words) q.words.forEach(w => loadAudioToRAM(w));
+           if (q.answer) loadAudioToRAM(q.answer);
        });
     }
   }, [station, sessionData, isOpen, retryTrigger]);
@@ -581,7 +524,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   useEffect(() => {
     if (status === 'correct' && qData?.type === 'order') {
-        playPremiumAudioSync(qData.answer, qIndex);
+        playPremiumAudioSync(qData.answer);
     }
   }, [status, qData, qIndex]);
 
@@ -622,12 +565,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
-  const handleMainAudioClick = async () => {
+  const handleMainAudioClick = () => {
      const textToSpeak = qData.audioText || qData.targetText || qData.question;
      if (textToSpeak) {
-         setIsAudioLoading(true);
-         await playPremiumAudioSync(textToSpeak, qIndex);
-         setIsAudioLoading(false);
+         playPremiumAudioSync(textToSpeak);
      }
   };
 
@@ -645,14 +586,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             
-            let options = {};
-            if (MediaRecorder.isTypeSupported('audio/mp4')) {
-                options = { mimeType: 'audio/mp4' };
-            } else if (MediaRecorder.isTypeSupported('audio/webm')) {
-                options = { mimeType: 'audio/webm' };
-            }
-
-            const mediaRecorder = new MediaRecorder(stream, options);
+            // IOS FIX: Tránh đặt MimeType và Timeslice để iOS thu nguyên khối
+            const mediaRecorder = new MediaRecorder(stream);
             mediaRecorderRef.current = mediaRecorder;
             
             mediaRecorder.ondataavailable = (e) => { 
@@ -660,14 +595,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
             };
             
             mediaRecorder.onstop = () => {
-                const mimeType = mediaRecorder.mimeType || options.mimeType || 'audio/mp4';
+                const mimeType = mediaRecorder.mimeType || 'audio/mp4';
                 const audioBlob = new Blob(audioChunksRef.current, { type: mimeType }); 
                 const url = URL.createObjectURL(audioBlob);
                 setAudioUrl(url); 
                 stream.getTracks().forEach(track => track.stop());
             };
             
-            mediaRecorder.start(250); 
+            mediaRecorder.start(); 
             recognitionRef.current?.start(); 
             setIsListening(true); 
         } catch (err) {
@@ -692,7 +627,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudioSync(opt, qIndex); };
+  const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudioSync(opt); };
 
   const handleCheck = () => {
     let isCorrect = false;
@@ -710,7 +645,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
   const handleOrderWord = (w) => {
     if (orderedWords.includes(w)) setOrderedWords(orderedWords.filter(x => x !== w));
-    else { setOrderedWords([...orderedWords, w]); playPremiumAudioSync(w, qIndex); }
+    else { setOrderedWords([...orderedWords, w]); playPremiumAudioSync(w); }
   };
 
   const handleContinue = () => {
@@ -817,8 +752,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
           {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            <button onClick={handleMainAudioClick} disabled={isAudioLoading} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md disabled:opacity-70">
-               {isAudioLoading ? <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 animate-spin" /> : <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />}
+            <button onClick={handleMainAudioClick} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+               <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />
             </button>
             <span className="pt-0.5">{qData.question}</span>
           </h2>
@@ -1269,7 +1204,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
               <div key={i} className="bg-slate-800 p-4 rounded-2xl flex flex-col items-center animate-pop border border-white/5">
                 <img src={p.avatar} alt={p.name} className="w-16 h-16 rounded-full bg-slate-700 mb-2 border-2 border-white/20"/>
                 <span className="text-white font-bold">{p.name}</span>
-                {p.isHost && <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full mt-1">HOST</span>}
+                {p.isHost && <span className="text-[10px] bg-blue-500 text-white px-2 py-0.5 rounded-full mt-1">HOST</span>}
               </div>
             ))}
             {players.length < 5 && (
@@ -1425,6 +1360,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  const [isAudioGenerating, setIsAudioGenerating] = useState(false); // NEW STATE FOR AUDIO BUILD
 
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
@@ -1502,9 +1438,100 @@ const AdminPanel = ({ currentUser, showToast }) => {
     } finally { setIsPushing(false); }
   };
 
+  const extractAllTextsFromJSON = (obj, textsSet = new Set()) => {
+      if (!obj) return textsSet;
+      if (Array.isArray(obj)) {
+          obj.forEach(item => extractAllTextsFromJSON(item, textsSet));
+      } else if (typeof obj === 'object') {
+          if (obj.type === 'speak') return textsSet; // Không đọc câu hỏi của bài luyện nói
+
+          for (const key in obj) {
+              if (['audioText', 'question', 'answer'].includes(key) && typeof obj[key] === 'string') {
+                  if (obj[key].trim()) textsSet.add(obj[key].trim());
+              } else if (['options', 'words'].includes(key) && Array.isArray(obj[key])) {
+                  obj[key].forEach(val => { if (typeof val === 'string' && val.trim()) textsSet.add(val.trim()); });
+              } else if (typeof obj[key] === 'object') {
+                  extractAllTextsFromJSON(obj[key], textsSet);
+              }
+          }
+      }
+      return textsSet;
+  };
+
+  const handleBuildAudioCache = async () => {
+    if (!jsonInput.trim()) {
+        showToast("Vui lòng dán hoặc tải JSON Data vào khung trước!");
+        return;
+    }
+    
+    let apiKey = ""; 
+    try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
+    
+    if (!apiKey) { 
+        setPushMsg({ type: 'error', text: "❌ Thiếu VITE_GCLOUD_TTS_KEY trong cấu hình Vercel." }); 
+        return; 
+    }
+
+    setIsAudioGenerating(true); setPushMsg({ type: '', text: 'Đang trích xuất nội dung cần đọc...' });
+    
+    try {
+        const parsedData = JSON.parse(jsonInput);
+        const textsSet = extractAllTextsFromJSON(parsedData);
+        const textsArray = Array.from(textsSet);
+        
+        if (textsArray.length === 0) {
+            setPushMsg({ type: 'error', text: "Không tìm thấy text nào cần tạo Audio." });
+            setIsAudioGenerating(false); return;
+        }
+
+        let successCount = 0; let skipCount = 0;
+
+        for (let i = 0; i < textsArray.length; i++) {
+            const currentText = textsArray[i];
+            const cleanText = currentText.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
+            const voiceName = getSmartVoiceForText(cleanText); // CHỌN GIỌNG THÔNG MINH BẰNG AI REGEX
+            const safeId = generateSafeId(cleanText) + `_${GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0}`;
+
+            const docRef = doc(db, "audio_cache", safeId);
+            const docSnap = await getDoc(docRef);
+            
+            if (docSnap.exists()) {
+                skipCount++;
+                continue; // Đã có trên Firebase thì bỏ qua, đỡ tốn API
+            }
+
+            const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
+            
+            try {
+                const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.audioContent) {
+                        await setDoc(docRef, { text: cleanText, voice: voiceName, audioBase64: data.audioContent, createdAt: Date.now() });
+                        successCount++;
+                    }
+                }
+                // Nghỉ 1s giữa mỗi câu để Google Cloud không chặn spam
+                await new Promise(r => setTimeout(r, 1000)); 
+            } catch (err) { console.error(`Lỗi tạo câu: ${cleanText}`, err); }
+            
+            setPushMsg({ type: 'success', text: `Đang tạo Audio: ${i + 1}/${textsArray.length}...` });
+        }
+        
+        setPushMsg({ type: 'success', text: `✅ Hoàn tất! Tạo mới: ${successCount} files. Bỏ qua (đã có): ${skipCount} files.` });
+    } catch (error) { 
+        setPushMsg({ type: 'error', text: `❌ Lỗi Hệ Thống: ${error.message}` }); 
+    } finally { 
+        setIsAudioGenerating(false); 
+    }
+  };
+
   const handleClearAudioCache = async () => {
-    if (!window.confirm("Bạn có chắc muốn dọn sạch toàn bộ Audio đã lưu trên Firebase không? Hành động này sẽ giúp lấy lại 100% dung lượng trống.")) return;
-    setIsPushing(true); setPushMsg({ type: '', text: '' });
+    if (!window.confirm("CẢNH BÁO: Xóa toàn bộ Audio trên Firebase? Bạn sẽ phải Build lại từ đầu để có tiếng.")) return;
+    setIsPushing(true); setPushMsg({ type: '', text: 'Đang dọn dẹp...' });
     try {
         if (!db) throw new Error("Firebase is not connected.");
         const q = collection(db, "audio_cache");
@@ -1516,7 +1543,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
             count++;
         });
         await Promise.all(deletePromises);
-        setPushMsg({ type: 'success', text: `✅ Đã dọn dẹp sạch sẽ ${count} file Audio rác khỏi Firebase!` });
+        setPushMsg({ type: 'success', text: `✅ Đã xóa vĩnh viễn ${count} file Audio rác khỏi Database!` });
     } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi xóa rác: ${error.message}` }); } 
     finally { setIsPushing(false); }
   };
@@ -1559,18 +1586,24 @@ const AdminPanel = ({ currentUser, showToast }) => {
                   placeholder="e.g. 1, r1, f1" className="w-full bg-white border-2 border-blue-300 rounded-xl p-3 font-black text-slate-700 outline-none disabled:bg-slate-200" />
              </div>
              <div className="w-full flex items-end">
-                <button onClick={handlePushData} disabled={isPushing} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
+                <button onClick={handlePushData} disabled={isPushing || isAudioGenerating} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base">
                    {isPushing ? 'PUSHING...' : '🚀 PUSH'}
                 </button>
              </div>
           </div>
           
           <div className="flex gap-4 mb-2">
-             <button onClick={handleFetchData} disabled={isFetchingData || isPushing} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-black py-3 rounded-xl border-b-4 border-slate-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 text-sm sm:text-base">
+             <button onClick={handleFetchData} disabled={isFetchingData || isPushing || isAudioGenerating} className="flex-1 bg-slate-600 hover:bg-slate-500 text-white font-black py-3 rounded-xl border-b-4 border-slate-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 text-sm sm:text-base">
                 📥 1. LẤY DATA SERVER
              </button>
-             <button onClick={handleClearAudioCache} disabled={isFetchingData || isPushing} className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-black py-3 rounded-xl border-b-4 border-rose-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 text-sm sm:text-base flex items-center justify-center gap-2">
-                <Trash2 className="w-4 h-4"/> DỌN RÁC AUDIO
+             
+             {/* NÚT TẠO AUDIO CHUYÊN DỤNG DÀNH CHO ADMIN */}
+             <button onClick={handleBuildAudioCache} disabled={isFetchingData || isPushing || isAudioGenerating} className="flex-1 bg-purple-600 hover:bg-purple-500 text-white font-black py-3 rounded-xl border-b-4 border-purple-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 text-sm sm:text-base flex items-center justify-center gap-2">
+                {isAudioGenerating ? <><Loader2 className="w-4 h-4 animate-spin"/> ĐANG TẠO...</> : '🎧 2. BUILD AUDIO'}
+             </button>
+
+             <button onClick={handleClearAudioCache} disabled={isFetchingData || isPushing || isAudioGenerating} className="flex-1 bg-rose-600 hover:bg-rose-500 text-white font-black py-3 rounded-xl border-b-4 border-rose-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 text-sm sm:text-base flex items-center justify-center gap-2">
+                <Trash2 className="w-4 h-4"/> 3. DỌN RÁC AUDIO
              </button>
           </div>
 
@@ -1644,15 +1677,9 @@ const OnboardingView = () => {
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      if (auth) {
-        await signInWithPopup(auth, provider);
-      } else {
-        setErrorMsg("Firebase Auth is missing. Check your .env config.");
-      }
-    } catch (error) { 
-      console.error("Login failed", error); 
-      setErrorMsg(`Error: ${error.message}`); 
-    }
+      if (auth) await signInWithPopup(auth, provider);
+      else setErrorMsg("Firebase Auth is missing.");
+    } catch (error) { setErrorMsg(`Error: ${error.message}`); }
   };
   return (
     <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-900 animate-fade-in relative overflow-hidden">
@@ -1661,9 +1688,7 @@ const OnboardingView = () => {
         <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-3xl sm:rounded-[2rem] flex items-center justify-center mb-6 sm:mb-8"><Rocket className="w-10 h-10 sm:w-14 sm:h-14 text-white" /></div>
         <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
         <p className="text-slate-400 font-medium text-sm sm:text-lg mb-6 sm:mb-8">Embark on a journey to master English.</p>
-        
         {errorMsg && <div className="w-full p-3 sm:p-4 mb-4 sm:mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-xs sm:text-sm text-left">{errorMsg}</div>}
-        
         <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-3 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-base sm:text-lg transition-transform active:scale-95">
           <Fingerprint className="w-5 h-5 sm:w-6 sm:h-6" /> Login with Google
         </button>
@@ -1686,22 +1711,16 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   useEffect(() => {
     document.documentElement.lang = "en";
     document.documentElement.setAttribute('translate', 'no');
-    
     if (!document.querySelector('meta[name="google"]')) {
-       const meta = document.createElement('meta');
-       meta.name = 'google';
-       meta.content = 'notranslate';
+       const meta = document.createElement('meta'); meta.name = 'google'; meta.content = 'notranslate';
        document.head.appendChild(meta);
     }
     document.body.classList.add('notranslate');
-
     const metaViewport = document.createElement('meta');
-    metaViewport.name = "viewport";
-    metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+    metaViewport.name = "viewport"; metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
     document.head.appendChild(metaViewport);
-
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
-    runAudioGarbageCollector();
+    runAudioGarbageCollector(); // Dọn rác khi mở App
   }, []);
 
   useEffect(() => {
@@ -1711,17 +1730,10 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         try {
           if (!db) throw new Error("Firebase DB not initialized");
           const snap = await getDoc(doc(db, "metadata", `syllabus_${selectedGrade.id}`));
-          if (snap.exists()) {
-             setSyllabusConfig(snap.data());
-          } else {
-             setSyllabusConfig({ units: [], tests: [] });
-          }
-        } catch (e) {
-          console.error(e);
-          setSyllabusConfig({ units: [], tests: [] });
-        } finally {
-          setIsLoadingData(false);
-        }
+          if (snap.exists()) setSyllabusConfig(snap.data());
+          else setSyllabusConfig({ units: [], tests: [] });
+        } catch (e) { setSyllabusConfig({ units: [], tests: [] }); } 
+        finally { setIsLoadingData(false); }
       };
       fetchSyllabus();
     }
@@ -1733,7 +1745,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
          <div className="bg-slate-800 p-8 rounded-3xl text-center border-4 border-rose-500 shadow-2xl max-w-sm w-full">
             <Ban className="w-20 h-20 text-rose-500 mx-auto mb-4 animate-bounce"/> 
             <h1 className="text-3xl font-black mb-2">Account Blocked</h1>
-            <p className="text-slate-400 font-medium mb-6">Your access to Global Explorer has been restricted by the administrator.</p>
             <button onClick={handleLogout} className="px-6 py-3 bg-rose-500 text-white font-bold rounded-xl hover:bg-rose-600 transition-colors">Logout</button>
          </div>
       </div>
@@ -1759,94 +1770,46 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       if(snap.exists()) {
         let data = snap.data();
         if (targetType) {
-            if (data[targetType]) {
-                setCurrentSessionData(data[targetType]);
-                setCurrentView('gameModalOnly');
-            } else {
-                setIsUnderConstruction(true);
-            }
+            if (data[targetType]) { setCurrentSessionData(data[targetType]); setCurrentView('gameModalOnly'); } 
+            else setIsUnderConstruction(true);
         } else {
             setCurrentSessionData(data);
-            if (collectionName === 'units') {
-                setSelectedUnit(unitItem);
-                setCurrentView('map');
-            } else {
-                setCurrentView('gameModalOnly');
-            }
+            if (collectionName === 'units') { setSelectedUnit(unitItem); setCurrentView('map'); } 
+            else setCurrentView('gameModalOnly');
         }
-      } else {
-        setIsUnderConstruction(true);
-      }
-    } catch(err) {
-      console.error(err);
-      setIsUnderConstruction(true);
-    } finally {
-      setIsLoadingData(false);
-    }
+      } else setIsUnderConstruction(true);
+    } catch(err) { setIsUnderConstruction(true); } 
+    finally { setIsLoadingData(false); }
   }
 
   const renderContent = () => {
     if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-lg sm:text-xl">Loading Cloud Data...</h3></div>;
-    
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
       case 'units': return <UnitsView grade={selectedGrade} syllabus={syllabusConfig} onBack={() => setCurrentView('grades')} onSelectUnit={(u) => handleFetchAndPlay('units', 'unit', u)} user={user} />;
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentSessionData} />;
       case 'admin': return <AdminPanel currentUser={user} showToast={showToast} />;
-      
       case 'practice': 
           if (!selectedGrade) return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('practice'); }} />;
-          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => {
-             setPracticeCategory(cat);
-             setCurrentView('listSelector');
-          }} />;
-      
+          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => { setPracticeCategory(cat); setCurrentView('listSelector'); }} />;
       case 'arena': return <ArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
       case 'leaderboard': return <LeaderboardView showToast={showToast} />;
-      
       case 'listSelector':
           let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
           let itemsList = syllabusConfig.units;
-
           if (practiceCategory === 'listening') { icon = Headphones; color = "bg-gradient-to-r from-teal-500 to-emerald-600 border-teal-800"; }
           if (practiceCategory === 'speaking') { icon = Mic; color = "bg-gradient-to-r from-cyan-500 to-blue-600 border-cyan-800"; }
           if (practiceCategory === 'reading') { icon = BookOpen; color = "bg-gradient-to-r from-rose-500 to-pink-600 border-rose-800"; }
           if (practiceCategory === 'extra') { icon = Star; color = "bg-gradient-to-r from-purple-500 to-indigo-600 border-purple-800"; }
-          
-          if (practiceCategory === 'tests') { 
-              icon = Timer; 
-              color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; 
-              itemsList = syllabusConfig.tests;
-          }
-          if (practiceCategory === 'cambridge') { 
-              icon = Medal; 
-              color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; 
-              itemsList = syllabusConfig.units;
-          }
-
-          return <GenericListSelector title={practiceCategory.toUpperCase()} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color}
-              onBack={() => {
-                  setPracticeCategory(null);
-                  setCurrentView('practice');
-              }} 
-              onSelect={(u) => {
-                  if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory);
-                  else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u);
-                  else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u);
-                  else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u);
-              }} 
-          />;
-
+          if (practiceCategory === 'tests') { icon = Timer; color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; itemsList = syllabusConfig.tests; }
+          if (practiceCategory === 'cambridge') { icon = Medal; color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; itemsList = syllabusConfig.units; }
+          return <GenericListSelector title={practiceCategory.toUpperCase()} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color} onBack={() => { setPracticeCategory(null); setCurrentView('practice'); }} onSelect={(u) => { if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory); else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u); else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u); else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u); }} />;
       case 'gameModalOnly':
           return (
              <div className="w-full h-full bg-slate-900 relative">
-               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade.name} - ${practiceCategory}`} onWin={() => {
-                   if(updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + 20}});
-                   setCurrentView(practiceCategory ? 'listSelector' : 'practice');
-               }} />
+               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade.name} - ${practiceCategory}`} onWin={() => { if(updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + 20}}); setCurrentView(practiceCategory ? 'listSelector' : 'practice'); }} />
              </div>
           );
-
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
@@ -1854,17 +1817,14 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   return (
     <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
-      
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[100px] lg:blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[80px] lg:blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
       <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${['map', 'gameModalOnly'].includes(currentView) ? 'hidden lg:flex' : 'flex'}`}>
-        
         <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
-        
         <nav className="flex-1 flex flex-row lg:flex-col gap-1 lg:gap-2 p-1.5 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch w-full">
           {navItems.map(item => (
             <button key={item.id} onClick={() => { setPracticeCategory(null); setCurrentView(item.id); }} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
@@ -1872,12 +1832,8 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
               <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block text-[9px] lg:text-sm' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
           ))}
-          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16">
-            <LogOut className="w-5 h-5 shrink-0" />
-            <span>Logout</span>
-          </button>
+          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16"><LogOut className="w-5 h-5 shrink-0" /><span>Logout</span></button>
         </nav>
-
         <div className="hidden lg:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
             <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
@@ -1903,7 +1859,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         <TopMetricsBar user={user} />
         <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       </div>
-      
       <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
     </div>
   );
