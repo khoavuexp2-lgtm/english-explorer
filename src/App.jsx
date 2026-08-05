@@ -8,7 +8,7 @@ import {
   Dumbbell, Swords, Timer, Medal, Headphones, PenTool, 
   Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
   Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock, SkipForward,
-  Settings, Database, TrendingUp, Filter, Trash2, Key
+  Settings, Database, TrendingUp, Filter, Trash2
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -96,11 +96,11 @@ const initVoices = () => {
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     const voices = window.speechSynthesis.getVoices();
     if (voices.length > 0) {
-      let englishVoices = voices.filter(v => v.lang.startsWith('en'));
+      let englishVoices = voices.filter(v => v.lang?.startsWith('en'));
       fallbackEnglishVoices = englishVoices;
       premiumVoices = englishVoices.filter(v => 
-        v.name.includes('Natural') || v.name.includes('Premium') || 
-        v.name.includes('Google') || v.name.includes('Samantha') || v.name.includes('Daniel')
+        v.name?.includes('Natural') || v.name?.includes('Premium') || 
+        v.name?.includes('Google') || v.name?.includes('Samantha') || v.name?.includes('Daniel')
       );
     }
   }
@@ -110,6 +110,7 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
 }
 
 const generateSafeId = (text) => {
+  if (!text) return 'empty';
   let hash = 0;
   for (let i = 0; i < text.length; i++) { hash = ((hash << 5) - hash) + text.charCodeAt(i); hash |= 0; }
   return `${text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}_${Math.abs(hash)}`;
@@ -142,6 +143,7 @@ const playBase64Audio = async (base64) => {
 };
 
 const getSmartVoiceForText = (text) => {
+    if (!text) return "en-US-Neural2-F";
     const lowerText = text.toLowerCase();
     const isMale = /\b(he|his|him|boy|man|father|dad|brother|uncle|peter|nam|tom|david|tony|john|mr)\b/.test(lowerText);
     const isFemale = /\b(she|her|girl|woman|mother|mom|sister|aunt|mary|linda|hoa|lan|helen|mai|mrs|miss)\b/.test(lowerText);
@@ -186,8 +188,8 @@ const playSystemAudio = (text, isMaleTarget = false) => {
     
     let selectedVoice = null;
     if (premiumVoices.length > 0) {
-        if (isMaleTarget) selectedVoice = premiumVoices.find(v => v.name.includes('Daniel') || v.name.includes('Male')) || premiumVoices[0];
-        else selectedVoice = premiumVoices.find(v => v.name.includes('Samantha') || v.name.includes('Female')) || premiumVoices[0];
+        if (isMaleTarget) selectedVoice = premiumVoices.find(v => v.name?.includes('Daniel') || v.name?.includes('Male')) || premiumVoices[0];
+        else selectedVoice = premiumVoices.find(v => v.name?.includes('Samantha') || v.name?.includes('Female')) || premiumVoices[0];
     } else if (fallbackEnglishVoices.length > 0) {
         selectedVoice = fallbackEnglishVoices[0];
     }
@@ -232,7 +234,7 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   else if (scope === 'Unit 2') targetUnits = ['2'];
   else if (scope === 'Unit 3') targetUnits = ['3'];
   else targetUnits = ['1', '2', '3', '4', '5']; 
-  const gNum = gradeId.replace('g', ''); 
+  const gNum = gradeId?.replace('g', '') || '5'; 
   
   try {
       for (const u of targetUnits) {
@@ -250,11 +252,11 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
                   arraysToCheck.forEach(key => {
                       if (data[key] && Array.isArray(data[key])) {
                           data[key].forEach(q => {
-                              if (q.type === 'speak') return;
-                              if (q.options && q.answer && q.question) {
+                              if (q?.type === 'speak') return;
+                              if (q?.options && q?.answer && q?.question) {
                                   let finalQ = q.question;
                                   let qObj = { ...q, question: finalQ };
-                                  if (q.type === 'listen-fill') qObj.question += `\n[ ${q.textBefore} ___ ${q.textAfter} ]`;
+                                  if (q.type === 'listen-fill') qObj.question += `\n[ ${q.textBefore || ''} ___ ${q.textAfter || ''} ]`;
                                   else if (q.passage) qObj.question = `Read:\n${q.passage}\n\nQ: ${q.question}`;
                                   if (key === 'read' || key === 'reading' || q.passage) readingPool.push(qObj);
                                   else if (key === 'listen' || key === 'listening' || q.audioText) listeningPool.push(qObj);
@@ -269,13 +271,14 @@ const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
       readingPool = readingPool.sort(() => Math.random() - 0.5).slice(0, 2); 
       listeningPool = listeningPool.sort(() => Math.random() - 0.5).slice(0, 3); 
       let finalPool = [...vocabGrammarPool, ...readingPool, ...listeningPool];
-      const uniqueQuestions = Array.from(new Map(finalPool.map(item => [item.question, item])).values());
+      const uniqueQuestions = Array.from(new Map(finalPool.map(item => [item?.question, item])).values());
       return uniqueQuestions.sort(() => Math.random() - 0.5).slice(0, numQs);
   } catch (e) { console.error("Bank fetch error:", e); }
   return [{ question: "Không tìm thấy câu hỏi. Admin vui lòng Push thêm Data!", options: ["OK", "A", "B", "C"], answer: "OK" }];
 };
 
 const evaluateSpeech = (transcript, target) => {
+  if (!transcript || !target) return { pass: false, msg: "Try again!" };
   const normalizeText = (text) => {
     let t = text.toLowerCase();
     t = t.replace(/([0-9])([a-z])/g, '$1 $2').replace(/([a-z])([0-9])/g, '$1 $2');
@@ -314,11 +317,11 @@ const evaluateSpeech = (transcript, target) => {
 
 const syncUserWithDb = async (googleUser) => {
   const defaultInventory = { stars: 0, flames: 0, lives: 5, freeRefillUsed: false };
-  const defaultName = googleUser.displayName || "Explorer";
-  const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
+  const defaultName = googleUser?.displayName || "Explorer";
+  const defaultAvatar = googleUser?.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
   
-  if (!db) {
-     return { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
+  if (!db || !googleUser?.uid) {
+     return { uid: googleUser?.uid || 'temp', name: defaultName, email: googleUser?.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
   }
 
   try {
@@ -328,15 +331,15 @@ const syncUserWithDb = async (googleUser) => {
 
     if (userSnap.exists()) {
       const data = userSnap.data();
-      const finalRole = data.role || "student"; 
-      let streak = data.streak || 0;
-      let lastLogin = data.lastLogin || "";
+      const finalRole = data?.role || "student"; 
+      let streak = data?.streak || 0;
+      let lastLogin = data?.lastLogin || "";
       if (lastLogin !== today) {
          const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
          if (lastLogin === yesterday.toDateString()) streak += 1; else streak = 1;
          await updateDoc(userRef, { streak, lastLogin: today });
       }
-      return { uid: googleUser.uid, ...data, name: data.name || defaultName, avatar: data.avatar || defaultAvatar, role: finalRole, status: data.status || "active", inventory: data.inventory || defaultInventory, completedUnits: data.completedUnits || [], unitProgress: data.unitProgress || {}, streak, lastLogin: today, badges: data.badges || [] };
+      return { uid: googleUser.uid, ...data, name: data?.name || defaultName, avatar: data?.avatar || defaultAvatar, role: finalRole, status: data?.status || "active", inventory: data?.inventory || defaultInventory, completedUnits: data?.completedUnits || [], unitProgress: data?.unitProgress || {}, streak, lastLogin: today, badges: data?.badges || [] };
     } else {
       const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [] };
       await setDoc(userRef, newUser);
@@ -511,6 +514,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
   
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -519,14 +523,14 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   useEffect(() => {
     if (sessionData && isOpen) {
        let fullList = [];
-       if (station && station.type) {
+       if (station && station.type && sessionData) {
            fullList = sessionData[station.type] || [];
        } else if (Array.isArray(sessionData)) {
            fullList = sessionData;
-       } else if (sessionData.questions) {
+       } else if (sessionData && sessionData.questions) {
            fullList = sessionData.questions;
        }
-       if (!Array.isArray(fullList)) fullList = [fullList];
+       if (!Array.isArray(fullList)) fullList = [];
        
        const isLongTest = fullList.length > 10;
        const limit = isLongTest ? fullList.length : Math.min(5, fullList.length);
@@ -538,6 +542,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
        setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
 
        shuffled.forEach((q, idx) => {
+           if (!q) return;
            loadAudioToRAM(q.audioText || q.targetText || q.question);
            if (q.options) q.options.forEach(opt => loadAudioToRAM(opt));
            if (q.words) q.words.forEach(w => loadAudioToRAM(w));
@@ -549,11 +554,11 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const qData = sessionQList[qIndex];
 
   useEffect(() => {
-    if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
+    if (qData?.type === 'order' && qData?.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
   }, [qData, qIndex]);
 
   useEffect(() => {
-    if (status === 'correct' && qData?.type === 'order') {
+    if (status === 'correct' && qData?.type === 'order' && qData?.answer) {
         playPremiumAudioSync(qData.answer);
     }
   }, [status, qData, qIndex]);
@@ -595,10 +600,12 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
-  const handleMainAudioClick = () => {
-     const textToSpeak = qData.audioText || qData.targetText || qData.question;
+  const handleMainAudioClick = async () => {
+     const textToSpeak = qData?.audioText || qData?.targetText || qData?.question;
      if (textToSpeak) {
-         playPremiumAudioSync(textToSpeak);
+         setIsAudioLoading(true);
+         await playPremiumAudioSync(textToSpeak);
+         setIsAudioLoading(false);
      }
   };
 
@@ -646,6 +653,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const getCompliment = () => COMPLIMENTS[Math.floor(Math.random() * COMPLIMENTS.length)];
 
   const handleVoiceCheck = (spokenText) => {
+    if (!qData?.targetText) return;
     const evaluation = evaluateSpeech(spokenText, qData.targetText);
     if (evaluation.pass) {
         if (isFirstTry) { setCorrectCount(c => c + 1); rewardStars(2); }
@@ -659,6 +667,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const handleSelectOption = (opt) => { setSelectedOpt(opt); playPremiumAudioSync(opt); };
 
   const handleCheck = () => {
+    if (!qData) return;
     let isCorrect = false;
     if (['multiple-choice', 'listen-fill', 'read'].includes(qData.type)) isCorrect = (selectedOpt === qData.answer);
     else if (qData.type === 'order') isCorrect = (orderedWords.join(" ") === qData.answer);
@@ -686,7 +695,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
       } else setIsStationFinished(true);
     } else { 
         setSelectedOpt(null); setOrderedWords([]); setStatus('playing'); setTranscript(""); 
-        if (qData?.type === 'order' && qData.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
+        if (qData?.type === 'order' && qData?.words) setShuffledWords([...qData.words].sort(() => Math.random() - 0.5));
     }
   };
 
@@ -777,19 +786,19 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
         </div>
 
         <div className="p-3 sm:p-6 flex flex-col gap-3 sm:gap-5 overflow-y-auto flex-1 hide-scrollbar">
-          {qData.image && <img src={qData.image} alt="Visual" onError={(e) => e.target.style.display='none'} className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
-          {qData.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
+          {qData?.image && <img src={qData.image} alt="Visual" onError={(e) => e.target.style.display='none'} className="w-full h-32 sm:h-48 object-cover rounded-xl shadow-md border-2 border-slate-100" />}
+          {qData?.passage && <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-slate-700 font-medium text-xs sm:text-sm shadow-inner max-h-32 overflow-y-auto whitespace-pre-wrap">{qData.passage}</div>}
           
           <h2 className="text-base sm:text-xl font-black text-slate-800 flex items-start gap-2 sm:gap-3 leading-tight">
-            <button onClick={handleMainAudioClick} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
-               <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />
+            <button onClick={handleMainAudioClick} disabled={isAudioLoading} className="p-2 sm:p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md disabled:opacity-70">
+               {isAudioLoading ? <Loader2 className="w-4 h-4 sm:w-6 sm:h-6 animate-spin" /> : <Volume2 className="w-4 h-4 sm:w-6 sm:h-6" />}
             </button>
-            <span className="pt-0.5">{qData.question}</span>
+            <span className="pt-0.5">{qData?.question}</span>
           </h2>
           
-          {qData.type === 'speak' && (
+          {qData?.type === 'speak' && (
             <div className="flex flex-col items-center gap-4 py-2">
-              <div className="text-lg sm:text-2xl font-black text-slate-800 text-center px-2">"{qData.targetText}"</div>
+              <div className="text-lg sm:text-2xl font-black text-slate-800 text-center px-2">"{qData?.targetText}"</div>
               <button onClick={toggleListen} className={`w-16 h-16 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all ${isListening ? 'bg-rose-500 text-white animate-pulse-ring' : 'bg-blue-50 text-blue-600 border-4 border-blue-200 hover:scale-105'}`}>
                 <Mic className={`w-8 h-8 sm:w-10 sm:h-10 ${isListening ? 'animate-bounce' : ''}`} />
               </button>
@@ -811,7 +820,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                          )}
                       </div>
                     ) : (
-                      <p className="text-slate-500 font-medium text-sm">{qData.hint}</p>
+                      <p className="text-slate-500 font-medium text-sm">{qData?.hint}</p>
                     )
                  )}
                  {status === 'playing' && feedbackMsg && <p className="text-rose-500 font-bold text-sm mt-2">{feedbackMsg}</p>}
@@ -819,20 +828,20 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
             </div>
           )}
 
-          {['multiple-choice', 'listen-fill', 'read'].includes(qData.type) && (
+          {['multiple-choice', 'listen-fill', 'read'].includes(qData?.type) && (
             <div className="flex flex-col gap-2">
-              {qData.type === 'listen-fill' && (
-                 <div className="text-sm sm:text-base font-bold text-slate-700 text-center py-2 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl">{qData.textBefore} <span className="inline-block min-w-[50px] sm:min-w-[80px] border-b-4 border-blue-400 mx-1 text-blue-600">{selectedOpt || '...'}</span> {qData.textAfter}</div>
+              {qData?.type === 'listen-fill' && (
+                 <div className="text-sm sm:text-base font-bold text-slate-700 text-center py-2 sm:py-4 bg-slate-50 border-2 border-slate-100 rounded-xl">{qData?.textBefore} <span className="inline-block min-w-[50px] sm:min-w-[80px] border-b-4 border-blue-400 mx-1 text-blue-600">{selectedOpt || '...'}</span> {qData?.textAfter}</div>
               )}
               <div className="grid grid-cols-1 gap-2">
-                {qData.options.map(opt => (
+                {qData?.options?.map(opt => (
                   <button key={opt} onClick={() => handleSelectOption(opt)} disabled={status!=='playing'} className={`p-2.5 sm:p-4 rounded-xl border-b-[3px] sm:border-b-4 font-bold text-sm sm:text-base text-left transition-all ${selectedOpt === opt ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white border-slate-200 text-slate-700 hover:-translate-y-1'}`}>{opt}</button>
                 ))}
               </div>
             </div>
           )}
 
-          {qData.type === 'order' && (
+          {qData?.type === 'order' && (
             <div className="flex flex-col gap-3">
               <div className="min-h-[48px] sm:min-h-[60px] p-2 sm:p-4 border-2 border-dashed border-blue-300 bg-blue-50/50 rounded-xl flex flex-wrap gap-2 items-center">
                 {orderedWords.map((w, i) => <span key={i} onClick={() => handleOrderWord(w)} className="px-2 py-1 sm:px-3 sm:py-2 bg-blue-500 text-white text-xs sm:text-sm font-bold rounded-lg cursor-pointer hover:scale-105">{w}</span>)}
@@ -850,7 +859,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
               <button onClick={handleSkip} className="px-4 py-3 sm:py-4 bg-slate-200 text-slate-500 hover:text-slate-700 font-black rounded-xl active:translate-y-1 hover:bg-slate-300 transition-colors flex items-center justify-center border-b-4 border-slate-300 active:border-b-0 shrink-0" title="Skip Question">
                 <SkipForward className="w-5 h-5 sm:w-6 sm:h-6" />
               </button>
-              {qData.type !== 'speak' && (
+              {qData?.type !== 'speak' && (
                 <button onClick={handleCheck} className="flex-1 py-3 sm:py-4 bg-blue-500 text-white font-black rounded-xl border-b-4 border-blue-700 active:translate-y-1 active:border-b-0 hover:bg-blue-400 text-sm sm:text-base">
                   CHECK ANSWER
                 </button>
@@ -905,7 +914,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
       <button onClick={onBack} className="absolute top-6 left-6 sm:top-8 sm:left-8 z-50 p-2 sm:p-3 bg-white/10 backdrop-blur-md rounded-2xl text-white hover:bg-white/20 border border-white/20 shadow-xl"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
       <div className={`relative w-full flex-1 rounded-[2rem] sm:rounded-[2.5rem] overflow-hidden shadow-2xl border-[4px] sm:border-[6px] border-white/10 bg-gradient-to-tr ${theme.bg}`}>
         <div className="absolute top-4 sm:top-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/80 backdrop-blur-xl px-4 py-1.5 sm:px-6 sm:py-2 rounded-2xl border border-white/10 shadow-2xl whitespace-nowrap">
-          <span className="text-white font-black tracking-widest text-[10px] sm:text-sm uppercase">{grade.name} • {unit.name}</span>
+          <span className="text-white font-black tracking-widest text-[10px] sm:text-sm uppercase">{grade?.name || 'Grade'} • {unit?.name || 'Unit'}</span>
         </div>
         <svg className="absolute inset-0 w-full h-full pointer-events-none z-10" preserveAspectRatio="none" viewBox="0 0 100 100">
            <path d={pathD} fill="transparent" stroke={theme.pathColor} strokeWidth="2.5" strokeDasharray="4 6" strokeLinecap="round" />
@@ -931,22 +940,22 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
         })}
       </div>
       
-      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit?.name} - ${activeGame?.label}`} onWin={() => {
+      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit?.name || 'Unit'} - ${activeGame?.label || 'Game'}`} onWin={() => {
         setActiveGame(null);
         let newStars = (user?.inventory?.stars ?? 0) + 15;
         if (currentStationIdx < nodes.length - 1) {
             const nextIdx = currentStationIdx + 1;
             if(!isUnitCompleted) setCurrentStationIdx(nextIdx); 
-            if (updateUser && user && !isUnitCompleted) {
-               updateUser({...user, inventory: {...user.inventory, stars: newStars}, unitProgress: {...(user.unitProgress || {}), [unit?.id]: nextIdx}});
+            if (updateUser && user && !isUnitCompleted && unit?.id) {
+               updateUser({...user, inventory: {...user.inventory, stars: newStars}, unitProgress: {...(user.unitProgress || {}), [unit.id]: nextIdx}});
             } else if (updateUser && user) {
                updateUser({...user, inventory: {...user.inventory, stars: newStars}});
             }
         } else {
-           if (updateUser && user) {
+           if (updateUser && user && unit?.id) {
                let finalStars = newStars + (isUnitCompleted ? 0 : 35); 
-               let newCompleted = [...new Set([...(user.completedUnits || []), unit?.id])];
-               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted, unitProgress: {...(user.unitProgress || {}), [unit?.id]: nodes.length - 1}});
+               let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
+               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted, unitProgress: {...(user.unitProgress || {}), [unit.id]: nodes.length - 1}});
            }
         }
       }} />
@@ -958,7 +967,7 @@ const GenericListSelector = ({ title, grade, items, onBack, onSelect, icon: Icon
   <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
     <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
       <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
-      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} - {title}</h2></div>
+      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade?.name || 'Grade'} - {title}</h2></div>
     </div>
     <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
       {items && items.length > 0 ? items.map(item => (
@@ -982,14 +991,14 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
   <div className="w-full max-w-4xl mx-auto py-6 px-4 sm:py-8 sm:px-4 animate-fade-in h-full flex flex-col z-10 relative">
     <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8 shrink-0">
       <button onClick={onBack} className="p-2 sm:p-3 bg-white/10 rounded-xl sm:rounded-2xl text-white border border-white/20 hover:bg-white/20 transition-colors"><ChevronLeft className="w-5 h-5 sm:w-6 sm:h-6" /></button>
-      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade.name} Journey</h2></div>
+      <div><h2 className="text-xl sm:text-3xl font-black text-white drop-shadow-md">{grade?.name || 'Grade'} Journey</h2></div>
     </div>
     <div className="flex-1 overflow-y-auto flex flex-col gap-3 sm:gap-4 pb-24 sm:pb-20 hide-scrollbar">
       {syllabus?.units && syllabus.units.length > 0 ? syllabus.units.map(unit => {
-        const isCompleted = user?.completedUnits?.includes(unit.id);
-        const progress = user?.unitProgress?.[unit.id] || 0;
+        const isCompleted = user?.completedUnits?.includes(unit?.id);
+        const progress = user?.unitProgress?.[unit?.id] || 0;
         return (
-        <button key={unit.id} onClick={() => onSelectUnit(unit)} 
+        <button key={unit?.id} onClick={() => onSelectUnit(unit)} 
           className={`relative flex items-center p-3 sm:p-5 rounded-2xl sm:rounded-[2rem] border-b-[4px] sm:border-b-[6px] w-full text-left transition-transform active:translate-y-1 active:border-b-0
           ${isCompleted ? 'bg-emerald-500 border-emerald-700 text-white shadow-xl hover:brightness-110' :
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
@@ -998,7 +1007,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
             {isCompleted ? <CheckCircle className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
           </div>
           <div className="flex-1">
-            <h3 className="text-sm sm:text-xl font-black text-white">{unit.name}: {unit.title}</h3>
+            <h3 className="text-sm sm:text-xl font-black text-white">{unit?.name}: {unit?.title}</h3>
             {isCompleted && <p className="text-[10px] sm:text-sm font-bold text-emerald-200 mt-0.5 sm:mt-1 flex items-center gap-1"><Star className="w-3 h-3 sm:w-4 sm:h-4 fill-emerald-200"/> Mastered</p>}
             {!isCompleted && progress > 0 && <p className="text-[10px] sm:text-sm font-bold text-orange-100 mt-0.5 sm:mt-1 flex items-center gap-1">In Progress (Station {progress + 1}/5)</p>}
           </div>
@@ -1032,7 +1041,7 @@ const GradesView = ({ onSelectGrade }) => (
 const PracticeHub = ({ grade, onSelectCategory }) => (
   <div className="p-4 md:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar relative z-10 pb-24 lg:pb-8">
     <div className="mb-8">
-      <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">{grade.name} Practice Hub</h2>
+      <h2 className="text-4xl font-black text-white drop-shadow-md mb-2">{grade?.name || 'Grade'} Practice Hub</h2>
       <p className="text-slate-400 font-medium text-lg">Master your skills across all domains.</p>
     </div>
     
@@ -1101,7 +1110,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
         const bots = ["Alex_99", "Sarah_Pro", "JohnDoe", "Emma_Star", "Mike_Gamer"];
         setPlayers(prev => {
           if (prev.length >= 5) return prev;
-          return [...prev, { name: bots[prev.length], avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${bots[prev.length]}`, score: 0 }];
+          return [...prev, { name: bots[prev.length], avatar: `https://api.dicebear.com/7.x/adventurer/svg?seed=${bots[prev.length]}` }];
         });
       }, 2000);
       return () => clearInterval(interval);
@@ -1297,7 +1306,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
           <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">Database Challenge - {config.scope}</p>
           <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap flex items-start justify-center gap-3">
              {(q?.type === 'listen-fill' || q?.audioText) && (
-                <button onClick={() => playPremiumAudioSync(q.audioText || q.question, currentQ)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+                <button onClick={() => playPremiumAudioSync(q?.audioText || q?.question, currentQ)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
                    <Volume2 className="w-6 h-6" />
                 </button>
              )}
@@ -1308,7 +1317,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
               const defaultColors = ['bg-rose-500 border-rose-700 hover:bg-rose-400', 'bg-blue-500 border-blue-700 hover:bg-blue-400', 'bg-amber-500 border-amber-700 hover:bg-amber-400', 'bg-emerald-500 border-emerald-700 hover:bg-emerald-400'];
               let btnClass = defaultColors[i%4];
               if (answerState) {
-                  if (opt === q.answer) btnClass = 'bg-emerald-500 border-emerald-700 animate-pulse'; 
+                  if (opt === q?.answer) btnClass = 'bg-emerald-500 border-emerald-700 animate-pulse'; 
                   else if (opt === answerState.selected) btnClass = 'bg-rose-500 border-rose-700 opacity-50'; 
                   else btnClass = 'bg-slate-300 border-slate-400 opacity-50'; 
               }
@@ -1347,7 +1356,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
           </div>
           <button onClick={() => {
              if (!rewardClaimed && updateUser && user) {
-                updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + Math.floor(playerScore/2)}});
+                updateUser({...user, inventory: {...user?.inventory, stars: (user?.inventory?.stars || 0) + Math.floor(playerScore/2)}});
                 setRewardClaimed(true);
              }
              setArenaState('lobby');
@@ -1393,12 +1402,9 @@ const AdminPanel = ({ currentUser, showToast }) => {
   
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
-  
-  // Nơi Admin tự điền API Key nếu Vercel chưa có
   const [ttsKey, setTtsKey] = useState("");
 
   useEffect(() => {
-    // Tự động lấy Key từ Vercel nếu có
     try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) setTtsKey(import.meta.env.VITE_GCLOUD_TTS_KEY); } catch(e){}
   }, []);
 
@@ -1494,7 +1500,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
       await setDoc(doc(db, collectionName, docId), parsedData);
       setPushMsg({ type: 'success', text: `✅ Đã lưu Data. Đang Build Audio & dọn rác...` });
 
-      // LẤY KEY TỪ Ô NHẬP LIỆU ADMIN (Đảm bảo chắc chắn lấy được key)
       const apiKey = ttsKey.trim();
       
       if (apiKey && dataType !== 'syllabus') {
@@ -1535,7 +1540,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
                           successCount++;
                       }
                   }
-                  await new Promise(r => setTimeout(r, 800)); // Giảm thời gian chờ một chút
+                  await new Promise(r => setTimeout(r, 800)); 
               } catch (err) { console.error("Lỗi trong vòng lặp tạo Audio:", err); }
               setPushMsg({ type: 'success', text: `Đang tạo Audio: ${i + 1}/${textsArray.length}...` });
           }
@@ -1596,10 +1601,9 @@ const AdminPanel = ({ currentUser, showToast }) => {
       {activeTab === 'cms' && (
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 flex flex-col gap-4 animate-fade-in">
           
-          {/* Ô Nhập API Key bảo mật cho Admin */}
           <div className="bg-purple-50 p-4 rounded-xl border border-purple-200 flex flex-col sm:flex-row items-start sm:items-center gap-4">
              <div className="flex items-center gap-2 text-purple-800 font-bold shrink-0">
-                <Key className="w-5 h-5"/> Google Cloud TTS Key:
+                <Lock className="w-5 h-5"/> Google Cloud TTS Key:
              </div>
              <input type="password" value={ttsKey} onChange={(e) => setTtsKey(e.target.value)} placeholder="Nhập API Key vào đây (nếu Vercel chưa nhận)..." className="flex-1 bg-white border-2 border-purple-300 rounded-lg px-3 py-2 outline-none focus:border-purple-600 text-sm font-mono w-full" />
           </div>
@@ -1666,7 +1670,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
           <div className="flex justify-between items-center mb-4">
              <h3 className="text-xl font-black text-slate-800">Platform Users</h3>
              <button onClick={fetchUsers} className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded-xl hover:bg-blue-200 transition-colors">
-               <RefreshCcw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
+               <RotateCw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
              </button>
           </div>
           <div className="overflow-x-auto">
@@ -1711,7 +1715,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
 
 const OnboardingView = () => {
   const [errorMsg, setErrorMsg] = useState('');
-  
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -1733,9 +1736,7 @@ const OnboardingView = () => {
         <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-3xl sm:rounded-[2rem] flex items-center justify-center mb-6 sm:mb-8"><Rocket className="w-10 h-10 sm:w-14 sm:h-14 text-white" /></div>
         <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
         <p className="text-slate-400 font-medium text-sm sm:text-lg mb-6 sm:mb-8">Embark on a journey to master English.</p>
-        
         {errorMsg && <div className="w-full p-3 sm:p-4 mb-4 sm:mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-xs sm:text-sm text-left">{errorMsg}</div>}
-        
         <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-3 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-base sm:text-lg transition-transform active:scale-95">
           <Fingerprint className="w-5 h-5 sm:w-6 sm:h-6" /> Login with Google
         </button>
@@ -1758,20 +1759,14 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   useEffect(() => {
     document.documentElement.lang = "en";
     document.documentElement.setAttribute('translate', 'no');
-    
     if (!document.querySelector('meta[name="google"]')) {
-       const meta = document.createElement('meta');
-       meta.name = 'google';
-       meta.content = 'notranslate';
+       const meta = document.createElement('meta'); meta.name = 'google'; meta.content = 'notranslate';
        document.head.appendChild(meta);
     }
     document.body.classList.add('notranslate');
-
     const metaViewport = document.createElement('meta');
-    metaViewport.name = "viewport";
-    metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+    metaViewport.name = "viewport"; metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
     document.head.appendChild(metaViewport);
-
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
     runAudioGarbageCollector();
   }, []);
@@ -1782,18 +1777,11 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         setIsLoadingData(true);
         try {
           if (!db) throw new Error("Firebase DB not initialized");
-          const snap = await getDoc(doc(db, "metadata", `syllabus_${selectedGrade.id}`));
-          if (snap.exists()) {
-             setSyllabusConfig(snap.data());
-          } else {
-             setSyllabusConfig({ units: [], tests: [] });
-          }
-        } catch (e) {
-          console.error(e);
-          setSyllabusConfig({ units: [], tests: [] });
-        } finally {
-          setIsLoadingData(false);
-        }
+          const snap = await getDoc(doc(db, "metadata", `syllabus_${selectedGrade?.id}`));
+          if (snap.exists()) setSyllabusConfig(snap.data());
+          else setSyllabusConfig({ units: [], tests: [] });
+        } catch (e) { setSyllabusConfig({ units: [], tests: [] }); } 
+        finally { setIsLoadingData(false); }
       };
       fetchSyllabus();
     }
@@ -1824,6 +1812,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     setIsLoadingData(true);
     try {
       if(!db) throw new Error("Firebase DB not initialized");
+      if(!selectedGrade?.id || !unitItem?.id) throw new Error("Missing ID");
       const docId = `grade${selectedGrade.id.replace('g', '')}_${docIdPrefix}${unitItem.id.replace('u', '')}`;
       const docRef = doc(db, collectionName, docId);
       const snap = await getDoc(docRef);
@@ -1831,94 +1820,46 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       if(snap.exists()) {
         let data = snap.data();
         if (targetType) {
-            if (data[targetType]) {
-                setCurrentSessionData(data[targetType]);
-                setCurrentView('gameModalOnly');
-            } else {
-                setIsUnderConstruction(true);
-            }
+            if (data[targetType]) { setCurrentSessionData(data[targetType]); setCurrentView('gameModalOnly'); } 
+            else setIsUnderConstruction(true);
         } else {
             setCurrentSessionData(data);
-            if (collectionName === 'units') {
-                setSelectedUnit(unitItem);
-                setCurrentView('map');
-            } else {
-                setCurrentView('gameModalOnly');
-            }
+            if (collectionName === 'units') { setSelectedUnit(unitItem); setCurrentView('map'); } 
+            else setCurrentView('gameModalOnly');
         }
-      } else {
-        setIsUnderConstruction(true);
-      }
-    } catch(err) {
-      console.error(err);
-      setIsUnderConstruction(true);
-    } finally {
-      setIsLoadingData(false);
-    }
+      } else setIsUnderConstruction(true);
+    } catch(err) { setIsUnderConstruction(true); } 
+    finally { setIsLoadingData(false); }
   }
 
   const renderContent = () => {
     if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-lg sm:text-xl">Loading Cloud Data...</h3></div>;
-    
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
       case 'units': return <UnitsView grade={selectedGrade} syllabus={syllabusConfig} onBack={() => setCurrentView('grades')} onSelectUnit={(u) => handleFetchAndPlay('units', 'unit', u)} user={user} />;
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentSessionData} />;
       case 'admin': return <AdminPanel currentUser={user} showToast={showToast} />;
-      
       case 'practice': 
           if (!selectedGrade) return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('practice'); }} />;
-          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => {
-             setPracticeCategory(cat);
-             setCurrentView('listSelector');
-          }} />;
-      
+          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => { setPracticeCategory(cat); setCurrentView('listSelector'); }} />;
       case 'arena': return <ArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
       case 'leaderboard': return <LeaderboardView showToast={showToast} />;
-      
       case 'listSelector':
           let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
-          let itemsList = syllabusConfig.units;
-
+          let itemsList = syllabusConfig?.units || [];
           if (practiceCategory === 'listening') { icon = Headphones; color = "bg-gradient-to-r from-teal-500 to-emerald-600 border-teal-800"; }
           if (practiceCategory === 'speaking') { icon = Mic; color = "bg-gradient-to-r from-cyan-500 to-blue-600 border-cyan-800"; }
           if (practiceCategory === 'reading') { icon = BookOpen; color = "bg-gradient-to-r from-rose-500 to-pink-600 border-rose-800"; }
           if (practiceCategory === 'extra') { icon = Star; color = "bg-gradient-to-r from-purple-500 to-indigo-600 border-purple-800"; }
-          
-          if (practiceCategory === 'tests') { 
-              icon = Timer; 
-              color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; 
-              itemsList = syllabusConfig.tests;
-          }
-          if (practiceCategory === 'cambridge') { 
-              icon = Medal; 
-              color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; 
-              itemsList = syllabusConfig.units;
-          }
-
-          return <GenericListSelector title={practiceCategory.toUpperCase()} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color}
-              onBack={() => {
-                  setPracticeCategory(null);
-                  setCurrentView('practice');
-              }} 
-              onSelect={(u) => {
-                  if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory);
-                  else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u);
-                  else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u);
-                  else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u);
-              }} 
-          />;
-
+          if (practiceCategory === 'tests') { icon = Timer; color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; itemsList = syllabusConfig?.tests || []; }
+          if (practiceCategory === 'cambridge') { icon = Medal; color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; itemsList = syllabusConfig?.units || []; }
+          return <GenericListSelector title={practiceCategory?.toUpperCase() || ''} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color} onBack={() => { setPracticeCategory(null); setCurrentView('practice'); }} onSelect={(u) => { if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory); else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u); else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u); else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u); }} />;
       case 'gameModalOnly':
           return (
              <div className="w-full h-full bg-slate-900 relative">
-               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade.name} - ${practiceCategory}`} onWin={() => {
-                   if(updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + 20}});
-                   setCurrentView(practiceCategory ? 'listSelector' : 'practice');
-               }} />
+               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade?.name || 'Unit'} - ${practiceCategory || 'Practice'}`} onWin={() => { if(updateUser && user) updateUser({...user, inventory: {...user?.inventory, stars: (user?.inventory?.stars || 0) + 20}}); setCurrentView(practiceCategory ? 'listSelector' : 'practice'); }} />
              </div>
           );
-
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
@@ -1926,17 +1867,14 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   return (
     <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
-      
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[100px] lg:blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[80px] lg:blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
       <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${['map', 'gameModalOnly'].includes(currentView) ? 'hidden lg:flex' : 'flex'}`}>
-        
         <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
-        
         <nav className="flex-1 flex flex-row lg:flex-col gap-1 lg:gap-2 p-1.5 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch w-full">
           {navItems.map(item => (
             <button key={item.id} onClick={() => { setPracticeCategory(null); setCurrentView(item.id); }} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
@@ -1944,16 +1882,12 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
               <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block text-[9px] lg:text-sm' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
           ))}
-          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16">
-            <LogOut className="w-5 h-5 shrink-0" />
-            <span>Logout</span>
-          </button>
+          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16"><LogOut className="w-5 h-5 shrink-0" /><span>Logout</span></button>
         </nav>
-
         <div className="hidden lg:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
-            <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
-            <p className={`text-sm font-black leading-snug ${dailyQuote.color}`}>"{dailyQuote.text}"</p>
+            <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote?.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
+            <p className={`text-sm font-black leading-snug ${dailyQuote?.color}`}>"{dailyQuote?.text}"</p>
           </div>
           <div className="text-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 mt-2 flex flex-col items-center">
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Created by</p>
@@ -1975,7 +1909,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         <TopMetricsBar user={user} />
         <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       </div>
-      
       <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
     </div>
   );
