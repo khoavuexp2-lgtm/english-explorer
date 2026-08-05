@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence } from "firebase/auth";
 import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, query, where } from "firebase/firestore";
 
 let firebaseConfig = {};
@@ -280,12 +280,14 @@ const evaluateSpeech = (transcript, target) => {
 };
 
 const syncUserWithDb = async (googleUser) => {
-  if (!db) return null;
   const defaultInventory = { stars: 0, flames: 0, lives: 5, freeRefillUsed: false };
   const defaultName = googleUser.displayName || "Explorer";
   const defaultAvatar = googleUser.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
-  const adminEmails = ["khoavuexp2@gmail.com", "khoavuexp@gmail.com"];
-  const isHardcodedAdmin = adminEmails.includes(googleUser.email);
+  
+  // Tránh lỗi trắng màn hình nếu Firebase lỗi/chưa nạp kịp
+  if (!db) {
+     return { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
+  }
 
   try {
     const userRef = doc(db, "users", googleUser.uid);
@@ -294,24 +296,24 @@ const syncUserWithDb = async (googleUser) => {
 
     if (userSnap.exists()) {
       const data = userSnap.data();
-      const finalRole = isHardcodedAdmin ? "admin" : (data.role || "student");
+      // Bảo mật 100%: Chỉ đọc Role từ DB, xóa bỏ Hardcode Email Admin trong frontend
+      const finalRole = data.role || "student"; 
       let streak = data.streak || 0;
       let lastLogin = data.lastLogin || "";
       if (lastLogin !== today) {
          const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
          if (lastLogin === yesterday.toDateString()) streak += 1; else streak = 1;
-         await updateDoc(userRef, { streak, lastLogin: today, role: finalRole });
-      } else if (isHardcodedAdmin && data.role !== "admin") {
-         await updateDoc(userRef, { role: "admin" });
+         await updateDoc(userRef, { streak, lastLogin: today });
       }
       return { uid: googleUser.uid, ...data, name: data.name || defaultName, avatar: data.avatar || defaultAvatar, role: finalRole, status: data.status || "active", inventory: data.inventory || defaultInventory, completedUnits: data.completedUnits || [], unitProgress: data.unitProgress || {}, streak, lastLogin: today, badges: data.badges || [] };
     } else {
-      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [] };
+      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [] };
       await setDoc(userRef, newUser);
       return newUser;
     }
   } catch (error) {
-    return { uid: googleUser.uid, name: defaultName, role: isHardcodedAdmin ? "admin" : "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
+    console.warn("DB Sync Error:", error);
+    return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
   }
 };
 
@@ -855,9 +857,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 };
 
 const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => {
-  const theme = MAP_THEMES[unit.theme] || MAP_THEMES.ocean;
-  const isUnitCompleted = user?.completedUnits?.includes(unit.id);
-  const savedProgress = isUnitCompleted ? 4 : (user?.unitProgress?.[unit.id] || 0);
+  // Bọc an toàn dữ liệu đầu vào chống Crash trắng màn hình
+  const theme = MAP_THEMES[unit?.theme] || MAP_THEMES.ocean;
+  const isUnitCompleted = user?.completedUnits?.includes(unit?.id);
+  const savedProgress = isUnitCompleted ? 4 : (user?.unitProgress?.[unit?.id] || 0);
   
   const [currentStationIdx, setCurrentStationIdx] = useState(savedProgress); 
   const [activeGame, setActiveGame] = useState(null);
@@ -902,22 +905,22 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
         })}
       </div>
       
-      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit.name} - ${activeGame?.label}`} onWin={() => {
+      <GameModal isOpen={!!activeGame} onClose={() => setActiveGame(null)} station={activeGame} sessionData={currentUnitData} user={user} updateUser={updateUser} titleLabel={`${unit?.name} - ${activeGame?.label}`} onWin={() => {
         setActiveGame(null);
         let newStars = (user?.inventory?.stars ?? 0) + 15;
         if (currentStationIdx < nodes.length - 1) {
             const nextIdx = currentStationIdx + 1;
             if(!isUnitCompleted) setCurrentStationIdx(nextIdx); 
             if (updateUser && user && !isUnitCompleted) {
-               updateUser({...user, inventory: {...user.inventory, stars: newStars}, unitProgress: {...(user.unitProgress || {}), [unit.id]: nextIdx}});
+               updateUser({...user, inventory: {...user.inventory, stars: newStars}, unitProgress: {...(user.unitProgress || {}), [unit?.id]: nextIdx}});
             } else if (updateUser && user) {
                updateUser({...user, inventory: {...user.inventory, stars: newStars}});
             }
         } else {
            if (updateUser && user) {
                let finalStars = newStars + (isUnitCompleted ? 0 : 35); 
-               let newCompleted = [...new Set([...(user.completedUnits || []), unit.id])];
-               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted, unitProgress: {...(user.unitProgress || {}), [unit.id]: nodes.length - 1}});
+               let newCompleted = [...new Set([...(user.completedUnits || []), unit?.id])];
+               updateUser({...user, inventory: {...user.inventory, stars: finalStars}, completedUnits: newCompleted, unitProgress: {...(user.unitProgress || {}), [unit?.id]: nodes.length - 1}});
            }
         }
       }} />
@@ -1656,10 +1659,15 @@ const AdminPanel = ({ currentUser, showToast }) => {
                     <td className="p-4 flex gap-2">
                        {currentUser?.uid !== u.id && (
                          <>
-                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors"><UserCog className="w-5 h-5"/></button>
-                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`}>{u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}</button>
+                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors" title={u.role==='admin'?"Revoke Admin":"Promote to Admin"}>
+                             <UserCog className="w-5 h-5"/>
+                           </button>
+                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`} title={u.status==='blocked'?"Unblock":"Block User"}>
+                             {u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}
+                           </button>
                          </>
                        )}
+                       {currentUser?.uid === u.id && <span className="text-xs font-bold text-slate-400 italic">You</span>}
                     </td>
                   </tr>
                 ))}
@@ -1674,12 +1682,21 @@ const AdminPanel = ({ currentUser, showToast }) => {
 
 const OnboardingView = () => {
   const [errorMsg, setErrorMsg] = useState('');
+  
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
-      if (auth) await signInWithPopup(auth, provider);
-      else setErrorMsg("Firebase Auth is missing.");
-    } catch (error) { setErrorMsg(`Error: ${error.message}`); }
+      if (auth) {
+        // Cấu hình Session Persistence: Thoát tab trình duyệt là tự đăng xuất
+        await setPersistence(auth, browserSessionPersistence);
+        await signInWithPopup(auth, provider);
+      } else {
+        setErrorMsg("Firebase Auth is missing. Check your .env config.");
+      }
+    } catch (error) { 
+      console.error("Login failed", error); 
+      setErrorMsg(`Error: ${error.message}`); 
+    }
   };
   return (
     <div className="flex flex-col items-center justify-center h-screen w-screen bg-slate-900 animate-fade-in relative overflow-hidden">
