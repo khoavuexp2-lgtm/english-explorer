@@ -8,12 +8,12 @@ import {
   Dumbbell, Swords, Timer, Medal, Headphones, PenTool, 
   Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
   Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock, SkipForward,
-  Settings, Database, TrendingUp, Filter, Trash2, RefreshCcw
+  Settings, Database, TrendingUp, Filter, Trash2, Key
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, query, where, writeBatch } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, query, where } from "firebase/firestore";
 
 let firebaseConfig = {};
 try {
@@ -37,28 +37,58 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH: PRELOAD RAM & SYNCHRONOUS PLAY (TRỊ DỨT ĐIỂM IPHONE)
+// ĐỘNG CƠ ÂM THANH LÕI WEBAUDIO API (VƯỢT RÀO IOS SAFARI 100%)
 // ============================================================================
-const audioCache = new Map(); // Lưu Base64 nội bộ trên RAM
+let audioCtx = null;
+const audioCache = new Map(); 
 const pendingTTS = new Set(); 
 let isAudioUnlocked = false;
 
-// Kích hoạt quyền Audio hệ thống của iOS
+const getAudioContext = () => {
+    if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        if (AudioContext) audioCtx = new AudioContext();
+    }
+    return audioCtx;
+};
+
 const unlockAudioEngine = () => {
     if (isAudioUnlocked) return;
-    if ('speechSynthesis' in window) {
-        const u = new SpeechSynthesisUtterance('');
-        u.volume = 0; window.speechSynthesis.speak(u);
-    }
-    isAudioUnlocked = true;
-    document.removeEventListener('touchstart', unlockAudioEngine);
-    document.removeEventListener('click', unlockAudioEngine);
+    try {
+        const ctx = getAudioContext();
+        if (ctx && ctx.state === 'suspended') ctx.resume();
+        
+        if (ctx) {
+            const buffer = ctx.createBuffer(1, 1, 22050);
+            const source = ctx.createBufferSource();
+            source.buffer = buffer;
+            source.connect(ctx.destination);
+            source.start(0);
+        }
+
+        if ('speechSynthesis' in window) {
+            const u = new SpeechSynthesisUtterance('');
+            u.volume = 0;
+            window.speechSynthesis.speak(u);
+        }
+        
+        isAudioUnlocked = true;
+        document.removeEventListener('touchstart', unlockAudioEngine);
+        document.removeEventListener('click', unlockAudioEngine);
+    } catch (e) { console.warn("Unlock Audio Failed", e); }
 };
 
 if (typeof document !== 'undefined') {
-    document.addEventListener('touchstart', unlockAudioEngine, { passive: true });
-    document.addEventListener('click', unlockAudioEngine, { passive: true });
+    document.addEventListener('touchstart', unlockAudioEngine, { once: true, passive: true });
+    document.addEventListener('click', unlockAudioEngine, { once: true, passive: true });
 }
+
+const GCLOUD_VOICES = [
+  "en-US-Neural2-D", // Index 0: Male
+  "en-US-Neural2-F", // Index 1: Female/Child
+  "en-US-Neural2-J", // Index 2: Male Alt
+  "en-US-Neural2-C"  // Index 3: Female Alt
+];
 
 let premiumVoices = [];
 let fallbackEnglishVoices = [];
@@ -79,80 +109,80 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
   initVoices(); window.speechSynthesis.onvoiceschanged = initVoices;
 }
 
-// Google Cloud Neural2 Voices
-// F: Giọng nữ (giống trẻ con/cô giáo thân thiện)
-// D: Giọng nam (người lớn)
-const GCLOUD_VOICES = [
-  "en-US-Neural2-F", // Index 0: Default Female/Child
-  "en-US-Neural2-D", // Index 1: Male
-  "en-US-Neural2-C", // Index 2: Female Alt
-  "en-US-Neural2-J"  // Index 3: Male Alt
-];
-
 const generateSafeId = (text) => {
   let hash = 0;
   for (let i = 0; i < text.length; i++) { hash = ((hash << 5) - hash) + text.charCodeAt(i); hash |= 0; }
   return `${text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}_${Math.abs(hash)}`;
 };
 
-// THUẬT TOÁN NHẬN DIỆN GIỚI TÍNH BẰNG NLP REGEX
-const getSmartVoiceForText = (text) => {
-    const lowerText = text.toLowerCase();
+const playBase64Audio = async (base64) => {
+    const ctx = getAudioContext();
+    if (!ctx) throw new Error("AudioContext not supported");
+    if (ctx.state === 'suspended') await ctx.resume();
     
-    const maleKeywords = ["he", "his", "him", "boy", "man", "father", "dad", "brother", "uncle", "peter", "nam", "tom", "david", "tony", "john", "mr"];
-    const femaleKeywords = ["she", "her", "girl", "woman", "mother", "mom", "sister", "aunt", "mary", "linda", "hoa", "lan", "helen", "mai", "mrs", "miss"];
+    const base64Data = base64.replace(/^data:audio\/\w+;base64,/, '');
+    const binaryString = window.atob(base64Data);
+    const len = binaryString.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
     
-    // Đếm số lượng từ khóa xuất hiện
-    let maleCount = 0;
-    let femaleCount = 0;
-    
-    const words = lowerText.replace(/[^a-z0-9 ]/g, '').split(' ');
-    
-    words.forEach(w => {
-        if (maleKeywords.includes(w)) maleCount++;
-        if (femaleKeywords.includes(w)) femaleCount++;
+    const arrayBuffer = bytes.buffer.slice(0);
+    const audioBuffer = await new Promise((resolve, reject) => {
+        ctx.decodeAudioData(arrayBuffer, resolve, reject);
     });
-
-    if (maleCount > femaleCount) return "en-US-Neural2-D"; // Giọng Nam
-    return "en-US-Neural2-F"; // Giọng Nữ dễ thương (Mặc định)
+    
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+    source.start(0);
+    
+    return new Promise(resolve => { source.onended = resolve; });
 };
 
-// ============================================================================
-// HÀM PRELOAD TỪ FIREBASE VÀO RAM CỦA HỌC SINH (KHI MỞ BÀI)
-// ============================================================================
+const getSmartVoiceForText = (text) => {
+    const lowerText = text.toLowerCase();
+    const isMale = /\b(he|his|him|boy|man|father|dad|brother|uncle|peter|nam|tom|david|tony|john|mr)\b/.test(lowerText);
+    const isFemale = /\b(she|her|girl|woman|mother|mom|sister|aunt|mary|linda|hoa|lan|helen|mai|mrs|miss)\b/.test(lowerText);
+    
+    if (isMale && !isFemale) return "en-US-Neural2-D";
+    if (isFemale) return "en-US-Neural2-F";
+    return "en-US-Neural2-F";
+};
+
 const loadAudioToRAM = async (text) => {
     if (!text || !db) return;
     const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-    const safeId = generateSafeId(cleanText);
+    const voiceName = getSmartVoiceForText(cleanText);
+    const safeId = generateSafeId(cleanText) + `_${GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0}`;
 
-    if (audioCache.has(safeId)) return; // Đã có trong RAM thì thôi
+    if (audioCache.has(safeId)) return;
 
     try {
         const docRef = doc(db, "audio_cache", safeId);
         const snap = await getDoc(docRef);
         
         if (snap.exists()) {
-            const base64Data = snap.data().audioBase64;
-            // Lưu Data URI chuẩn vào RAM
-            audioCache.set(safeId, `data:audio/mp3;base64,${base64Data}`);
+            audioCache.set(safeId, snap.data().audioBase64);
         }
     } catch (err) { console.warn("Lỗi Preload từ Firebase:", err); }
 };
 
-// ============================================================================
-// HỆ THỐNG PHÁT ÂM THANH CHO HỌC SINH (SYNCHRONOUS 100% ĐỂ TRỊ IPHONE)
-// ============================================================================
-const playSystemAudio = (text) => { 
+const playSystemAudio = (text, isMaleTarget = false) => { 
   if ('speechSynthesis' in window) {
-    if (window.speechSynthesis.speaking) window.speechSynthesis.cancel();
+    try {
+        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
+            window.speechSynthesis.cancel();
+        }
+    } catch(e) {}
     
     if (typeof text !== 'string') return;
     let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
     const utterance = new SpeechSynthesisUtterance(speakText);
-    utterance.lang = 'en-US'; utterance.rate = 0.85;
-    
-    const voiceType = getSmartVoiceForText(speakText);
-    const isMaleTarget = voiceType === "en-US-Neural2-D";
+    utterance.lang = 'en-US'; 
+    utterance.rate = 0.85;
+    utterance.volume = 1; 
     
     let selectedVoice = null;
     if (premiumVoices.length > 0) {
@@ -167,21 +197,29 @@ const playSystemAudio = (text) => {
   }
 };
 
-const playPremiumAudioSync = (text) => {
+const playPremiumAudioSync = async (text) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-  const safeId = generateSafeId(cleanText);
+  const voiceName = getSmartVoiceForText(cleanText);
+  const isMaleTarget = voiceName === "en-US-Neural2-D";
+  const voiceIndex = GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0;
+  const safeId = generateSafeId(cleanText) + `_${voiceIndex}`;
 
   if (audioCache.has(safeId)) {
-      const dynamicAudio = new Audio(audioCache.get(safeId));
-      dynamicAudio.play().catch(() => playSystemAudio(cleanText));
-      return;
+      try {
+          await playBase64Audio(audioCache.get(safeId));
+          return;
+      } catch (e) {
+          playSystemAudio(cleanText, isMaleTarget);
+          return;
+      }
   }
-  playSystemAudio(cleanText);
+
+  playSystemAudio(cleanText, isMaleTarget);
 };
 
 // ============================================================================
-// HÀM TIỆN ÍCH GAME
+// HÀM TIỆN ÍCH GAME VÀ CHẤM ĐIỂM
 // ============================================================================
 const fetchArenaQuestionsFromBank = async (scope, numQs, gradeId) => {
   if (!db) return [{ question: "Mất kết nối Database. Vui lòng kiểm tra Firebase.", options: ["OK", "A", "B", "C"], answer: "OK" }];
@@ -473,6 +511,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [audioUrl, setAudioUrl] = useState(null);
+  
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
@@ -498,7 +537,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
        setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setAudioUrl(null);
        setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
 
-       // KÍCH HOẠT PRELOAD NGẦM KHI BẮT ĐẦU BÀI HỌC VÀO RAM
        shuffled.forEach((q, idx) => {
            loadAudioToRAM(q.audioText || q.targetText || q.question);
            if (q.options) q.options.forEach(opt => loadAudioToRAM(opt));
@@ -1341,7 +1379,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
 };
 
 // ============================================================================
-// ADMIN PANEL (TÍCH HỢP PUSH DATA & AUTO BUILD AUDIO)
+// ADMIN PANEL (TÍCH HỢP PUSH DATA & AUTO BUILD AUDIO + NHẬP KEY TRỰC TIẾP)
 // ============================================================================
 const AdminPanel = ({ currentUser, showToast }) => {
   const [activeTab, setActiveTab] = useState('cms');
@@ -1352,8 +1390,17 @@ const AdminPanel = ({ currentUser, showToast }) => {
   const [isFetchingData, setIsFetchingData] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
+  
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
+  
+  // Nơi Admin tự điền API Key nếu Vercel chưa có
+  const [ttsKey, setTtsKey] = useState("");
+
+  useEffect(() => {
+    // Tự động lấy Key từ Vercel nếu có
+    try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) setTtsKey(import.meta.env.VITE_GCLOUD_TTS_KEY); } catch(e){}
+  }, []);
 
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
@@ -1425,7 +1472,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
       return textsSet;
   };
 
-  // THUẬT TOÁN 1 CLICK: LƯU DATA VÀ TẠO AUDIO MỚI (XÓA AUDIO RÁC)
   const handlePushAndBuild = async () => {
     setIsPushing(true); setPushMsg({ type: '', text: 'Đang xử lý...' });
     try {
@@ -1445,13 +1491,11 @@ const AdminPanel = ({ currentUser, showToast }) => {
           docId = `grade${grade}_${prefix}${unit}`;
       }
 
-      // 1. LƯU DỮ LIỆU JSON
       await setDoc(doc(db, collectionName, docId), parsedData);
       setPushMsg({ type: 'success', text: `✅ Đã lưu Data. Đang Build Audio & dọn rác...` });
 
-      // 2. KIỂM TRA API KEY (Bỏ qua build audio nếu ko có key)
-      let apiKey = ""; 
-      try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
+      // LẤY KEY TỪ Ô NHẬP LIỆU ADMIN (Đảm bảo chắc chắn lấy được key)
+      const apiKey = ttsKey.trim();
       
       if (apiKey && dataType !== 'syllabus') {
           const textsSet = extractAllTextsFromJSON(parsedData);
@@ -1460,27 +1504,27 @@ const AdminPanel = ({ currentUser, showToast }) => {
           let successCount = 0; let skipCount = 0; let deleteCount = 0;
           const currentValidHashIds = [];
 
-          // Tạo Audio mới
           for (let i = 0; i < textsArray.length; i++) {
-              const currentText = textsArray[i];
-              const cleanText = currentText.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-              const voiceName = getSmartVoiceForText(cleanText); 
-              const safeId = generateSafeId(cleanText) + `_${GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0}`;
-              
-              currentValidHashIds.push(safeId);
-
-              const docRef = doc(db, "audio_cache", safeId);
-              const docSnap = await getDoc(docRef);
-              
-              if (docSnap.exists()) {
-                  // Cập nhật lại sourceDoc để biết file này vẫn thuộc bài học này
-                  await updateDoc(docRef, { sourceDoc: docId });
-                  skipCount++;
-                  continue; 
-              }
-
-              const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
               try {
+                  const currentText = textsArray[i];
+                  if(!currentText || typeof currentText !== 'string') continue;
+                  
+                  const cleanText = currentText.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
+                  const voiceName = getSmartVoiceForText(cleanText); 
+                  const safeId = generateSafeId(cleanText) + `_${GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0}`;
+                  
+                  currentValidHashIds.push(safeId);
+
+                  const docRef = doc(db, "audio_cache", safeId);
+                  const docSnap = await getDoc(docRef);
+                  
+                  if (docSnap.exists()) {
+                      await updateDoc(docRef, { sourceDoc: docId });
+                      skipCount++;
+                      continue; 
+                  }
+
+                  const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
                   const response = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
                       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
                   });
@@ -1491,12 +1535,11 @@ const AdminPanel = ({ currentUser, showToast }) => {
                           successCount++;
                       }
                   }
-                  await new Promise(r => setTimeout(r, 1000)); 
-              } catch (err) { console.error(`Lỗi tạo câu: ${cleanText}`, err); }
+                  await new Promise(r => setTimeout(r, 800)); // Giảm thời gian chờ một chút
+              } catch (err) { console.error("Lỗi trong vòng lặp tạo Audio:", err); }
               setPushMsg({ type: 'success', text: `Đang tạo Audio: ${i + 1}/${textsArray.length}...` });
           }
 
-          // Dọn rác: Xóa Audio cũ của bài học này nếu không còn nằm trong danh sách currentValidHashIds
           const q = query(collection(db, "audio_cache"), where("sourceDoc", "==", docId));
           const snapshot = await getDocs(q);
           const deletePromises = [];
@@ -1519,6 +1562,25 @@ const AdminPanel = ({ currentUser, showToast }) => {
     } finally { setIsPushing(false); }
   };
 
+  const handleClearAudioCache = async () => {
+    if (!window.confirm("Bạn có chắc muốn dọn sạch toàn bộ Audio đã lưu trên Firebase không? Hành động này sẽ giúp lấy lại 100% dung lượng trống.")) return;
+    setIsPushing(true); setPushMsg({ type: '', text: '' });
+    try {
+        if (!db) throw new Error("Firebase is not connected.");
+        const q = collection(db, "audio_cache");
+        const snapshot = await getDocs(q);
+        let count = 0;
+        const deletePromises = [];
+        snapshot.forEach(docSnap => {
+            deletePromises.push(deleteDoc(doc(db, "audio_cache", docSnap.id)));
+            count++;
+        });
+        await Promise.all(deletePromises);
+        setPushMsg({ type: 'success', text: `✅ Đã dọn dẹp sạch sẽ ${count} file Audio rác khỏi Firebase!` });
+    } catch (error) { setPushMsg({ type: 'error', text: `❌ Lỗi xóa rác: ${error.message}` }); } 
+    finally { setIsPushing(false); }
+  };
+
   return (
     <div className="p-4 sm:p-8 max-w-6xl mx-auto animate-fade-in w-full h-full overflow-y-auto hide-scrollbar flex flex-col gap-6 relative z-10 pb-24 lg:pb-8">
       <div className="bg-white rounded-[2rem] shadow-2xl overflow-hidden border-4 border-slate-200 shrink-0">
@@ -1533,6 +1595,15 @@ const AdminPanel = ({ currentUser, showToast }) => {
       
       {activeTab === 'cms' && (
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 flex flex-col gap-4 animate-fade-in">
+          
+          {/* Ô Nhập API Key bảo mật cho Admin */}
+          <div className="bg-purple-50 p-4 rounded-xl border border-purple-200 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+             <div className="flex items-center gap-2 text-purple-800 font-bold shrink-0">
+                <Key className="w-5 h-5"/> Google Cloud TTS Key:
+             </div>
+             <input type="password" value={ttsKey} onChange={(e) => setTtsKey(e.target.value)} placeholder="Nhập API Key vào đây (nếu Vercel chưa nhận)..." className="flex-1 bg-white border-2 border-purple-300 rounded-lg px-3 py-2 outline-none focus:border-purple-600 text-sm font-mono w-full" />
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 bg-blue-50 p-4 sm:p-5 rounded-xl border border-blue-200">
              <div className="w-full">
                 <label className="block text-sm font-bold text-blue-900 mb-2">Data Type</label>
@@ -1564,8 +1635,12 @@ const AdminPanel = ({ currentUser, showToast }) => {
           </div>
           
           <div className="flex gap-4 mb-2">
-             <button onClick={handlePushAndBuild} disabled={isFetchingData || isPushing} className="flex-1 bg-purple-600 hover:bg-purple-500 text-white font-black py-3.5 rounded-xl border-b-4 border-purple-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base flex items-center justify-center gap-2">
+             <button onClick={handlePushAndBuild} disabled={isFetchingData || isPushing} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 rounded-xl border-b-4 border-blue-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 shadow-lg text-sm sm:text-base flex items-center justify-center gap-2">
                 {isPushing ? <><Loader2 className="w-5 h-5 animate-spin"/> ĐANG XỬ LÝ...</> : '🚀 LƯU DATA & TỰ ĐỘNG BUILD AUDIO'}
+             </button>
+             
+             <button onClick={handleClearAudioCache} disabled={isFetchingData || isPushing} className="bg-rose-600 hover:bg-rose-500 text-white font-black px-4 py-3 rounded-xl border-b-4 border-rose-800 active:border-b-0 active:translate-y-1 transition-all disabled:opacity-50 text-sm sm:text-base flex items-center justify-center" title="Dọn rác toàn bộ Audio">
+                <Trash2 className="w-5 h-5"/>
              </button>
           </div>
 
@@ -1591,7 +1666,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
           <div className="flex justify-between items-center mb-4">
              <h3 className="text-xl font-black text-slate-800">Platform Users</h3>
              <button onClick={fetchUsers} className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded-xl hover:bg-blue-200 transition-colors">
-               <RotateCw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
+               <RefreshCcw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
              </button>
           </div>
           <div className="overflow-x-auto">
@@ -1698,6 +1773,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     document.head.appendChild(metaViewport);
 
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
+    runAudioGarbageCollector();
   }, []);
 
   useEffect(() => {
