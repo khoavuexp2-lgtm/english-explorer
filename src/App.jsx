@@ -1857,7 +1857,8 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   
-document.documentElement.lang = "en";
+useEffect(() => {
+    document.documentElement.lang = "en";
     document.documentElement.setAttribute('translate', 'no');
     if (!document.querySelector('meta[name="google"]')) {
        const meta = document.createElement('meta'); meta.name = 'google'; meta.content = 'notranslate';
@@ -1867,7 +1868,9 @@ document.documentElement.lang = "en";
     const metaViewport = document.createElement('meta');
     metaViewport.name = "viewport"; metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
     document.head.appendChild(metaViewport);
-    runAudioGarbageCollector();
+    
+    // XÓA HOẶC COMMENT DÒNG DƯỚI ĐÂY NẾU BẠN CHƯA ĐỊNH NGHĨA HÀM NÀY
+    runAudioGarbageCollector(); 
   }, []);
 
   useEffect(() => {
