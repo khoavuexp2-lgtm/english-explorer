@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  MapPin, Star, Lock, ChevronLeft, CheckCircle, 
+  MapPin, Star, Lock, ChevronLeft, CheckCircle2, 
   Volume2, Trophy, Zap, Play, Users, X, User, Shield, 
   ArrowRight, Globe, MessageCircle, Mic, Compass, Rocket, 
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
@@ -8,7 +8,7 @@ import {
   Dumbbell, Swords, Timer, Medal, Headphones, PenTool, 
   Mail, Phone, RotateCw, Gamepad2, Sparkles, Loader2, Code,
   Bot, Cpu, Clock, LayoutGrid, UserCog, Ban, Unlock, SkipForward,
-  Settings, Database, TrendingUp, Filter, Trash2
+  Settings, Database, TrendingUp, Filter, Trash2, Key
 } from 'lucide-react';
 
 import { initializeApp } from "firebase/app";
@@ -37,7 +37,7 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH LÕI WEBAUDIO API (VƯỢT RÀO IOS SAFARI 100%)
+// ĐỘNG CƠ ÂM THANH LÕI (VƯỢT RÀO IOS SAFARI 100% THEO CHUẨN CLAUDE)
 // ============================================================================
 let audioCtx = null;
 const audioCache = new Map(); 
@@ -52,12 +52,18 @@ const getAudioContext = () => {
     return audioCtx;
 };
 
+// Chuỗi WAV câm để đánh lừa Safari cấp quyền Autoplay
+const SILENT_AUDIO = 'data:audio/wav;base64,UklGRsQAAABXQVZFZm10IBAAAAABAAEAQB8AAIA+AAACABAAZGF0YaAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+const globalAudioPlayer = new Audio();
+
 const unlockAudioEngine = () => {
     if (isAudioUnlocked) return;
     try {
+        globalAudioPlayer.src = SILENT_AUDIO;
+        globalAudioPlayer.play().catch(() => {});
+
         const ctx = getAudioContext();
         if (ctx && ctx.state === 'suspended') ctx.resume();
-        
         if (ctx) {
             const buffer = ctx.createBuffer(1, 1, 22050);
             const source = ctx.createBufferSource();
@@ -116,32 +122,16 @@ const generateSafeId = (text) => {
   return `${text.replace(/[^a-zA-Z0-9]/g, '').substring(0, 20)}_${Math.abs(hash)}`;
 };
 
-const playBase64Audio = async (base64) => {
-    const ctx = getAudioContext();
-    if (!ctx) throw new Error("AudioContext not supported");
-    if (ctx.state === 'suspended') await ctx.resume();
-    
-    const base64Data = base64.replace(/^data:audio\/\w+;base64,/, '');
-    const binaryString = window.atob(base64Data);
-    const len = binaryString.length;
-    const bytes = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-    }
-    
-    const arrayBuffer = bytes.buffer.slice(0);
-    const audioBuffer = await new Promise((resolve, reject) => {
-        ctx.decodeAudioData(arrayBuffer, resolve, reject);
-    });
-    
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(ctx.destination);
-    source.start(0);
-    
-    return new Promise(resolve => { source.onended = resolve; });
+// Chuyển Base64 thành Blob URL để bảo vệ bộ nhớ Safari
+const base64ToBlobUrl = (base64, mimeType = 'audio/mp3') => {
+    const binary = window.atob(base64);
+    const array = new Uint8Array(binary.length);
+    for(let i=0; i<binary.length; i++) array[i] = binary.charCodeAt(i);
+    const blob = new Blob([array], {type: mimeType});
+    return URL.createObjectURL(blob);
 };
 
+// AI Nhận diện giới tính
 const getSmartVoiceForText = (text) => {
     if (!text) return "en-US-Neural2-F";
     const lowerText = text.toLowerCase();
@@ -153,6 +143,7 @@ const getSmartVoiceForText = (text) => {
     return "en-US-Neural2-F";
 };
 
+// Hàm Preload âm thanh tĩnh từ Firebase vào RAM
 const loadAudioToRAM = async (text) => {
     if (!text || !db) return;
     const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
@@ -166,7 +157,8 @@ const loadAudioToRAM = async (text) => {
         const snap = await getDoc(docRef);
         
         if (snap.exists()) {
-            audioCache.set(safeId, snap.data().audioBase64);
+            const blobUrl = base64ToBlobUrl(snap.data().audioBase64);
+            audioCache.set(safeId, blobUrl);
         }
     } catch (err) { console.warn("Lỗi Preload từ Firebase:", err); }
 };
@@ -199,6 +191,7 @@ const playSystemAudio = (text, isMaleTarget = false) => {
   }
 };
 
+// Hàm phát Audio đỉnh cao (Synchronous)
 const playPremiumAudioSync = async (text) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
@@ -207,14 +200,43 @@ const playPremiumAudioSync = async (text) => {
   const voiceIndex = GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0;
   const safeId = generateSafeId(cleanText) + `_${voiceIndex}`;
 
+  // 1. Mở khóa Synchronous ngay lập tức
+  globalAudioPlayer.src = SILENT_AUDIO;
+  globalAudioPlayer.play().catch(() => {});
+
+  // 2. Chích âm thanh từ RAM
   if (audioCache.has(safeId)) {
+      globalAudioPlayer.src = audioCache.get(safeId);
+      globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, isMaleTarget));
+      return;
+  }
+
+  // 3. Gọi API nếu cần (Async)
+  let apiKey = ""; 
+  try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
+
+  if (apiKey) {
+      const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
       try {
-          await playBase64Audio(audioCache.get(safeId));
-          return;
-      } catch (e) {
-          playSystemAudio(cleanText, isMaleTarget);
-          return;
-      }
+          const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
+              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
+          });
+          if (res.ok) {
+              const data = await res.json();
+              if (data.audioContent) {
+                  const blobUrl = base64ToBlobUrl(data.audioContent);
+                  audioCache.set(safeId, blobUrl); 
+                  globalAudioPlayer.src = blobUrl;
+                  globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, isMaleTarget));
+                  
+                  if (db && !pendingTTS.has(safeId)) {
+                      pendingTTS.add(safeId);
+                      setDoc(doc(db, "audio_cache", safeId), { text: cleanText, audioBase64: data.audioContent, createdAt: Date.now() }).catch(()=>{});
+                  }
+                  return;
+              }
+          }
+      } catch (err) { console.warn("Google TTS Error, fallback to native"); }
   }
 
   playSystemAudio(cleanText, isMaleTarget);
@@ -393,6 +415,9 @@ const MAP_THEMES = {
   forest: { bg: "from-[#14532d] to-[#064e3b]", vehicle: "🚙", pathColor: "rgba(255,255,255,0.3)" }
 };
 
+// ============================================================================
+// COMPONENTS
+// ============================================================================
 const TopMetricsBar = ({ user }) => (
   <div className="bg-slate-900/80 backdrop-blur-xl border-b border-white/10 p-3 sm:p-4 flex justify-between items-center z-40 relative shadow-lg shrink-0">
     <div className="flex gap-2 sm:gap-3">
@@ -931,7 +956,7 @@ const MapView = ({ grade, unit, onBack, user, updateUser, currentUnitData }) => 
               className={`absolute z-20 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center gap-1 sm:gap-2 group ${isLocked ? 'opacity-50 grayscale cursor-not-allowed' : 'cursor-pointer hover:scale-110 transition-transform'}`} style={{ left: `${node.x}%`, top: `${node.y}%` }}>
               <div className={`w-14 h-14 sm:w-20 sm:h-20 rounded-full flex items-center justify-center text-2xl sm:text-4xl shadow-2xl border-2 sm:border-4 backdrop-blur-md relative ${isCurrent ? 'bg-white/30 border-white ring-4 ring-white/30 animate-pulse' : isPassed ? 'bg-white/20 border-white/50' : 'bg-slate-900/50 border-slate-700'}`}>
                 {node.icon}
-                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white"><CheckCircle className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
+                {isPassed && <div className="absolute -bottom-1 -right-1 sm:-bottom-2 sm:-right-2 bg-emerald-500 rounded-full p-0.5 sm:p-1 border border-white"><CheckCircle2 className="w-3 h-3 sm:w-5 sm:h-5 text-white" /></div>}
                 {isLocked && <div className="absolute inset-0 flex items-center justify-center bg-slate-900/60 rounded-full"><Lock className="w-5 h-5 sm:w-8 sm:h-8 text-white/50"/></div>}
               </div>
               <div className="px-2 py-1 sm:px-4 sm:py-1.5 rounded-lg sm:rounded-xl text-[8px] sm:text-xs font-black shadow-xl border backdrop-blur-md uppercase bg-slate-900/90 text-white border-white/20 whitespace-nowrap">{node.label}</div>
@@ -1004,7 +1029,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
             progress > 0 ? 'bg-gradient-to-r from-amber-500 to-orange-600 border-orange-800 text-white hover:brightness-110 shadow-xl' :
             'bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800 text-white hover:brightness-110 shadow-xl'}`}>
           <div className={`w-10 h-10 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center mr-3 sm:mr-5 shrink-0 ${isCompleted ? 'bg-emerald-700 text-white' : 'bg-white/20 text-white'}`}>
-            {isCompleted ? <CheckCircle className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
+            {isCompleted ? <CheckCircle2 className="w-5 h-5 sm:w-7 sm:h-7" /> : progress > 0 ? <Loader2 className="w-5 h-5 sm:w-7 sm:h-7 animate-spin" /> : <Play className="w-5 h-5 sm:w-7 sm:h-7 ml-1" />}
           </div>
           <div className="flex-1">
             <h3 className="text-sm sm:text-xl font-black text-white">{unit?.name}: {unit?.title}</h3>
@@ -1306,7 +1331,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
           <p className="text-purple-600 font-bold text-xs sm:text-sm uppercase tracking-widest mb-6">Database Challenge - {config.scope}</p>
           <h2 className="text-xl sm:text-3xl font-black text-slate-800 mb-8 sm:mb-12 whitespace-pre-wrap flex items-start justify-center gap-3">
              {(q?.type === 'listen-fill' || q?.audioText) && (
-                <button onClick={() => playPremiumAudioSync(q?.audioText || q?.question, currentQ)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
+                <button onClick={() => playPremiumAudioSync(q?.audioText || q?.question)} className="p-3 bg-blue-500 text-white rounded-full hover:bg-blue-600 active:scale-95 shrink-0 shadow-md">
                    <Volume2 className="w-6 h-6" />
                 </button>
              )}
@@ -1388,7 +1413,7 @@ const ArenaView = ({ user, updateUser, selectedGrade }) => {
 };
 
 // ============================================================================
-// ADMIN PANEL (TÍCH HỢP PUSH DATA & AUTO BUILD AUDIO + NHẬP KEY TRỰC TIẾP)
+// ADMIN PANEL
 // ============================================================================
 const AdminPanel = ({ currentUser, showToast }) => {
   const [activeTab, setActiveTab] = useState('cms');
@@ -1399,7 +1424,6 @@ const AdminPanel = ({ currentUser, showToast }) => {
   const [isFetchingData, setIsFetchingData] = useState(false);
   const [isPushing, setIsPushing] = useState(false);
   const [pushMsg, setPushMsg] = useState({ type: '', text: '' });
-  
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [ttsKey, setTtsKey] = useState("");
@@ -1603,7 +1627,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
           
           <div className="bg-purple-50 p-4 rounded-xl border border-purple-200 flex flex-col sm:flex-row items-start sm:items-center gap-4">
              <div className="flex items-center gap-2 text-purple-800 font-bold shrink-0">
-                <Lock className="w-5 h-5"/> Google Cloud TTS Key:
+                <Key className="w-5 h-5"/> Google Cloud TTS Key:
              </div>
              <input type="password" value={ttsKey} onChange={(e) => setTtsKey(e.target.value)} placeholder="Nhập API Key vào đây (nếu Vercel chưa nhận)..." className="flex-1 bg-white border-2 border-purple-300 rounded-lg px-3 py-2 outline-none focus:border-purple-600 text-sm font-mono w-full" />
           </div>
@@ -1697,13 +1721,21 @@ const AdminPanel = ({ currentUser, showToast }) => {
                     <td className="p-4 flex gap-2">
                        {currentUser?.uid !== u.id && (
                          <>
-                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors"><UserCog className="w-5 h-5"/></button>
-                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`}>{u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}</button>
+                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors" title={u.role==='admin'?"Revoke Admin":"Promote to Admin"}>
+                             <UserCog className="w-5 h-5"/>
+                           </button>
+                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`} title={u.status==='blocked'?"Unblock":"Block User"}>
+                             {u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}
+                           </button>
                          </>
                        )}
+                       {currentUser?.uid === u.id && <span className="text-xs font-bold text-slate-400 italic">You</span>}
                     </td>
                   </tr>
                 ))}
+                {usersList.length === 0 && !isLoadingUsers && (
+                  <tr><td colSpan="5" className="p-8 text-center text-slate-500 font-bold">No users found.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1715,6 +1747,7 @@ const AdminPanel = ({ currentUser, showToast }) => {
 
 const OnboardingView = () => {
   const [errorMsg, setErrorMsg] = useState('');
+  
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
@@ -1736,7 +1769,9 @@ const OnboardingView = () => {
         <div className="w-20 h-20 sm:w-28 sm:h-28 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-3xl sm:rounded-[2rem] flex items-center justify-center mb-6 sm:mb-8"><Rocket className="w-10 h-10 sm:w-14 sm:h-14 text-white" /></div>
         <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight mb-3">Global Explorer</h1>
         <p className="text-slate-400 font-medium text-sm sm:text-lg mb-6 sm:mb-8">Embark on a journey to master English.</p>
+        
         {errorMsg && <div className="w-full p-3 sm:p-4 mb-4 sm:mb-6 bg-rose-500/20 border border-rose-500/50 rounded-xl text-rose-400 font-bold text-xs sm:text-sm text-left">{errorMsg}</div>}
+        
         <button onClick={handleGoogleLogin} className="w-full bg-white text-slate-900 font-black py-3 sm:py-4 rounded-xl sm:rounded-2xl flex items-center justify-center gap-3 hover:bg-slate-100 shadow-xl text-base sm:text-lg transition-transform active:scale-95">
           <Fingerprint className="w-5 h-5 sm:w-6 sm:h-6" /> Login with Google
         </button>
@@ -1759,14 +1794,20 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   useEffect(() => {
     document.documentElement.lang = "en";
     document.documentElement.setAttribute('translate', 'no');
+    
     if (!document.querySelector('meta[name="google"]')) {
-       const meta = document.createElement('meta'); meta.name = 'google'; meta.content = 'notranslate';
+       const meta = document.createElement('meta');
+       meta.name = 'google';
+       meta.content = 'notranslate';
        document.head.appendChild(meta);
     }
     document.body.classList.add('notranslate');
+
     const metaViewport = document.createElement('meta');
-    metaViewport.name = "viewport"; metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
+    metaViewport.name = "viewport";
+    metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
     document.head.appendChild(metaViewport);
+
     setDailyQuote(MOTIVATIONAL_QUOTES[Math.floor(Math.random() * MOTIVATIONAL_QUOTES.length)]);
     runAudioGarbageCollector();
   }, []);
@@ -1778,10 +1819,17 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         try {
           if (!db) throw new Error("Firebase DB not initialized");
           const snap = await getDoc(doc(db, "metadata", `syllabus_${selectedGrade?.id}`));
-          if (snap.exists()) setSyllabusConfig(snap.data());
-          else setSyllabusConfig({ units: [], tests: [] });
-        } catch (e) { setSyllabusConfig({ units: [], tests: [] }); } 
-        finally { setIsLoadingData(false); }
+          if (snap.exists()) {
+             setSyllabusConfig(snap.data());
+          } else {
+             setSyllabusConfig({ units: [], tests: [] });
+          }
+        } catch (e) {
+          console.error(e);
+          setSyllabusConfig({ units: [], tests: [] });
+        } finally {
+          setIsLoadingData(false);
+        }
       };
       fetchSyllabus();
     }
@@ -1800,13 +1848,17 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     );
   }
 
-  const navItems = [
+  // SỬA LỖI TRẮNG MÀN HÌNH TẠI ĐÂY: Tạo mảng mới tĩnh, không dùng hàm .push() làm thay đổi cấu trúc của React
+  const baseNavItems = [
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
     { id: 'arena', label: "Syllabus Arena", icon: Swords, color: 'text-orange-400' },
     { id: 'leaderboard', label: "Leaderboard", icon: Crown, color: 'text-yellow-400' }
   ];
-  if (user?.role === 'admin' || user?.role === 'superadmin') navItems.push({ id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' });
+  
+  const displayNavItems = (user?.role === 'admin' || user?.role === 'superadmin') 
+    ? [...baseNavItems, { id: 'admin', label: "Admin Panel", icon: ShieldAlert, color: 'text-rose-400' }]
+    : baseNavItems;
 
   const handleFetchAndPlay = async (collectionName, docIdPrefix, unitItem, targetType = null) => {
     setIsLoadingData(true);
@@ -1820,46 +1872,94 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
       if(snap.exists()) {
         let data = snap.data();
         if (targetType) {
-            if (data[targetType]) { setCurrentSessionData(data[targetType]); setCurrentView('gameModalOnly'); } 
-            else setIsUnderConstruction(true);
+            if (data[targetType]) {
+                setCurrentSessionData(data[targetType]);
+                setCurrentView('gameModalOnly');
+            } else {
+                setIsUnderConstruction(true);
+            }
         } else {
             setCurrentSessionData(data);
-            if (collectionName === 'units') { setSelectedUnit(unitItem); setCurrentView('map'); } 
-            else setCurrentView('gameModalOnly');
+            if (collectionName === 'units') {
+                setSelectedUnit(unitItem);
+                setCurrentView('map');
+            } else {
+                setCurrentView('gameModalOnly');
+            }
         }
-      } else setIsUnderConstruction(true);
-    } catch(err) { setIsUnderConstruction(true); } 
-    finally { setIsLoadingData(false); }
+      } else {
+        setIsUnderConstruction(true);
+      }
+    } catch(err) {
+      console.error(err);
+      setIsUnderConstruction(true);
+    } finally {
+      setIsLoadingData(false);
+    }
   }
 
   const renderContent = () => {
     if(isLoadingData) return <div className="w-full h-full flex flex-col items-center justify-center text-white relative z-10"><Loader2 className="w-10 h-10 sm:w-12 sm:h-12 animate-spin text-blue-500 mb-4"/><h3 className="font-black text-lg sm:text-xl">Loading Cloud Data...</h3></div>;
+    
     switch(currentView) {
       case 'grades': return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('units'); }} />;
       case 'units': return <UnitsView grade={selectedGrade} syllabus={syllabusConfig} onBack={() => setCurrentView('grades')} onSelectUnit={(u) => handleFetchAndPlay('units', 'unit', u)} user={user} />;
       case 'map': return <MapView grade={selectedGrade} unit={selectedUnit} onBack={() => setCurrentView('units')} user={user} updateUser={updateUser} currentUnitData={currentSessionData} />;
       case 'admin': return <AdminPanel currentUser={user} showToast={showToast} />;
+      
       case 'practice': 
           if (!selectedGrade) return <GradesView onSelectGrade={(g) => { setSelectedGrade(g); setCurrentView('practice'); }} />;
-          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => { setPracticeCategory(cat); setCurrentView('listSelector'); }} />;
+          return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => {
+             setPracticeCategory(cat);
+             setCurrentView('listSelector');
+          }} />;
+      
       case 'arena': return <ArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
       case 'leaderboard': return <LeaderboardView showToast={showToast} />;
+      
       case 'listSelector':
           let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
           let itemsList = syllabusConfig?.units || [];
+
           if (practiceCategory === 'listening') { icon = Headphones; color = "bg-gradient-to-r from-teal-500 to-emerald-600 border-teal-800"; }
           if (practiceCategory === 'speaking') { icon = Mic; color = "bg-gradient-to-r from-cyan-500 to-blue-600 border-cyan-800"; }
           if (practiceCategory === 'reading') { icon = BookOpen; color = "bg-gradient-to-r from-rose-500 to-pink-600 border-rose-800"; }
           if (practiceCategory === 'extra') { icon = Star; color = "bg-gradient-to-r from-purple-500 to-indigo-600 border-purple-800"; }
-          if (practiceCategory === 'tests') { icon = Timer; color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; itemsList = syllabusConfig?.tests || []; }
-          if (practiceCategory === 'cambridge') { icon = Medal; color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; itemsList = syllabusConfig?.units || []; }
-          return <GenericListSelector title={practiceCategory?.toUpperCase() || ''} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color} onBack={() => { setPracticeCategory(null); setCurrentView('practice'); }} onSelect={(u) => { if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory); else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u); else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u); else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u); }} />;
+          
+          if (practiceCategory === 'tests') { 
+              icon = Timer; 
+              color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; 
+              itemsList = syllabusConfig?.tests || [];
+          }
+          if (practiceCategory === 'cambridge') { 
+              icon = Medal; 
+              color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; 
+              itemsList = syllabusConfig?.units || [];
+          }
+
+          return <GenericListSelector title={practiceCategory?.toUpperCase() || ''} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color}
+              onBack={() => {
+                  setPracticeCategory(null);
+                  setCurrentView('practice');
+              }} 
+              onSelect={(u) => {
+                  if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory);
+                  else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u);
+                  else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u);
+                  else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u);
+              }} 
+          />;
+
       case 'gameModalOnly':
           return (
              <div className="w-full h-full bg-slate-900 relative">
-               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade?.name || 'Unit'} - ${practiceCategory || 'Practice'}`} onWin={() => { if(updateUser && user) updateUser({...user, inventory: {...user?.inventory, stars: (user?.inventory?.stars || 0) + 20}}); setCurrentView(practiceCategory ? 'listSelector' : 'practice'); }} />
+               <GameModal isOpen={true} onClose={() => setCurrentView(practiceCategory ? 'listSelector' : 'practice')} sessionData={currentSessionData} user={user} updateUser={updateUser} titleLabel={`${selectedGrade?.name || 'Unit'} - ${practiceCategory || 'Practice'}`} onWin={() => {
+                   if(updateUser && user) updateUser({...user, inventory: {...user?.inventory, stars: (user?.inventory?.stars || 0) + 20}});
+                   setCurrentView(practiceCategory ? 'listSelector' : 'practice');
+               }} />
              </div>
           );
+
       default: return <GradesView onSelectGrade={(g) => {setSelectedGrade(g); setCurrentView('units')}} />;
     }
   };
@@ -1867,23 +1967,30 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   return (
     <div className="flex flex-col-reverse lg:flex-row h-screen w-screen overflow-hidden bg-[#0f172a] font-sans relative">
       <style>{globalStyles}</style>
+      
       <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-blue-600/30 rounded-full blur-[100px] lg:blur-[120px] animate-pulse-ring pointer-events-none z-0"></div>
       <div className="absolute bottom-[-10%] right-[-10%] w-[30%] h-[30%] bg-purple-600/20 rounded-full blur-[80px] lg:blur-[100px] animate-pulse-ring pointer-events-none z-0" style={{animationDelay: '1s'}}></div>
       
       <aside className={`flex flex-row lg:flex-col bg-slate-950/80 lg:bg-slate-950/60 backdrop-blur-2xl border-t lg:border-t-0 lg:border-r border-white/10 transition-all duration-300 z-50 absolute bottom-0 left-0 right-0 lg:relative lg:w-16 hover:lg:w-64 h-16 lg:h-full group hide-scrollbar shrink-0 ${['map', 'gameModalOnly'].includes(currentView) ? 'hidden lg:flex' : 'flex'}`}>
+        
         <div className="p-3 hidden lg:flex items-center h-16 border-b border-white/5 shrink-0 overflow-hidden">
           <div className="min-w-[40px] h-10 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-xl flex items-center justify-center"><Rocket className="w-6 h-6 text-white" /></div>
           <div className="ml-3 transition-opacity duration-300 whitespace-nowrap opacity-0 group-hover:opacity-100"><h1 className="text-lg font-black text-white tracking-wide">EXPLORER</h1></div>
         </div>
+        
         <nav className="flex-1 flex flex-row lg:flex-col gap-1 lg:gap-2 p-1.5 lg:p-3 overflow-x-visible lg:overflow-y-auto hide-scrollbar justify-around lg:justify-start items-center lg:items-stretch w-full">
-          {navItems.map(item => (
+          {displayNavItems.map(item => (
             <button key={item.id} onClick={() => { setPracticeCategory(null); setCurrentView(item.id); }} className={`flex items-center justify-center lg:justify-start p-2 lg:p-3 rounded-xl font-black text-xs lg:text-sm transition-all border border-transparent overflow-hidden flex-col lg:flex-row gap-1 lg:gap-0 w-16 lg:w-auto ${currentView === item.id ? 'bg-white/10 text-white shadow-inner border-white/10' : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'}`}>
               <item.icon className={`w-5 h-5 lg:w-6 lg:h-6 shrink-0 ${item.color}`} />
               <span className={`lg:ml-4 transition-all duration-300 whitespace-nowrap lg:opacity-0 lg:group-hover:opacity-100 ${currentView === item.id ? 'block text-[9px] lg:text-sm' : 'hidden lg:block'}`}>{item.label}</span>
             </button>
           ))}
-          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16"><LogOut className="w-5 h-5 shrink-0" /><span>Logout</span></button>
+          <button onClick={handleLogout} className="lg:hidden flex flex-col items-center justify-center p-2 rounded-xl font-black text-[9px] text-slate-500 hover:bg-rose-500 hover:text-white transition-all gap-1 w-16">
+            <LogOut className="w-5 h-5 shrink-0" />
+            <span>Logout</span>
+          </button>
         </nav>
+
         <div className="hidden lg:flex p-4 border-t border-white/5 flex-col gap-4 shrink-0 overflow-hidden">
           <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-4 rounded-[1.5rem] border border-white/10 transition-all duration-500 overflow-hidden opacity-0 max-h-0 group-hover:opacity-100 group-hover:max-h-64 flex flex-col items-center text-center gap-3">
             <div className={`p-3 rounded-2xl bg-white/5 ${dailyQuote?.color}`}><dailyQuote.icon className="w-8 h-8" /></div>
@@ -1909,6 +2016,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
         <TopMetricsBar user={user} />
         <div className="flex-1 overflow-hidden relative">{renderContent()}</div>
       </div>
+      
       <UnderConstructionModal isOpen={isUnderConstruction} onClose={() => setIsUnderConstruction(false)} />
     </div>
   );
