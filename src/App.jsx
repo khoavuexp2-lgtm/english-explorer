@@ -1870,7 +1870,7 @@ useEffect(() => {
     document.head.appendChild(metaViewport);
     
     // XÓA HOẶC COMMENT DÒNG DƯỚI ĐÂY NẾU BẠN CHƯA ĐỊNH NGHĨA HÀM NÀY
-    runAudioGarbageCollector(); 
+    //runAudioGarbageCollector(); 
   }, []);
 
   useEffect(() => {
