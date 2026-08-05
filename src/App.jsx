@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  MapPin, Star, Lock, ChevronLeft, CheckCircle, 
+  MapPin, Star, Lock, ChevronLeft, CheckCircle, Check,
   Volume2, Trophy, Zap, Play, Users, X, User, Shield, 
   ArrowRight, Globe, MessageCircle, Mic, Compass, Rocket, 
   TreePine, Anchor, Fingerprint, LogOut, Flame, Heart, 
@@ -1857,8 +1857,7 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
   const [isLoadingData, setIsLoadingData] = useState(false);
   const [isUnderConstruction, setIsUnderConstruction] = useState(false);
   
-  useEffect(() => {
-    document.documentElement.lang = "en";
+document.documentElement.lang = "en";
     document.documentElement.setAttribute('translate', 'no');
     if (!document.querySelector('meta[name="google"]')) {
        const meta = document.createElement('meta'); meta.name = 'google'; meta.content = 'notranslate';
