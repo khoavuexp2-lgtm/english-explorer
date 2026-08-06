@@ -1148,7 +1148,7 @@ const UnitsView = ({ grade, syllabus, onBack, onSelectUnit, user }) => (
       )}) : (
         <div className="text-center p-8 bg-white/5 rounded-[2rem] border border-white/10 text-white font-bold">
            <Database className="w-12 h-12 text-white/30 mx-auto mb-4" />
-           Chưa có dữ liệu Khung chương trình.<br/>Admin vui lòng vào Admin Panel, chọn "6. Syllabus" để Push Data.
+           Chưa có dữ liệu Khung chương trình.<br/> Chờ Admin cập nhật.
         </div>
       )}
     </div>
