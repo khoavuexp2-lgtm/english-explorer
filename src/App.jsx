@@ -649,9 +649,19 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [audioUrl, setAudioUrl] = useState(null);
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   
+  // ✅ VÁ LỖI TRẮNG MÀN HÌNH: ĐƯA HOOK NÀY LÊN TRÊN CÙNG
+  const [localInventory, setLocalInventory] = useState(user?.inventory || { stars: 0, lives: 5 });
+
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
+
+  // Đồng bộ lại điểm số mỗi khi modal mở lên
+  useEffect(() => {
+      if (isOpen && user?.inventory) {
+          setLocalInventory(user.inventory);
+      }
+  }, [isOpen, user]);
 
   useEffect(() => {
     if (sessionData && isOpen) {
@@ -676,10 +686,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
 
        shuffled.forEach((q, idx) => {
            if (!q) return;
-           loadAudioToRAM(q.audioText || q.targetText || q.question);
-           if (q.options) q.options.forEach(opt => loadAudioToRAM(opt));
-           if (q.words) q.words.forEach(w => loadAudioToRAM(w));
-           if (q.answer) loadAudioToRAM(q.answer);
+           loadAudioToRAM(q.audioText || q.targetText || q.question, idx);
+           if (q.options) q.options.forEach(opt => loadAudioToRAM(opt, idx));
+           if (q.words) q.words.forEach(w => loadAudioToRAM(w, idx));
+           if (q.answer) loadAudioToRAM(q.answer, idx);
        });
     }
   }, [station, sessionData, isOpen, retryTrigger]);
@@ -730,6 +740,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   }, [qData]);
 
+  // ✅ LỆNH IF NẰM Ở ĐÂY NÊN MỌI HOOKS PHẢI ĐẶT BÊN TRÊN NÓ
   if (!isOpen) return null;
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
@@ -781,7 +792,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const [localInventory, setLocalInventory] = useState(user?.inventory || { stars: 0, lives: 5 });
+  // ✅ ĐÃ SỬA CƠ CHẾ DEDUCT LIFE & REWARD STARS
   const deductLife = () => { setLocalInventory(p => ({...p, lives: Math.max(0, (p.lives || 1) - 1)})); }
   const rewardStars = (amount) => { setLocalInventory(p => ({...p, stars: (p.stars || 0) + amount})); }
   const getCompliment = () => COMPLIMENTS[Math.floor(Math.random() * COMPLIMENTS.length)];
@@ -842,9 +853,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     } else setIsStationFinished(true);
   };
 
-  const currentLives = user?.inventory?.lives ?? 5;
-  const currentStars = user?.inventory?.stars ?? 0;
-  const hasUsedFreeRefill = user?.inventory?.freeRefillUsed === true;
+  // ✅ CẬP NHẬT BIẾN HIỂN THỊ
+  const currentLives = localInventory?.lives ?? 5;
+  const currentStars = localInventory?.stars ?? 0;
+  const hasUsedFreeRefill = localInventory?.freeRefillUsed === true;
 
   if (currentLives <= 0 && !isStationFinished) {
       return (
@@ -855,18 +867,26 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
             <p className="text-slate-600 font-medium mb-6 text-sm sm:text-base">You need hearts to continue the journey.</p>
             <div className="flex flex-col gap-3">
               {currentStars >= 30 ? (
-                 <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5, stars: currentStars - 30}}); setStatus('playing'); }} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-sm border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all flex justify-center items-center gap-2">
+                 <button onClick={() => { 
+                     const newInv = {...localInventory, lives: 5, stars: currentStars - 30};
+                     setLocalInventory(newInv); 
+                     setStatus('playing'); 
+                 }} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-sm border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all flex justify-center items-center gap-2">
                    REFILL 5 HEARTS <span className="flex items-center text-yellow-300">(-30 <Star className="w-4 h-4 fill-yellow-300 ml-1"/>)</span>
                  </button>
               ) : !hasUsedFreeRefill ? (
-                 <button onClick={() => { if(updateUser) updateUser({...user, inventory: {...user.inventory, lives: 5, freeRefillUsed: true}}); setStatus('playing'); }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-sm border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
+                 <button onClick={() => { 
+                     const newInv = {...localInventory, lives: 5, freeRefillUsed: true};
+                     setLocalInventory(newInv); 
+                     setStatus('playing'); 
+                 }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-sm border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">
                    EMERGENCY REFILL (FREE 1 TIME)
                  </button>
               ) : (
                  <button disabled className="w-full py-3.5 bg-slate-300 text-slate-500 font-black rounded-xl text-sm border-b-4 border-slate-400 cursor-not-allowed">NOT ENOUGH STARS</button>
               )}
-             <button onClick={() => { if(updateUser) updateUser({...user, inventory: localInventory}); onClose(); }} className="p-1 sm:p-1.5 bg-slate-200 rounded-full hover:bg-slate-300 ml-1"><X className="w-4 h-4 sm:w-5 sm:h-5"/></button>
-             </div>
+              <button onClick={() => { if(updateUser) updateUser({...user, inventory: localInventory}); onClose(); }} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">QUIT & PRACTICE MORE</button>
+            </div>
           </div>
         </div>
       );
@@ -886,7 +906,11 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
               
               <div className="flex flex-col gap-3">
                  {isPassed ? (
-                    <button onClick={() => { if(onWin) onWin(); else onClose(); }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-base border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">CLAIM REWARDS</button>
+                    <button onClick={() => { 
+                        if (user) user.inventory = localInventory; // Đồng bộ điểm lên user object để MapView gọi
+                        if (updateUser) updateUser({...user, inventory: localInventory}); 
+                        if(onWin) onWin(); else onClose(); 
+                    }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-base border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">CLAIM REWARDS</button>
                  ) : (
                     <button onClick={() => setRetryTrigger(p => p + 1)} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">RETRY TEST</button>
                  )}
@@ -915,7 +939,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
              <div className="flex items-center gap-1 bg-white px-2 py-1 rounded-lg shadow-sm border border-slate-200" title="Stars">
                 <Star className="w-4 h-4 text-yellow-400 fill-yellow-400"/><span className="font-bold text-slate-700 text-xs sm:text-sm">{currentStars}</span>
              </div>
-             <button onClick={onClose} className="p-1 sm:p-1.5 bg-slate-200 rounded-full hover:bg-slate-300 ml-1"><X className="w-4 h-4 sm:w-5 sm:h-5"/></button>
+             <button onClick={() => { if(updateUser) updateUser({...user, inventory: localInventory}); onClose(); }} className="p-1 sm:p-1.5 bg-slate-200 rounded-full hover:bg-slate-300 ml-1"><X className="w-4 h-4 sm:w-5 sm:h-5"/></button>
           </div>
         </div>
 
