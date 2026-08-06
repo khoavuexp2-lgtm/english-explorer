@@ -13,7 +13,7 @@ import {
 
 import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, query, where, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDoc, collection, getDocs, updateDoc, deleteDoc, query, where, onSnapshot, orderBy, limit } from "firebase/firestore";
 
 // ============================================================================
 // CẤU HÌNH FIREBASE AN TOÀN
@@ -40,12 +40,22 @@ try {
 } catch (error) { console.warn("Firebase config error:", error); }
 
 // ============================================================================
-// ĐỘNG CƠ ÂM THANH LÕI WEBAUDIO API
+// HỆ THỐNG CACHE ÂM THANH KÉP (RAM + INDEXEDDB)
 // ============================================================================
 let audioCtx = null;
-const audioCache = new Map(); 
+const audioCache = new Map(); // Cache RAM (xóa khi tắt web)
 const pendingTTS = new Set(); 
 let isAudioUnlocked = false;
+
+// 1. Khởi tạo IndexedDB (Ổ cứng điện thoại)
+const initDB = () => {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open("ExplorerAudioDB", 1);
+        request.onupgradeneeded = (e) => { e.target.result.createObjectStore("audio", { keyPath: "id" }); };
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+};
 
 const getAudioContext = () => {
     if (!audioCtx) {
@@ -63,23 +73,16 @@ const unlockAudioEngine = () => {
     try {
         globalAudioPlayer.src = SILENT_AUDIO;
         globalAudioPlayer.play().catch(() => {});
-
         const ctx = getAudioContext();
         if (ctx && ctx.state === 'suspended') ctx.resume();
         if (ctx) {
             const buffer = ctx.createBuffer(1, 1, 22050);
             const source = ctx.createBufferSource();
-            source.buffer = buffer;
-            source.connect(ctx.destination);
-            source.start(0);
+            source.buffer = buffer; source.connect(ctx.destination); source.start(0);
         }
-
         if ('speechSynthesis' in window) {
-            const u = new SpeechSynthesisUtterance('');
-            u.volume = 0;
-            window.speechSynthesis.speak(u);
+            const u = new SpeechSynthesisUtterance(''); u.volume = 0; window.speechSynthesis.speak(u);
         }
-        
         isAudioUnlocked = true;
         document.removeEventListener('touchstart', unlockAudioEngine);
         document.removeEventListener('click', unlockAudioEngine);
@@ -91,12 +94,7 @@ if (typeof document !== 'undefined') {
     document.addEventListener('click', unlockAudioEngine, { once: true, passive: true });
 }
 
-const GCLOUD_VOICES = [
-  "en-US-Neural2-D", // Index 0: Male
-  "en-US-Neural2-F", // Index 1: Female/Child
-  "en-US-Neural2-J", // Index 2: Male Alt
-  "en-US-Neural2-C"  // Index 3: Female Alt
-];
+const GCLOUD_VOICES = [ "en-US-Neural2-D", "en-US-Neural2-F", "en-US-Neural2-J", "en-US-Neural2-C" ];
 
 let premiumVoices = [];
 let fallbackEnglishVoices = [];
@@ -106,16 +104,11 @@ const initVoices = () => {
     if (voices.length > 0) {
       let englishVoices = voices.filter(v => v.lang?.startsWith('en'));
       fallbackEnglishVoices = englishVoices;
-      premiumVoices = englishVoices.filter(v => 
-        v.name?.includes('Natural') || v.name?.includes('Premium') || 
-        v.name?.includes('Google') || v.name?.includes('Samantha') || v.name?.includes('Daniel')
-      );
+      premiumVoices = englishVoices.filter(v => v.name?.includes('Natural') || v.name?.includes('Premium') || v.name?.includes('Google') || v.name?.includes('Samantha') || v.name?.includes('Daniel'));
     }
   }
 };
-if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-  initVoices(); window.speechSynthesis.onvoiceschanged = initVoices;
-}
+if (typeof window !== 'undefined' && 'speechSynthesis' in window) { initVoices(); window.speechSynthesis.onvoiceschanged = initVoices; }
 
 const generateSafeId = (text) => {
   if (!text) return 'empty';
@@ -135,33 +128,46 @@ const base64ToBlobUrl = (base64, mimeType = 'audio/mp3') => {
 };
 
 const getSmartVoiceForText = (text, index = 0) => {
-    if (!text) return "en-US-Neural2-F"; // Nữ mặc định
+    if (!text) return "en-US-Neural2-F";
     const lowerText = text.toLowerCase();
-    
-    // Nhận diện giới tính qua đại từ
     const isMale = /\b(he|his|him|boy|man|father|dad|brother|uncle|peter|nam|tom|david|tony|john|mr|ben)\b/.test(lowerText);
     const isFemale = /\b(she|her|girl|woman|mother|mom|sister|aunt|mary|linda|hoa|lan|helen|mai|mrs|miss)\b/.test(lowerText);
-    
-    if (isMale && !isFemale) return "en-US-Neural2-D"; // Giọng Nam
-    if (isFemale && !isMale) return "en-US-Neural2-F"; // Giọng Nữ
-    
-    // Nếu câu trung tính, luân phiên Nam/Nữ theo số thứ tự (index)
+    if (isMale && !isFemale) return "en-US-Neural2-D";
+    if (isFemale && !isMale) return "en-US-Neural2-F";
     return index % 2 === 0 ? "en-US-Neural2-F" : "en-US-Neural2-D";
 };
 
-const loadAudioToRAM = async (text) => {
+// 2. Tải Audio: Tìm ở RAM -> Tìm ổ cứng (IndexedDB) -> Tìm ở Firebase
+const loadAudioToRAM = async (text, index = 0) => {
     if (!text || !db) return;
     const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-    const voiceName = getSmartVoiceForText(cleanText);
+    const voiceName = getSmartVoiceForText(cleanText, index);
     const safeId = generateSafeId(cleanText) + `_${GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0}`;
 
+    // A. Check RAM
     if (audioCache.has(safeId)) return;
 
     try {
-        const docRef = doc(db, "audio_cache", safeId);
-        const snap = await getDoc(docRef);
-        if (snap.exists() && snap.data().audioBase64) {
-            const blobUrl = base64ToBlobUrl(snap.data().audioBase64);
+        const idb = await initDB();
+        // B. Check Ổ cứng điện thoại (IndexedDB)
+        const localData = await new Promise((res, rej) => {
+            const req = idb.transaction("audio").objectStore("audio").get(safeId);
+            req.onsuccess = () => res(req.result); req.onerror = () => rej(req.error);
+        });
+
+        if (localData && localData.base64) {
+            const blobUrl = base64ToBlobUrl(localData.base64);
+            if(blobUrl) audioCache.set(safeId, blobUrl);
+            return; // Tiết kiệm 1 Read Firebase!
+        }
+
+        // C. Kéo từ Firebase (Chỉ kéo lần đầu tiên)
+        const docSnap = await getDoc(doc(db, "audio_cache", safeId));
+        if (docSnap.exists() && docSnap.data().audioBase64) {
+            const b64 = docSnap.data().audioBase64;
+            // Lưu vào ổ cứng để mai dùng tiếp
+            idb.transaction("audio", "readwrite").objectStore("audio").put({ id: safeId, base64: b64 });
+            const blobUrl = base64ToBlobUrl(b64);
             if(blobUrl) audioCache.set(safeId, blobUrl);
         }
     } catch (err) {}
@@ -169,86 +175,39 @@ const loadAudioToRAM = async (text) => {
 
 const playSystemAudio = (text, isMaleTarget = false) => { 
   if ('speechSynthesis' in window) {
-    try {
-        if (window.speechSynthesis.speaking || window.speechSynthesis.pending) {
-            window.speechSynthesis.cancel();
-        }
-    } catch(e) {}
-    
+    try { if (window.speechSynthesis.speaking || window.speechSynthesis.pending) window.speechSynthesis.cancel(); } catch(e) {}
     if (typeof text !== 'string') return;
     let speakText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz');
-    const utterance = new SpeechSynthesisUtterance(speakText);
-    utterance.lang = 'en-US'; 
-    utterance.rate = 0.9;
-    utterance.volume = 1; 
-    
-    let selectedVoice = null;
-    const voices = window.speechSynthesis.getVoices();
-    
-    // Lọc ưu tiên các giọng Siri/Apple chuẩn mực trên hệ sinh thái Apple
+    const utterance = new SpeechSynthesisUtterance(speakText); utterance.lang = 'en-US'; utterance.rate = 0.9; utterance.volume = 1; 
+    let selectedVoice = null; const voices = window.speechSynthesis.getVoices();
     const appleVoices = voices.filter(v => v.name.includes('Siri') || v.name.includes('Samantha') || v.name.includes('Daniel') || v.name.includes('Aaron') || v.name.includes('Nicky'));
-
     if (appleVoices.length > 0) {
         if (isMaleTarget) selectedVoice = appleVoices.find(v => v.name.includes('Male') || v.name.includes('Daniel') || v.name.includes('Aaron')) || appleVoices[0];
         else selectedVoice = appleVoices.find(v => v.name.includes('Female') || v.name.includes('Samantha') || v.name.includes('Siri')) || appleVoices[0];
     } else if (premiumVoices.length > 0) {
         if (isMaleTarget) selectedVoice = premiumVoices.find(v => v.name?.includes('Daniel') || v.name?.includes('Male')) || premiumVoices[0];
         else selectedVoice = premiumVoices.find(v => v.name?.includes('Samantha') || v.name?.includes('Female')) || premiumVoices[0];
-    } else if (fallbackEnglishVoices.length > 0) {
-        selectedVoice = fallbackEnglishVoices[0];
-    }
-    
+    } else if (fallbackEnglishVoices.length > 0) { selectedVoice = fallbackEnglishVoices[0]; }
     if (selectedVoice) utterance.voice = selectedVoice;
     window.speechSynthesis.speak(utterance);
   }
 };
 
-const playPremiumAudioSync = async (text) => {
+const playPremiumAudioSync = async (text, index = 0) => {
   if (!text) return;
   const cleanText = text.replace(/_+/g, 'blank').replace(/\blive\b/gi, 'livv').replace(/\blives\b/gi, 'livvz').trim();
-  const voiceName = getSmartVoiceForText(cleanText);
+  const voiceName = getSmartVoiceForText(cleanText, index);
   const isMaleTarget = voiceName === "en-US-Neural2-D";
-  const voiceIndex = GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0;
-  const safeId = generateSafeId(cleanText) + `_${voiceIndex}`;
+  const safeId = generateSafeId(cleanText) + `_${GCLOUD_VOICES.indexOf(voiceName) !== -1 ? GCLOUD_VOICES.indexOf(voiceName) : 0}`;
 
-  globalAudioPlayer.src = SILENT_AUDIO;
-  globalAudioPlayer.play().catch(() => {});
+  globalAudioPlayer.src = SILENT_AUDIO; globalAudioPlayer.play().catch(() => {});
 
   if (audioCache.has(safeId)) {
       globalAudioPlayer.src = audioCache.get(safeId);
       globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, isMaleTarget));
       return;
   }
-
-  let apiKey = ""; 
-  try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) apiKey = import.meta.env.VITE_GCLOUD_TTS_KEY; } catch (e) {}
-
-  if (apiKey) {
-      const payload = { input: { text: cleanText }, voice: { languageCode: 'en-US', name: voiceName }, audioConfig: { audioEncoding: 'MP3' } };
-      try {
-          const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, { 
-              method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) 
-          });
-          if (res.ok) {
-              const data = await res.json();
-              if (data.audioContent) {
-                  const blobUrl = base64ToBlobUrl(data.audioContent);
-                  if (blobUrl) {
-                      audioCache.set(safeId, blobUrl); 
-                      globalAudioPlayer.src = blobUrl;
-                      globalAudioPlayer.play().catch(() => playSystemAudio(cleanText, isMaleTarget));
-                  }
-                  
-                  if (db && !pendingTTS.has(safeId)) {
-                      pendingTTS.add(safeId);
-                      setDoc(doc(db, "audio_cache", safeId), { text: cleanText, audioBase64: data.audioContent, createdAt: Date.now() }).catch(()=>{});
-                  }
-                  return;
-              }
-          }
-      } catch (err) {}
-  }
-  playSystemAudio(cleanText, isMaleTarget);
+  playSystemAudio(cleanText, isMaleTarget); // Fallback ngay nếu chưa cache kịp
 };
 
 // ============================================================================
@@ -346,14 +305,14 @@ const evaluateSpeech = (transcript, target) => {
   return { pass: false, msg: `Try again! Remember to speak clearly.` };
 };
 // ĐỒNG BỘ USER AN TOÀN (BẢO MẬT ADMIN 100%)
+// ĐỒNG BỘ USER AN TOÀN
 const syncUserWithDb = async (googleUser) => {
   const defaultInventory = { stars: 0, flames: 0, lives: 5, freeRefillUsed: false };
   const defaultName = googleUser?.displayName || "Explorer";
   const defaultAvatar = googleUser?.photoURL || `https://api.dicebear.com/7.x/adventurer/svg?seed=${defaultName}`;
+  const nowTs = Date.now();
   
-  if (!db || !googleUser?.uid) {
-     return { uid: googleUser?.uid || 'temp', name: defaultName, email: googleUser?.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
-  }
+  if (!db || !googleUser?.uid) return { uid: googleUser?.uid || 'temp', name: defaultName, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [], createdAtTs: nowTs, lastLoginTs: nowTs };
 
   try {
     const userRef = doc(db, "users", googleUser.uid);
@@ -363,22 +322,21 @@ const syncUserWithDb = async (googleUser) => {
     if (userSnap.exists()) {
       const data = userSnap.data();
       const finalRole = data?.role || "student"; 
-      let streak = data?.streak || 0;
-      let lastLogin = data?.lastLogin || "";
+      let streak = data?.streak || 0; let lastLogin = data?.lastLogin || "";
       if (lastLogin !== today) {
          const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
          if (lastLogin === yesterday.toDateString()) streak += 1; else streak = 1;
-         await updateDoc(userRef, { streak, lastLogin: today });
+         await updateDoc(userRef, { streak, lastLogin: today, lastLoginTs: nowTs });
+      } else {
+         await updateDoc(userRef, { lastLoginTs: nowTs }); // Cập nhật mốc online mới nhất
       }
-      return { uid: googleUser.uid, ...data, name: data?.name || defaultName, avatar: data?.avatar || defaultAvatar, role: finalRole, status: data?.status || "active", inventory: data?.inventory || defaultInventory, completedUnits: data?.completedUnits || [], unitProgress: data?.unitProgress || {}, streak, lastLogin: today, badges: data?.badges || [] };
+      return { uid: googleUser.uid, ...data, name: data?.name || defaultName, avatar: data?.avatar || defaultAvatar, role: finalRole, status: data?.status || "active", inventory: data?.inventory || defaultInventory, completedUnits: data?.completedUnits || [], unitProgress: data?.unitProgress || {}, streak, lastLogin: today, badges: data?.badges || [], createdAtTs: data.createdAtTs || nowTs, lastLoginTs: nowTs };
     } else {
-      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [] };
+      const newUser = { uid: googleUser.uid, name: defaultName, email: googleUser.email, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, lastLogin: today, badges: [], createdAtTs: nowTs, lastLoginTs: nowTs };
       await setDoc(userRef, newUser);
       return newUser;
     }
-  } catch (error) {
-    return { uid: googleUser.uid, name: defaultName, role: "student", avatar: defaultAvatar, status: "active", inventory: defaultInventory, completedUnits: [], unitProgress: {}, streak: 1, badges: [] };
-  }
+  } catch (error) { return { uid: googleUser.uid, name: defaultName, role: "student", inventory: defaultInventory }; }
 };
 
 const globalStyles = `
@@ -559,28 +517,36 @@ const LeaderboardView = ({ showToast, user }) => {
     const fetchLeaderboard = async () => {
       try {
         if (!db) return;
-        const querySnapshot = await getDocs(collection(db, "users"));
+        
+        // CHỈ LẤY ĐÚNG 10 NGƯỜI CAO ĐIỂM NHẤT TRÊN SERVER
+        const q = query(
+           collection(db, "users"), 
+           where("role", "!=", "admin"), // Loại admin ra khỏi bảng
+           orderBy("role"), // Firebase yêu cầu orderBy cùng trường với where trước
+           orderBy("inventory.stars", "desc"), // Xếp hạng sao giảm dần
+           limit(10) // Cắt đúng 10 người
+        );
+        
+        const querySnapshot = await getDocs(q);
         const users = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          // Chỉ lấy học sinh vào bảng xếp hạng
-          if (data.role !== 'admin') {
-             const stars = data.inventory?.stars || 0;
-             const level = Math.floor(stars / 50) + 1; // Công thức tính Level
-             users.push({ 
-                 id: doc.id, 
-                 name: data.name, 
-                 avatar: data.avatar, 
-                 stars: stars, 
-                 streak: data.streak || 0,
-                 level: level,
-                 badges: data.badges || [] // Lấy mảng huy hiệu
-             });
-          }
+          const stars = data.inventory?.stars || 0;
+          const level = Math.floor(stars / 50) + 1;
+          users.push({ 
+              id: doc.id, 
+              name: data.name, 
+              avatar: data.avatar, 
+              stars: stars, 
+              streak: data.streak || 0,
+              level: level,
+              badges: data.badges || []
+          });
         });
-        // Sắp xếp theo số Sao giảm dần
+        
+        // Sort lại lần cuối trên Client cho chắc chắn
         users.sort((a, b) => b.stars - a.stars);
-        setTopUsers(users.slice(0, 10)); // Lấy top 10
+        setTopUsers(users);
       } catch (e) {
         showToast("Cannot fetch leaderboard data.");
       }
@@ -810,8 +776,9 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  const deductLife = () => { if (updateUser && user && (user.inventory?.lives ?? 0) > 0) updateUser({...user, inventory: {...user.inventory, lives: (user.inventory.lives || 1) - 1}}); }
-  const rewardStars = (amount) => { if (updateUser && user) updateUser({...user, inventory: {...user.inventory, stars: (user.inventory.stars || 0) + amount}}); }
+  const [localInventory, setLocalInventory] = useState(user?.inventory || { stars: 0, lives: 5 });
+  const deductLife = () => { setLocalInventory(p => ({...p, lives: Math.max(0, (p.lives || 1) - 1)})); }
+  const rewardStars = (amount) => { setLocalInventory(p => ({...p, stars: (p.stars || 0) + amount})); }
   const getCompliment = () => COMPLIMENTS[Math.floor(Math.random() * COMPLIMENTS.length)];
 
   const handleVoiceCheck = (spokenText) => {
@@ -893,8 +860,8 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
               ) : (
                  <button disabled className="w-full py-3.5 bg-slate-300 text-slate-500 font-black rounded-xl text-sm border-b-4 border-slate-400 cursor-not-allowed">NOT ENOUGH STARS</button>
               )}
-              <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">QUIT & PRACTICE MORE</button>
-            </div>
+             <button onClick={() => { if(updateUser) updateUser({...user, inventory: localInventory}); onClose(); }} className="p-1 sm:p-1.5 bg-slate-200 rounded-full hover:bg-slate-300 ml-1"><X className="w-4 h-4 sm:w-5 sm:h-5"/></button>
+             </div>
           </div>
         </div>
       );
@@ -918,7 +885,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
                  ) : (
                     <button onClick={() => setRetryTrigger(p => p + 1)} className="w-full py-3.5 bg-blue-500 text-white font-black rounded-xl text-base border-b-4 border-blue-700 active:border-b-0 active:translate-y-1 transition-all">RETRY TEST</button>
                  )}
-                 <button onClick={onClose} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">RETURN TO MAP</button>
+                 <button onClick={() => { if(updateUser) updateUser({...user, inventory: localInventory}); onClose(); }} className="w-full py-3.5 bg-slate-200 text-slate-700 font-black rounded-xl text-sm hover:bg-slate-300 transition-colors">RETURN TO MAP</button>
               </div>
            </div>
         </div>
@@ -1653,22 +1620,55 @@ const AdminPanel = ({ currentUser, showToast }) => {
   const [usersList, setUsersList] = useState([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [ttsKey, setTtsKey] = useState("");
+  const [sortOrder, setSortOrder] = useState('newest');
 
   useEffect(() => {
     try { if (import.meta.env.VITE_GCLOUD_TTS_KEY) setTtsKey(import.meta.env.VITE_GCLOUD_TTS_KEY); } catch(e){}
   }, []);
 
-  const fetchUsers = async () => {
+const fetchUsers = async () => {
     setIsLoadingUsers(true);
     try {
         if (!db) throw new Error("Firebase DB not initialized");
         const querySnapshot = await getDocs(collection(db, "users"));
-        const users = [];
+        let users = [];
         querySnapshot.forEach((doc) => users.push({ id: doc.id, ...doc.data() }));
+        
+        // Sắp xếp người dùng theo ngày tham gia
+        if (sortOrder === 'newest') users.sort((a, b) => (b.createdAtTs || 0) - (a.createdAtTs || 0));
+        else users.sort((a, b) => (a.createdAtTs || 0) - (b.createdAtTs || 0));
+        
         setUsersList(users);
     } catch (e) { showToast("Error fetching users."); }
     setIsLoadingUsers(false);
   }
+
+  useEffect(() => { if (activeTab === 'users') fetchUsers(); }, [activeTab, sortOrder]);
+
+  // HÀM XÓA USER KHÔNG ONLINE QUÁ 30 NGÀY
+  const handleCleanInactiveUsers = async () => {
+      const confirmDelete = window.confirm("Cảnh báo: Hành động này sẽ XÓA VĨNH VIỄN toàn bộ học sinh không đăng nhập trong 30 ngày qua. Bạn có chắc chắn không?");
+      if (!confirmDelete) return;
+      setIsLoadingUsers(true);
+      try {
+          const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+          const q = query(collection(db, "users"), where("lastLoginTs", "<", thirtyDaysAgo));
+          const snapshot = await getDocs(q);
+          let count = 0;
+          const deletePromises = [];
+          snapshot.forEach(docSnap => {
+              // Không xóa admin
+              if (docSnap.data().role !== 'admin') {
+                  deletePromises.push(deleteDoc(doc(db, "users", docSnap.id)));
+                  count++;
+              }
+          });
+          await Promise.all(deletePromises);
+          showToast(`✅ Đã xóa vĩnh viễn ${count} học sinh không hoạt động!`);
+          fetchUsers();
+      } catch (e) { showToast("Lỗi khi xóa người dùng."); }
+      setIsLoadingUsers(false);
+  };
 
   useEffect(() => { if (activeTab === 'users') fetchUsers(); }, [activeTab]);
 
@@ -1925,19 +1925,28 @@ const handlePushAndBuild = async () => {
         </div>
       )}
 
-      {activeTab === 'users' && (
+{activeTab === 'users' && (
         <div className="bg-white rounded-[2rem] shadow-xl border-4 border-slate-200 p-4 sm:p-6 animate-fade-in flex flex-col gap-4">
-          <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-2">
              <h3 className="text-xl font-black text-slate-800">Platform Users</h3>
-             <button onClick={fetchUsers} className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded-xl hover:bg-blue-200 transition-colors">
-               <RotateCw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
-             </button>
+             <div className="flex flex-wrap items-center gap-2">
+                 <select value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} className="bg-slate-100 border border-slate-300 text-slate-700 font-bold rounded-xl px-3 py-2 outline-none">
+                     <option value="newest">Học sinh mới nhất</option>
+                     <option value="oldest">Học sinh cũ nhất</option>
+                 </select>
+                 <button onClick={handleCleanInactiveUsers} className="flex items-center gap-1 px-4 py-2 bg-rose-100 text-rose-700 font-bold rounded-xl hover:bg-rose-200 transition-colors">
+                     <Trash2 className="w-4 h-4"/> Xóa User > 30 ngày lặn
+                 </button>
+                 <button onClick={fetchUsers} className="flex items-center gap-1 px-4 py-2 bg-blue-100 text-blue-700 font-bold rounded-xl hover:bg-blue-200 transition-colors">
+                   <RotateCw className={`w-4 h-4 ${isLoadingUsers ? 'animate-spin' : ''}`}/> Refresh
+                 </button>
+             </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-100 border-b-2 border-slate-200 text-slate-600 font-bold text-sm uppercase tracking-wider">
-                  <th className="p-4 rounded-tl-xl">User</th>
+                  <th className="p-4 rounded-tl-xl">User & Date Joined</th>
                   <th className="p-4">Email</th>
                   <th className="p-4">Role</th>
                   <th className="p-4">Status</th>
@@ -1949,7 +1958,11 @@ const handlePushAndBuild = async () => {
                   <tr key={u.id} className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
                     <td className="p-4 flex items-center gap-3">
                        <img src={u.avatar} alt="avatar" className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm"/>
-                       <span className="font-bold text-slate-800">{u.name}</span>
+                       <div className="flex flex-col">
+                           <span className="font-bold text-slate-800">{u.name}</span>
+                           <span className="text-[10px] font-bold text-slate-400">Tham gia: {u.createdAtTs ? new Date(u.createdAtTs).toLocaleDateString() : 'N/A'}</span>
+                           <span className="text-[10px] font-bold text-emerald-500">Online: {u.lastLoginTs ? new Date(u.lastLoginTs).toLocaleDateString() : 'N/A'}</span>
+                       </div>
                     </td>
                     <td className="p-4 text-slate-500 font-medium text-sm">{u.email || 'N/A'}</td>
                     <td className="p-4"><span className={`px-3 py-1 rounded-full text-xs font-black uppercase ${u.role === 'admin' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>{u.role}</span></td>
@@ -1957,8 +1970,8 @@ const handlePushAndBuild = async () => {
                     <td className="p-4 flex gap-2">
                        {currentUser?.uid !== u.id && (
                          <>
-                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors"><UserCog className="w-5 h-5"/></button>
-                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`}>{u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}</button>
+                           <button onClick={() => handleUpdateUserRole(u.id, u.role)} className="p-2 bg-slate-100 text-slate-600 rounded-xl hover:bg-purple-500 hover:text-white transition-colors" title="Cấp quyền Admin/Student"><UserCog className="w-5 h-5"/></button>
+                           <button onClick={() => handleToggleBlockUser(u.id, u.status)} className={`p-2 rounded-xl transition-colors ${u.status === 'blocked' ? 'bg-emerald-100 text-emerald-600 hover:bg-emerald-500 hover:text-white' : 'bg-rose-100 text-rose-600 hover:bg-rose-500 hover:text-white'}`} title="Khóa/Mở tài khoản">{u.status === 'blocked' ? <Unlock className="w-5 h-5"/> : <Ban className="w-5 h-5"/>}</button>
                          </>
                        )}
                     </td>
