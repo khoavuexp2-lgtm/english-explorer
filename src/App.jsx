@@ -513,42 +513,47 @@ const LeaderboardView = ({ showToast, user }) => {
   const [topUsers, setTopUsers] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+useEffect(() => {
     const fetchLeaderboard = async () => {
       try {
         if (!db) return;
         
-        // CHỈ LẤY ĐÚNG 10 NGƯỜI CAO ĐIỂM NHẤT TRÊN SERVER
+        // Gọi 20 người cao điểm nhất (Gọi dư ra để lát trừ hao Admin)
         const q = query(
            collection(db, "users"), 
-           where("role", "!=", "admin"), // Loại admin ra khỏi bảng
-           orderBy("role"), // Firebase yêu cầu orderBy cùng trường với where trước
-           orderBy("inventory.stars", "desc"), // Xếp hạng sao giảm dần
-           limit(10) // Cắt đúng 10 người
+           orderBy("inventory.stars", "desc"), 
+           limit(20) 
         );
         
         const querySnapshot = await getDocs(q);
         const users = [];
+        
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          const stars = data.inventory?.stars || 0;
-          const level = Math.floor(stars / 50) + 1;
-          users.push({ 
-              id: doc.id, 
-              name: data.name, 
-              avatar: data.avatar, 
-              stars: stars, 
-              streak: data.streak || 0,
-              level: level,
-              badges: data.badges || []
-          });
+          
+          // DÙNG JAVASCRIPT ĐỂ LỌC ADMIN TẠI ĐÂY (Vượt rào lỗi Index Firebase)
+          if (data.role !== 'admin' && data.role !== 'superadmin') {
+             const stars = data.inventory?.stars || 0;
+             const level = Math.floor(stars / 50) + 1;
+             users.push({ 
+                 id: doc.id, 
+                 name: data.name, 
+                 avatar: data.avatar, 
+                 stars: stars, 
+                 streak: data.streak || 0,
+                 level: level,
+                 badges: data.badges || []
+             });
+          }
         });
         
-        // Sort lại lần cuối trên Client cho chắc chắn
+        // Sắp xếp lại lần cuối và chỉ cắt đúng 10 người xuất sắc nhất đưa lên bảng
         users.sort((a, b) => b.stars - a.stars);
-        setTopUsers(users);
+        setTopUsers(users.slice(0, 10)); 
+        
       } catch (e) {
         showToast("Cannot fetch leaderboard data.");
+        console.error("Lỗi Firebase:", e); // In lỗi chi tiết ra để dễ kiểm tra
       }
       setLoading(false);
     };
