@@ -2065,8 +2065,6 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     const metaViewport = document.createElement('meta');
     metaViewport.name = "viewport"; metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
     document.head.appendChild(metaViewport);
-    
-    // Đã xóa hoàn toàn hàm runAudioGarbageCollector(); lỗi.
   }, []);
 
   useEffect(() => {
@@ -2097,13 +2095,12 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
     );
   }
 
-  // TẠO MẢNG NAV ITEMS AN TOÀN ĐỂ KHÔNG BỊ CRASH MEMORY
   const navItems = [
     { id: 'grades', label: "Courses", icon: Library, color: 'text-emerald-400' },
     { id: 'practice', label: "Practice", icon: Dumbbell, color: 'text-blue-400' },
     { id: 'arena', label: "Arena", icon: Swords, color: 'text-orange-400' },
-    { id: 'leaderboard', label: "Ranks", icon: Trophy, color: 'text-yellow-400' }, // Đã thêm lại Leaderboard
-    { id: 'profile', label: "Profile", icon: User, color: 'text-yellow-400' } // Thay thế Leaderboard bằng Profile
+    { id: 'leaderboard', label: "Ranks", icon: Trophy, color: 'text-yellow-400' }, 
+    { id: 'profile', label: "Profile", icon: User, color: 'text-yellow-400' } 
   ];
 
   if (user?.role === 'admin' || user?.role === 'superadmin') {
@@ -2146,7 +2143,8 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
           return <PracticeHub grade={selectedGrade} user={user} updateUser={updateUser} onSelectCategory={(cat) => { setPracticeCategory(cat); setCurrentView('listSelector'); }} />;
       case 'arena': return <RealtimeArenaView user={user} updateUser={updateUser} selectedGrade={selectedGrade || {id: 'g5', name: 'Grade 5'}} />;
       case 'profile': return <ProfileShopView user={user} updateUser={updateUser} showToast={showToast} />;
-      case 'leaderboard': return <LeaderboardView showToast={showToast} user={user} />; // Bổ sung dòng này
+      case 'leaderboard': return <LeaderboardView showToast={showToast} user={user} />;
+      
       case 'listSelector':
           let icon = BookOpen; let color = "bg-gradient-to-r from-blue-500 to-indigo-600 border-indigo-800";
           let itemsList = syllabusConfig?.units || [];
@@ -2156,7 +2154,17 @@ const MainLayout = ({ user, handleLogout, updateUser, showToast }) => {
           if (practiceCategory === 'extra') { icon = Star; color = "bg-gradient-to-r from-purple-500 to-indigo-600 border-purple-800"; }
           if (practiceCategory === 'tests') { icon = Timer; color = "bg-gradient-to-r from-indigo-500 to-purple-600 border-indigo-900"; itemsList = syllabusConfig?.tests || []; }
           if (practiceCategory === 'cambridge') { icon = Medal; color = "bg-gradient-to-r from-amber-400 to-orange-500 border-amber-700"; itemsList = syllabusConfig?.units || []; }
-          return <GenericListSelector title={practiceCategory?.toUpperCase() || ''} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color} onBack={() => { setPracticeCategory(null); setCurrentView('practice'); }} onSelect={(u) => { if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory); else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u); else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test_', u); else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u); }} />;
+          
+          return <GenericListSelector title={practiceCategory?.toUpperCase() || ''} grade={selectedGrade} items={itemsList} icon={icon} colorClass={color} onBack={() => { setPracticeCategory(null); setCurrentView('practice'); }} 
+             // 👇 CHÍNH LÀ CHỖ NÀY ĐÃ ĐƯỢC SỬA: 'test_' THÀNH 'test' 👇
+             onSelect={(u) => { 
+                if (['listening', 'speaking', 'reading'].includes(practiceCategory)) handleFetchAndPlay('practice', 'prac', u, practiceCategory); 
+                else if (practiceCategory === 'extra') handleFetchAndPlay('extra', 'extra', u); 
+                else if (practiceCategory === 'tests') handleFetchAndPlay('tests', 'test', u); // <--- FIXED
+                else if (practiceCategory === 'cambridge') handleFetchAndPlay('cambridge', 'cambridge', u); 
+             }} 
+          />;
+          
       case 'gameModalOnly':
           return (
              <div className="w-full h-full bg-slate-900 relative">
