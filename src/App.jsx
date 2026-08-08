@@ -649,8 +649,10 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   const [audioUrl, setAudioUrl] = useState(null);
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   
-  // ✅ VÁ LỖI TRẮNG MÀN HÌNH: ĐƯA HOOK NÀY LÊN TRÊN CÙNG
   const [localInventory, setLocalInventory] = useState(user?.inventory || { stars: 0, lives: 5 });
+  
+  // ✅ THÊM TRẠNG THÁI NÀY ĐỂ NGĂN HIỆN TƯỢNG NHÁY BẢNG UNDER CONSTRUCTION
+  const [isInitializing, setIsInitializing] = useState(true);
 
   const recognitionRef = useRef(null);
   const mediaRecorderRef = useRef(null);
@@ -664,33 +666,39 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
   }, [isOpen, user]);
 
   useEffect(() => {
-    if (sessionData && isOpen) {
-       let fullList = [];
-       if (station && station.type && sessionData) {
-           fullList = sessionData[station.type] || [];
-       } else if (Array.isArray(sessionData)) {
-           fullList = sessionData;
-       } else if (sessionData && sessionData.questions) {
-           fullList = sessionData.questions;
-       }
-       if (!Array.isArray(fullList)) fullList = [];
+    if (isOpen) {
+       setIsInitializing(true); // Bắt đầu xử lý dữ liệu
        
-       const isLongTest = fullList.length > 10;
-       const limit = isLongTest ? fullList.length : Math.min(5, fullList.length);
-       
-       const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, limit);
-       setSessionQList(shuffled);
-       setQIndex(0); setStatus('playing'); setFeedbackMsg("");
-       setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setAudioUrl(null);
-       setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
+       if (sessionData) {
+           let fullList = [];
+           if (station && station.type && sessionData) {
+               fullList = sessionData[station.type] || [];
+           } else if (Array.isArray(sessionData)) {
+               fullList = sessionData;
+           } else if (sessionData && sessionData.questions) {
+               fullList = sessionData.questions;
+           }
+           if (!Array.isArray(fullList)) fullList = [];
+           
+           const isLongTest = fullList.length > 10;
+           const limit = isLongTest ? fullList.length : Math.min(5, fullList.length);
+           
+           const shuffled = [...fullList].sort(() => Math.random() - 0.5).slice(0, limit);
+           setSessionQList(shuffled);
+           setQIndex(0); setStatus('playing'); setFeedbackMsg("");
+           setSelectedOpt(null); setOrderedWords([]); setTranscript(""); setAudioUrl(null);
+           setCorrectCount(0); setIsFirstTry(true); setIsStationFinished(false);
 
-       shuffled.forEach((q, idx) => {
-           if (!q) return;
-           loadAudioToRAM(q.audioText || q.targetText || q.question, idx);
-           if (q.options) q.options.forEach(opt => loadAudioToRAM(opt, idx));
-           if (q.words) q.words.forEach(w => loadAudioToRAM(w, idx));
-           if (q.answer) loadAudioToRAM(q.answer, idx);
-       });
+           shuffled.forEach((q, idx) => {
+               if (!q) return;
+               loadAudioToRAM(q.audioText || q.targetText || q.question, idx);
+               if (q.options) q.options.forEach(opt => loadAudioToRAM(opt, idx));
+               if (q.words) q.words.forEach(w => loadAudioToRAM(w, idx));
+               if (q.answer) loadAudioToRAM(q.answer, idx);
+           });
+       }
+       
+       setIsInitializing(false); // Xử lý xong, tắt loading
     }
   }, [station, sessionData, isOpen, retryTrigger]);
 
@@ -740,8 +748,16 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   }, [qData]);
 
-  // ✅ LỆNH IF NẰM Ở ĐÂY NÊN MỌI HOOKS PHẢI ĐẶT BÊN TRÊN NÓ
   if (!isOpen) return null;
+  
+  // ✅ CHẶN HIỂN THỊ: Nếu đang xào bài, hiện vòng lặp loading mượt mà
+  if (isInitializing) return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <Loader2 className="w-12 h-12 text-blue-500 animate-spin" />
+      </div>
+  );
+
+  // Sau khi xào bài xong, nếu không có dữ liệu thật sự thì mới bật bảng UnderConstruction
   if (!sessionQList || sessionQList.length === 0) return <UnderConstructionModal isOpen={true} onClose={onClose} />;
 
   const handleMainAudioClick = async () => {
@@ -792,7 +808,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     }
   };
 
-  // ✅ ĐÃ SỬA CƠ CHẾ DEDUCT LIFE & REWARD STARS
   const deductLife = () => { setLocalInventory(p => ({...p, lives: Math.max(0, (p.lives || 1) - 1)})); }
   const rewardStars = (amount) => { setLocalInventory(p => ({...p, stars: (p.stars || 0) + amount})); }
   const getCompliment = () => COMPLIMENTS[Math.floor(Math.random() * COMPLIMENTS.length)];
@@ -853,7 +868,6 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
     } else setIsStationFinished(true);
   };
 
-  // ✅ CẬP NHẬT BIẾN HIỂN THỊ
   const currentLives = localInventory?.lives ?? 5;
   const currentStars = localInventory?.stars ?? 0;
   const hasUsedFreeRefill = localInventory?.freeRefillUsed === true;
@@ -907,7 +921,7 @@ const GameModal = ({ isOpen, onClose, station, onWin, user, updateUser, sessionD
               <div className="flex flex-col gap-3">
                  {isPassed ? (
                     <button onClick={() => { 
-                        if (user) user.inventory = localInventory; // Đồng bộ điểm lên user object để MapView gọi
+                        if (user) user.inventory = localInventory; 
                         if (updateUser) updateUser({...user, inventory: localInventory}); 
                         if(onWin) onWin(); else onClose(); 
                     }} className="w-full py-3.5 bg-emerald-500 text-white font-black rounded-xl text-base border-b-4 border-emerald-700 active:border-b-0 active:translate-y-1 transition-all">CLAIM REWARDS</button>
